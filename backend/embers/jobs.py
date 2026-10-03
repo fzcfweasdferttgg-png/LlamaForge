@@ -194,8 +194,19 @@ def _render_page(ember, page):
                       wikifs.render_items(items, st.evidence_for([i["id"] for i in items])))
 
 
+def _valid_page(page):
+    """True when wikifs can render `page` (format and reserved names)."""
+    try:
+        wikifs._split_page(page)
+    except wikifs.WikiError:
+        return False
+    return True
+
+
 def _write_index(ember, lint_md=None):
-    wikifs.write_index(ember.root, ember.store.all_pages(), lint_md)
+    # A page row with an invalid name (only possible by editing the db) is left
+    # out rather than failing every index write; lint flags it as drift.
+    wikifs.write_index(ember.root, [p for p in ember.store.all_pages() if _valid_page(p["page"])], lint_md)
 
 
 def _dirty(st):
@@ -235,6 +246,10 @@ def _flush_dirty(ember):
         return []
     errors, done = [], set()
     for page in dirty:
+        if not _valid_page(page):          # can never render: drop it instead of retrying forever
+            errors.append(f"render {_one_line(page, 80)}: invalid page name")
+            done.add(page)
+            continue
         try:
             _render_page(ember, page)
             done.add(page)
@@ -996,7 +1011,7 @@ def _lint_md(now, flags):
         return "\n".join(lines + ["All clear."])
     for f in flags[:MAX_LINT_LINES]:
         page, item = f["page"], f["item"]
-        target = f"[{page}](pages/{page}.md)" if verify.PAGE_RE.fullmatch(page) else (wikifs.inline(page, 80) or "?")
+        target = f"[{page}](pages/{page}.md)" if _valid_page(page) else (wikifs.inline(page, 80) or "?")
         if verify.ITEM_RE.fullmatch(item):
             target += f" `{item}`"
         line = f"- **{f['kind']}** {target}: {wikifs.inline(f['why'], MAX_FLAG_WHY)}"
@@ -1041,14 +1056,18 @@ def _lint(ember, llm, now, n_ctx, run, errors):
         if str(it["updated"] or "") < cutoff:
             flags.append(_flag("stale", it["id"], it["page"], f"open with no new evidence for {STALE_LINT_DAYS}+ days"))
     pages = st.all_pages()
+    invalid = sorted({p["page"] for p in pages if not _valid_page(p["page"])}, key=str)
     for p in pages:
-        if not st.items_for_page(p["page"]):
+        if p["page"] not in invalid and not st.items_for_page(p["page"]):
             flags.append(_flag("orphan", "", p["page"], "page has no items"))
-    on_disk, in_db = set(wikifs.list_page_files(root)), {p["page"] for p in pages}
+    on_disk = set(wikifs.list_page_files(root))
+    in_db = {p["page"] for p in pages} - set(invalid)
     for page in sorted(on_disk - in_db):
         flags.append(_flag("drift", "", page, "page file is not in the ember's index"))
-    for page in sorted(in_db - on_disk, key=str):
+    for page in sorted(in_db - on_disk):
         flags.append(_flag("drift", "", page, "indexed page has no file"))
+    for page in invalid:                   # only possible by editing the db; never rendered or linked
+        flags.append(_flag("drift", "", page, "indexed page has an invalid name"))
 
     status, usage = "ok", {}
     pool = _contra_pool(open_items, checked)
@@ -1088,7 +1107,9 @@ def _lint(ember, llm, now, n_ctx, run, errors):
     except (OSError, ValueError) as e:
         errors.append(f"log: {_err(e)}")
         status = "partial"
-    with st.db:                            # the flags the brief reads and the run close together
+    # The flags the brief reads and the run close together. If sqlite fails here the index is
+    # ahead of meta lint_flags; the run is closed as failed and the next lint reconciles both.
+    with st.db:
         st.set_meta(LINT_FLAGS_KEY, flags)
         st.finish_run(run, now, status, "; ".join(errors), _tokens(usage, "prompt_tokens"),
                       _tokens(usage, "completion_tokens"), counts)

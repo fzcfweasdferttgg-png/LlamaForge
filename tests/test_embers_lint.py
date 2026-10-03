@@ -310,6 +310,49 @@ class LintHardeningTest(EmberCase, unittest.TestCase):
         r = jobs.lint(self.ember, FakeLLM({"pairs": []}), LATER)
         self.assertEqual([f["item"] for f in r["flags"] if f["kind"] == "stale"], [self.a])
 
+    # review minor 1: invalid page names inserted straight into the db
+    def test_invalid_page_names_in_the_db_are_drift_not_a_failed_run(self):
+        st = self.ember.store
+        for bad in ("../../evil", "people/con", "People/X", "a/b/c"):
+            with st.db:
+                st.db.execute("INSERT INTO pages(page, title, summary, created, updated) VALUES(?,?,?,?,?)",
+                              (bad, "t", "", "x", "x"))
+            r = jobs.lint(self.ember, FakeLLM({"pairs": []}), LATER)
+            self.assertIn(r["status"], ("ok", "partial"), bad)
+            drift = [(f["page"], f["why"]) for f in r["flags"] if f["kind"] == "drift"]
+            self.assertEqual(drift, [(bad, "indexed page has an invalid name")], bad)
+            self.assertEqual([f for f in r["flags"] if f["kind"] == "orphan"], [], bad)
+            region = lint_region(self)
+            self.assertNotIn("](pages/" + bad, region, bad)
+            self.assertIn("- [Kickoff](pages/events/kickoff.md)", self.read(self.ember, "index.md"))
+            with st.db:
+                st.db.execute("DELETE FROM pages WHERE page=?", (bad,))
+
+    def test_flush_drops_invalid_dirty_page_names(self):
+        st = self.ember.store
+        page = os.path.join(self.ember.root, "pages", "events", "kickoff.md")
+        os.remove(page)
+        with st.db:
+            st.db.execute("INSERT INTO pages(page, title, summary, created, updated) VALUES(?,?,?,?,?)",
+                          ("people/con", "t", "", "x", "x"))
+            st.set_meta(jobs.DIRTY_KEY, ["../../evil", "events/kickoff", "people/con"])
+        errors = jobs._flush_dirty(self.ember)
+        self.assertEqual(st.get_meta(jobs.DIRTY_KEY), [])
+        self.assertTrue(os.path.exists(page))
+        self.assertTrue(any("people/con" in e for e in errors), errors)
+
+    # review minor 3: pairs across pages are intended
+    def test_a_cross_page_pair_is_accepted(self):
+        c = add_item(self.ember, "Budget on Friday", "The budget is on Friday.", "the budget is on Friday",
+                     page="events/budget")
+        add_item(self.ember, "Budget on Monday", "The budget is on Monday.", "the budget is on Monday",
+                 page="events/budget")
+        fake = FakeLLM({"pairs": [{"a": self.a, "b": c, "why": "cross"}]})
+        r = jobs.lint(self.ember, fake, LATER)
+        contra = [(f["item"], f["page"], f["why"]) for f in r["flags"] if f["kind"] == "contradiction"]
+        self.assertEqual(contra, [(self.a, "events/kickoff", f"may contradict {c}: cross")])
+        self.assertIn("may be on different pages", fake.calls[0][0]["content"])
+
     def test_never_closes_rewrites_or_deletes(self):
         st = self.ember.store
         before = (st.open_items(), st.all_evidence(), st.all_raws(),
