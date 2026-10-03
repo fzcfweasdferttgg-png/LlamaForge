@@ -92,18 +92,22 @@ def page_path(root, page):
 
 def _find_region(text, name):
     """Locate a region as (start_marker_pos, body_start, body_end, end_marker_end).
-    Markers count only as whole lines. Pair the FIRST end marker with the LAST
-    start marker before it, so a stray or half-deleted marker never swallows
-    user text. None when there is no complete pair."""
+    Markers count only as whole lines. Take the first end marker that has a
+    start marker after the previous end, paired with the LAST such start, so a
+    stray or half-deleted marker never swallows user text. None when there is
+    no complete pair."""
     start, end = re.escape(_start(name)), re.escape(_end(name))
-    e = re.search(rf"(?m)^({end})\r?$", text)
-    if not e:
-        return None
-    starts = [m for m in re.finditer(rf"(?m)^({start})\r?$", text) if m.end(1) <= e.start(1)]
-    if not starts:
-        return None
-    s = starts[-1]
-    return s.start(1), s.end(1), e.start(1), e.end(1)
+    # an optional BOM may precede a marker line; group 1 excludes it so the
+    # BOM is preserved when the region is replaced
+    starts = list(re.finditer(rf"(?m)^﻿?({start})\r?$", text))
+    prev = 0
+    for e in re.finditer(rf"(?m)^﻿?({end})\r?$", text):
+        between = [m for m in starts if m.start(1) >= prev and m.end(1) <= e.start(1)]
+        if between:                     # an unpaired end marker is skipped
+            s = between[-1]
+            return s.start(1), s.end(1), e.start(1), e.end(1)
+        prev = e.end(1)
+    return None
 
 
 def replace_region(text, name, body):

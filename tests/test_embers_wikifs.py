@@ -105,6 +105,30 @@ class RegionRobustnessTest(unittest.TestCase):
         out = wikifs.replace_region(t, "items", "new")
         self.assertEqual(out, "<!-- ember:items -->\nuser\n<!-- ember:items -->\nnew\n<!-- /ember:items -->\n")
 
+    def _assert_stable(self, t):
+        once = wikifs.replace_region(t, "items", "new one")
+        twice = wikifs.replace_region(once, "items", "new two")
+        thrice = wikifs.replace_region(twice, "items", "new three")
+        self.assertEqual(once.count("<!-- ember:items -->"), t.count("<!-- ember:items -->"))
+        self.assertEqual(len(twice), len(once) + len("two") - len("one"))
+        self.assertEqual(len(thrice), len(twice) + len("three") - len("two"))
+        self.assertEqual(thrice.count("<!-- ember:items -->"), once.count("<!-- ember:items -->"))
+        self.assertEqual(wikifs.read_region(thrice, "items"), "new three")
+        return thrice
+
+    def test_unpaired_end_marker_above_real_region(self):
+        t = ("# A\n\nDocs: the bot ends its block with\n<!-- /ember:items -->\nMY NOTES\n\n"
+             "<!-- ember:items -->\nold\n<!-- /ember:items -->\nafter\n")
+        out = self._assert_stable(t)
+        self.assertIn("MY NOTES", out)
+        self.assertIn("after", out)
+
+    def test_bom_before_start_marker(self):
+        t = "﻿<!-- ember:items -->\nold\n<!-- /ember:items -->\nafter\n"
+        out = self._assert_stable(t)
+        self.assertTrue(out.startswith("﻿<!-- ember:items -->"))
+        self.assertIn("after", out)
+
     def test_crlf_files_still_work(self):
         t = "# A\r\n\r\n<!-- ember:items -->\r\nold\r\n<!-- /ember:items -->\r\nafter\r\n"
         self.assertEqual(wikifs.read_region(t, "items"), "old")
