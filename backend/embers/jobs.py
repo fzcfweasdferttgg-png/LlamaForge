@@ -10,11 +10,11 @@ verified ops, its raws' "done" mark and the list of pages to re-render
 page leaves the dirty list only once its file is written. A crash between the
 commit and the render is repaired at the start of the next run.
 """
-import json, os, re
+import datetime as dt, json, os, re
 
 import atomicio
 from embers import prompts, reserved_name, sources, templates, verify, wikifs
-from embers.llm import RouterUnavailable
+from embers.llm import LLMError, RouterUnavailable
 from embers.store import Store, ts
 
 ID_RE            = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -547,3 +547,284 @@ def prune_raws(ember, cap=RAW_CAP_BYTES):
         total -= r["size"] or 0
         removed += 1
     return removed
+
+
+MAX_BRIEF_SECTIONS = 6
+MAX_BRIEF_BULLETS  = 12
+MAX_BRIEF_ITEMS    = 60      # open items offered to the model before the n_ctx cut
+MAX_BRIEF_FLAGS    = 20      # lint flags shown with them
+BRIEF_REPLY_TOKENS = 1500
+BRIEF_FOOTNOTES    = 2       # evidence footnotes per bullet
+LINT_FLAGS_KEY     = "lint_flags"
+_one_line = prompts.one_line            # shared with lint
+# A capitalised first word the model may use without it occurring in the item (sentence starters).
+_LEAD = frozenset("""today tomorrow tonight this these new still going waiting due overdue open nothing
+one two three a an the you your no next now chase follow reply send remind check review call email ask
+finish prepare schedule confirm submit pay book plan update note watch keep""".split())
+_EDGE = re.compile(r"^\W+|\W+$")
+_TOKEN = re.compile(r"\w+")
+
+
+def _needs_ground(word):
+    return any(c.isdigit() or c.isupper() for c in word)
+
+
+def _grounded_text(text, ground):
+    """The brief's version of ingest's owner/due check. Every name or number in
+    model text (a word holding a capital letter or a digit) must occur,
+    word-bounded (verify._contains), in `ground`: the normalised verified text
+    the model was shown. A capitalised sentence starter from _LEAD may open the
+    text. Caseless scripts (CJK) are only checked for digits."""
+    for n, chunk in enumerate(text.split()):
+        word = _EDGE.sub("", chunk)
+        if not word or not _needs_ground(word):
+            continue
+        if n == 0 and word.isalpha() and word.casefold() in _LEAD:
+            continue
+        if verify._contains(ground, verify.normalise(word)):
+            continue
+        parts = [t for t in _TOKEN.findall(word) if _needs_ground(t)]   # Sam's, <b>SOW</b>
+        if parts and all(verify._contains(ground, verify.normalise(t)) for t in parts):
+            continue
+        return False
+    return True
+
+
+def _ground(item, evidence):
+    """Normalised text a bullet about `item` may draw names and numbers from."""
+    return verify.normalise(" ".join(
+        [item["text"] or "", item["owner"] or "", item["due"] or "",
+         item["page"].replace("/", " ").replace("-", " ")] + [e["quote"] for e in evidence]))
+
+
+def _checked_evidence(ember, items):
+    """{item_id: [evidence]} keeping only quotes that still occur in their raw
+    (same test as verify.check_quote). Raws are read and normalised once each."""
+    norm, out = {}, {}
+    for iid, evs in ember.store.evidence_for([i["id"] for i in items]).items():
+        for ev in evs:
+            sha = ev["raw"]
+            if sha not in norm:
+                try:
+                    text = wikifs.read_raw(ember.root, sha)
+                except (OSError, ValueError):
+                    text = None
+                norm[sha] = verify.normalise(text) if text is not None else None
+            q = verify.normalise(ev["quote"])
+            if norm[sha] is not None and len(q) >= verify.MIN_QUOTE and verify._contains(norm[sha], q):
+                out.setdefault(iid, []).append(ev)
+    return out
+
+
+def _lint_flags(st):
+    """meta "lint_flags", reduced to well-formed {"item", "why"} entries (it may be corrupt)."""
+    try:
+        v = st.get_meta(LINT_FLAGS_KEY, [])
+    except (ValueError, RecursionError):
+        return []
+    return [{"item": f["item"], "why": f["why"]} for f in (v if isinstance(v, list) else [])
+            if isinstance(f, dict) and isinstance(f.get("item"), str) and isinstance(f.get("why"), str)]
+
+
+def _groups(items, titles):
+    by_page = {}
+    for it in items:
+        by_page.setdefault(it["page"], []).append(it)
+    return [{"page": pg, "title": titles.get(pg) or pg, "items": its} for pg, its in sorted(by_page.items())]
+
+
+def _brief_prompt(tpl, now, ranked, titles, new_ids, stale_ids, flags, cap):
+    """Offer the first MAX_BRIEF_ITEMS of `ranked`, then shrink until the prompt
+    fits `cap` estimated tokens: lint flags first, then the lowest-ranked items,
+    and last the text of a single remaining item. Returns (messages, size,
+    ids_shown); ids_shown is empty when even the fixed text does not fit."""
+    shown = [dict(i) for i in ranked[:MAX_BRIEF_ITEMS]]
+    flags = list(flags)
+    while True:
+        ids = {i["id"] for i in shown}
+        fl = [f for f in flags if f["item"] in ids][:MAX_BRIEF_FLAGS]
+        msgs = prompts.brief_messages(tpl["mission"], now, _groups(shown, titles), new_ids, stale_ids, fl)
+        size = sum(_est(m["content"]) for m in msgs)
+        over = size - cap
+        if over <= 0:
+            return msgs, size, {i["id"] for i in shown if i["text"]}
+        if fl:
+            flags.remove(fl[-1])
+        elif len(shown) > 1:
+            shown.pop()
+        elif shown and shown[0]["text"]:
+            shown[0]["text"] = _cut(shown[0]["text"], max(0, _est(shown[0]["text"]) - over))
+        else:
+            return msgs, size, set()
+
+
+def _clean_brief(reply, shown, by_id, grounds, ground_all):
+    """Keep bullets that point at an item the model was shown, each item once.
+    Bullet text naming a person or number the item's verified text does not
+    contain is replaced by the item's own text; an ungrounded title or headline
+    by a neutral one. Never trusts the reply's shape.
+    Returns (headline, sections, replaced_count)."""
+    if not isinstance(reply, dict):
+        return "", [], 0
+    secs = reply.get("sections")
+    sections, used, replaced = [], set(), 0
+    for sec in (secs if isinstance(secs, list) else [])[:MAX_BRIEF_SECTIONS]:
+        if not isinstance(sec, dict):
+            continue
+        raw_bullets = sec.get("bullets")
+        bullets = []
+        for b in (raw_bullets if isinstance(raw_bullets, list) else [])[:MAX_BRIEF_BULLETS]:
+            iid = b.get("item") if isinstance(b, dict) else None
+            if not isinstance(iid, str) or iid not in shown or iid in used:
+                continue
+            used.add(iid)
+            text = _one_line(b["text"], 300) if isinstance(b.get("text"), str) else ""
+            if not text or not _grounded_text(text, grounds[iid]):
+                replaced += bool(text)
+                text = by_id[iid]["text"]
+            bullets.append({"item": iid, "text": text})
+        if bullets:
+            title = _one_line(sec["title"], 80) if isinstance(sec.get("title"), str) else ""
+            sections.append({"title": title if title and _grounded_text(title, ground_all) else "Notes",
+                             "bullets": bullets})
+    headline = _one_line(reply["headline"], 200) if isinstance(reply.get("headline"), str) else ""
+    return (headline if headline and _grounded_text(headline, ground_all) else "Your brief"), sections, replaced
+
+
+def _fallback_brief(groups, new_ids, stale_ids):
+    sections = []
+    for g in groups[:MAX_BRIEF_SECTIONS]:
+        bullets = [{"item": i["id"], "text": (i["text"] or "") + (" (new)" if i["id"] in new_ids else "")
+                    + (" (going stale)" if i["id"] in stale_ids else "")}
+                   for i in g["items"][:MAX_BRIEF_BULLETS]]
+        sections.append({"title": g["title"], "bullets": bullets})
+    return "Open items by page (model unavailable, so no summary).", sections
+
+
+def _render_brief(ember, now, headline, sections, by_id, evidence):
+    """Markdown for the brief. All text (model or stored) goes through
+    wikifs.inline/_one_line; page names, item ids and raw ids were checked
+    against their formats before they reach a link."""
+    name = wikifs._one_line(ember.conf.get("name"), 120) or ember.id
+    lines, notes = [f"# {name}: {now:%A %d %B %Y}", "", wikifs.inline(headline, 200), ""], {}
+    for sec in sections:
+        lines += [f"## {wikifs.inline(sec['title'], 80)}", ""]
+        for b in sec["bullets"]:
+            it = by_id[b["item"]]
+            refs = []
+            for ev in evidence.get(it["id"], [])[:BRIEF_FOOTNOTES]:
+                label = f"r-{ev['raw']}"
+                notes.setdefault(label, ev)
+                if label not in refs:
+                    refs.append(label)
+            link = f"([{it['page']}](../pages/{it['page']}.md#^{it['id']}))"
+            lines.append(f"- {wikifs.inline(b['text'], verify.MAX_TEXT)} {link} "
+                         f"{' '.join(f'[^{r}]' for r in refs)}".rstrip())
+        lines.append("")
+    for label, ev in notes.items():
+        quote = wikifs._one_line(ev["quote"], 200).replace('"', "'")
+        lines.append(f'[^{label}]: [raw/{ev["raw"]}.txt](../raw/{ev["raw"]}.txt) "{quote}"')
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _tokens(usage, key):
+    try:
+        return int((usage if isinstance(usage, dict) else {}).get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def brief(ember, llm, now, n_ctx=8192):
+    """Write briefs/YYYY-MM-DD.md from open items whose evidence still verifies
+    against its raw. Falls back to a plain list when the model fails or its
+    reply names no listed item, so a brief always exists (status "partial").
+    The run row is always closed: on an unexpected error (e.g. the brief cannot
+    be written) it is finished as "failed" and the error propagates; the
+    atomic write leaves no half-written brief."""
+    st = ember.store
+    with st.db:
+        st.abort_running("brief", now)     # rows left "running" by a process that died
+        run = st.start_run("brief", now)
+    errors = []
+    try:
+        return _brief(ember, llm, now, n_ctx, run, errors)
+    except BaseException as e:
+        try:
+            st.db.rollback()
+            with st.db:
+                st.finish_run(run, now, "failed", "; ".join(errors + [_err(e)]))
+        except Exception:
+            pass                           # the original error matters more
+        raise
+
+
+def _brief(ember, llm, now, n_ctx, run, errors):
+    st, tpl, root = ember.store, ember.template, ember.root
+    errors += _flush_dirty(ember)          # links must point at pages that are rendered
+    last = st.last_run("brief")
+    since = last["started"] if last else ""
+    stale_before = ts(now - dt.timedelta(days=tpl["stale_days"]))
+    open_verified = st.open_items(verified_only=True)
+    candidates = [i for i in open_verified
+                  if isinstance(i["id"], str) and verify.ITEM_RE.fullmatch(i["id"])
+                  and isinstance(i["page"], str) and verify.PAGE_RE.fullmatch(i["page"])]
+    evidence = _checked_evidence(ember, candidates)
+    items = [i for i in candidates if i["id"] in evidence]
+    dropped = len(open_verified) - len(items)
+    by_id = {i["id"]: i for i in items}
+    new_ids = {i["id"] for i in items if (i["created"] or "") > since}
+    stale_ids = {i["id"] for i in items if (i["updated"] or "") < stale_before}
+    titles = {p["page"]: p["title"] for p in st.all_pages()}
+    groups = _groups(items, titles)
+
+    status, usage, replaced = "ok", {}, 0
+    headline, sections = "Nothing open right now.", []
+    if items:
+        if n_ctx < MIN_N_CTX:
+            errors.append(f"model context n_ctx={n_ctx} is below the minimum of {MIN_N_CTX} tokens; "
+                          "load the model with a larger context")
+        else:
+            ranked = sorted(items, key=lambda i: i["updated"] or "", reverse=True)
+            ranked.sort(key=lambda i: (i["id"] not in new_ids, i["id"] not in stale_ids))
+            msgs, size, shown = _brief_prompt(tpl, now, ranked, titles, new_ids, stale_ids,
+                                              _lint_flags(st), int(n_ctx * PROMPT_SHARE))
+            if not shown:
+                errors.append("the brief instructions alone do not fit the model context")
+            else:
+                reply_tokens = max(MIN_REPLY_TOKENS, min(BRIEF_REPLY_TOKENS, n_ctx - size))
+                try:                       # any model failure means the plain list, never a crash
+                    reply, usage = llm(msgs, prompts.BRIEF_SCHEMA, reply_tokens)
+                except Exception as e:
+                    errors.append(_err(e))
+                else:
+                    grounds = {iid: _ground(by_id[iid], evidence[iid]) for iid in shown}
+                    ground_all = " ".join(list(grounds.values()) + [verify.normalise(f"{now:%A %d %B %Y}")])
+                    headline, sections, replaced = _clean_brief(reply, shown, by_id, grounds, ground_all)
+                    if not sections:
+                        errors.append("model reply named no listed item")
+        if not sections:
+            status = "partial"
+            headline, sections = _fallback_brief(groups, new_ids, stale_ids)
+
+    path = wikifs.write_brief(root, f"{now:%Y-%m-%d}",
+                              _render_brief(ember, now, headline, sections, by_id, evidence))
+    count = sum(len(s["bullets"]) for s in sections)
+    summary = f"{count} bullets from {len(items)} open items ({len(new_ids)} new, {len(stale_ids)} stale)"
+    if dropped:
+        summary += f", {dropped} dropped (evidence no longer verifies)"
+    if replaced:
+        summary += f", {replaced} restated from the wiki"
+    if status == "ok" and _dirty(st):
+        status = "partial"                 # a page the brief links to failed to render
+    try:
+        wikifs.append_log(root, now, "brief", summary)
+    except (OSError, ValueError) as e:
+        errors.append(f"log: {_err(e)}")
+        if status == "ok":
+            status = "partial"
+    tokens_in, tokens_out = _tokens(usage, "prompt_tokens"), _tokens(usage, "completion_tokens")
+    with st.db:
+        st.finish_run(run, now, status, "; ".join(errors), tokens_in, tokens_out,
+                      {"bullets": count, "items": len(items), "dropped": dropped, "replaced": replaced})
+    return {"run": run, "status": status, "path": path, "headline": headline, "summary": summary,
+            "bullets": count, "dropped": dropped}

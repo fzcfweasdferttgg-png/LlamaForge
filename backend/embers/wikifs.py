@@ -39,6 +39,23 @@ def _one_line(s, cap):
     return _neutralise(" ".join(str(s or "").split())[:cap])
 
 
+_BLOCK_START = re.compile(r"[#>+*=|~:_`-]")      # would open a heading, quote, list, rule, table, fence
+_ORDERED = re.compile(r"(\d{1,9})([.)])")
+_DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def inline(s, cap):
+    """Model text as inert inline markdown: one line, neutralised, raw HTML
+    defused, and a leading character that could open a block (heading, quote,
+    list, rule, ordered list) escaped. Safe at the start of a line, after
+    "- " or after "## "."""
+    s = _one_line(s, cap).replace("<", "&lt;").replace(">", "&gt;")
+    if _BLOCK_START.match(s):
+        return "\\" + s
+    m = _ORDERED.match(s)
+    return f"{m.group(1)}\\{s[m.end(1):]}" if m else s
+
+
 def _read(path):
     with open(path, encoding="utf-8", newline="") as f:
         return f.read()
@@ -232,6 +249,17 @@ def write_index(root, pages, lint_md=None):
 def index_head(root, cap=3000):
     path = _safe_path(root, "index.md")
     return _read(path)[:cap] if os.path.exists(path) else ""
+
+
+def write_brief(root, day, text):
+    """Atomically write briefs/<day>.md (day is YYYY-MM-DD) inside the wiki.
+    A failed write leaves the previous file for that day untouched."""
+    if not (isinstance(day, str) and _DAY_RE.fullmatch(day)):
+        raise WikiError(f"bad brief day {day!r}")
+    os.makedirs(_safe_path(root, "briefs"), exist_ok=True)
+    path = _safe_path(root, "briefs", day + ".md")      # re-check after creating the folder
+    _write(path, text)
+    return path
 
 
 def append_log(root, now, job, summary):
