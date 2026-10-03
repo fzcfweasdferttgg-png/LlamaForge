@@ -20,10 +20,12 @@ ITEM_RE = re.compile(r"it-[0-9a-f]{8}")                     # also a valid Obsid
 RAW_RE  = re.compile(r"[0-9a-f]{12}")
 
 _QUOTES = dict.fromkeys(map(ord, "'\"`\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u00ab\u00bb"), None)
-_DASHES = dict.fromkeys(map(ord, "-\u2010\u2011\u2012\u2013\u2014\u2015"), " ")
+_DASHES = dict.fromkeys(map(ord, "-\u2010\u2012\u2013\u2014\u2015"), " ")
+HYPHEN  = "\u2011"                       # a hyphen inside a word stays part of it
 MINUS   = "\u2212"                       # kept only in front of a digit
 _MINUS  = re.compile(r"[-" + MINUS + r"](?=\d)")
-_WORD   = r"\w" + MINUS                      # characters that glue a match to its neighbours
+_HYPHEN = re.compile(r"(?<=\w)-(?=\w)")
+_WORD   = r"\w" + MINUS + HYPHEN                      # characters that glue a match to its neighbours
 
 
 def _contains(hay, needle):
@@ -36,6 +38,7 @@ def normalise(s):
     s = unicodedata.normalize("NFKC", s or "").lower()
     s = s.translate(_QUOTES)
     s = _MINUS.sub(MINUS, s)             # a minus in front of a digit is significant
+    s = _HYPHEN.sub(HYPHEN, s)           # so is the hyphen of non-refundable
     s = s.translate(_DASHES)
     return " ".join(s.split())
 

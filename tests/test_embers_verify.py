@@ -188,7 +188,25 @@ class BypassTest(unittest.TestCase):
                                            "Balance: " + minus + "500 dollars owed by Acme"))
 
     def test_dash_between_words_still_normalised(self):
-        self.assertTrue(verify.check_quote("ship the thing-today ok", "ship the thing" + chr(0x2014) + "today ok"))
+        em = chr(0x2014)
+        self.assertTrue(verify.check_quote("ship the thing - today ok", "ship the thing" + em + "today ok"))
+        self.assertTrue(verify.check_quote("ship the thing" + em + "today ok", "ship the thing - today ok"))
+
+    def test_hyphenated_word_is_one_word(self):
+        raw = "non-refundable after Friday"
+        self.assertFalse(verify.check_quote("refundable after Friday", raw))
+        self.assertTrue(verify.check_quote("non-refundable after Friday", raw))
+        self.assertTrue(verify.check_quote("Please book a follow-up call", "Please book a follow-up call soon"))
+        clean, _ = verify.verify_op(op(evidence=[{"raw": "c0ffee000004", "quote": "refundable after Friday"}]),
+                                    {"c0ffee000004": raw}, KINDS)
+        self.assertFalse(clean["verified"])
+
+    def test_minus_still_works_at_start_and_after_space(self):
+        self.assertFalse(verify.check_quote("500 dollars owed by Acme", "-500 dollars owed by Acme"))
+        self.assertTrue(verify.check_quote("-500 dollars owed by Acme", "-500 dollars owed by Acme"))
+        self.assertFalse(verify.check_quote("owes 500 dollars today", "owes -500 dollars today"))
+        self.assertTrue(verify.check_quote("owes -500 dollars today", "he owes -500 dollars today"))
+        self.assertTrue(verify.check_quote("due 2026-10-09 sharp", "Payment due 2026-10-09 sharp"))
 
 
 class VerifyBatchTest(unittest.TestCase):
