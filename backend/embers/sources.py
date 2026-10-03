@@ -68,7 +68,9 @@ def _download(url, opener=None, timeout=FETCH_TIMEOUT):
     try:
         with (opener or _OPENER.open)(req, timeout=timeout) as r:
             while total <= MAX_DOWNLOAD:
-                chunk = r.read(min(CHUNK, MAX_DOWNLOAD + 1 - total))
+                # read1 returns what has arrived; read(n) would block for the full chunk
+                read = r.read1 if isinstance(r, http.client.HTTPResponse) else r.read
+                chunk = read(min(CHUNK, MAX_DOWNLOAD + 1 - total))
                 if not chunk:
                     break
                 chunks.append(chunk)

@@ -363,19 +363,32 @@ class ReviewFixesTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("git"), "git not installed")
     def test_git_hostile_gpg_program_never_runs(self):
-        repo, marker = self.tmp(), os.path.join(self.tmp(), "marker")
-        script = os.path.join(self.tmp(), "evil.cmd" if os.name == "nt" else "evil.sh")
+        repo, aux = self.tmp(), self.tmp()
+        marker = os.path.join(aux, "marker")
+        script = os.path.join(aux, "evil.sh")
         with open(script, "w", newline="\n") as f:
-            f.write(f'@echo x> "{marker}"\n' if os.name == "nt" else f'#!/bin/sh\necho x > "{marker}"\n')
+            f.write(f'#!/bin/sh\necho x > "{marker.replace(chr(92), "/")}"\n')
         os.chmod(script, 0o755)
 
         def g(*a):
-            subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *a],
-                           check=True, capture_output=True)
+            return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
         g("init", "-q")
         g("commit", "-q", "--allow-empty", "-m", "x")
+        # a commit carrying a gpgsig header, so verification would invoke gpg.program
+        tree, parent = g("rev-parse", "HEAD^{tree}"), g("rev-parse", "HEAD")
+        ts = int(dt.datetime.now().timestamp())
+        obj = (f"tree {tree}\nparent {parent}\nauthor t <t@t> {ts} +0000\ncommitter t <t@t> {ts} +0000\n"
+               "gpgsig -----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----\n\nsigned\n")
+        objfile = os.path.join(aux, "commit.txt")
+        with open(objfile, "w", newline="\n") as f:
+            f.write(obj)
+        g("update-ref", "HEAD", g("hash-object", "-t", "commit", "-w", objfile))
         g("config", "log.showSignature", "true")
         g("config", "gpg.program", script.replace("\\", "/"))
+        g("log", "-1")                      # arm check: the trap must actually fire
+        self.assertTrue(os.path.exists(marker), "fixture broken: gpg.program was not invoked")
+        os.remove(marker)
         sources.fetch_git(repo, {}, dt.datetime.now(), run=subprocess.run)
         self.assertFalse(os.path.exists(marker))
 
@@ -526,6 +539,63 @@ class ReviewFixesTest(unittest.TestCase):
                 b"</description></item></channel></rss>")
         with self.assertRaises(sources.SourceError):
             sources.fetch_rss("https://x", {}, NOW, opener=opener_for(feed))
+
+    # slow-server deadline (real urllib, loopback)
+    def test_slow_server_hits_deadline(self):
+        import http.server, threading, time
+
+        class Trickle(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "100000")
+                self.end_headers()
+                try:
+                    for _ in range(100000):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.2)
+                except OSError:
+                    pass
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Trickle)
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+        def stop():
+            srv.shutdown()
+            srv.server_close()
+        self.addCleanup(stop)
+        out = {}
+
+        def work():
+            try:
+                sources._download(f"http://127.0.0.1:{srv.server_address[1]}/x")
+            except Exception as e:      # noqa: BLE001
+                out["err"] = e
+        t0 = time.monotonic()
+        with mock.patch.object(sources, "DOWNLOAD_DEADLINE", 1):
+            th = threading.Thread(target=work, daemon=True)   # a blocking read must fail, not hang the suite
+            th.start()
+            th.join(5)
+        self.assertFalse(th.is_alive(), "download did not honour the deadline")
+        self.assertLess(time.monotonic() - t0, 3)
+        self.assertIsInstance(out.get("err"), sources.SourceError)
+        self.assertIn("too long", str(out["err"]))
+
+    @unittest.skipUnless(os.name == "nt", "junctions are Windows-only")
+    def test_folder_junction_loop_no_duplicates(self):
+        import _winapi
+        root = self.tmp()
+        os.makedirs(os.path.join(root, "sub"))
+        with open(os.path.join(root, "sub", "a.md"), "w") as f:
+            f.write("a")
+        loop = os.path.join(root, "sub", "loop")
+        _winapi.CreateJunction(os.path.join(root, "sub"), loop)
+        self.addCleanup(lambda: os.path.isdir(loop) and os.rmdir(loop))
+        items, _ = sources.fetch("folder", root, {}, NOW)
+        self.assertEqual([i["ref"] for i in items], ["sub/a.md"])
 
 
 if __name__ == "__main__":
