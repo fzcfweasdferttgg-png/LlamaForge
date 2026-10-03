@@ -43,7 +43,7 @@ class ParseJsonTest(unittest.TestCase):
     def test_closing_tag_only_and_variants_take_the_final_answer(self):
         final = {"ops": ["final"]}
         for text in ('reasoning {"ops":["draft"]} done</think>\n{"ops":["final"]}',
-                     '﻿<think>try {"ops":["draft"]}</think>{"ops":["final"]}',
+                     '\ufeff<think>try {"ops":["draft"]}</think>{"ops":["final"]}',
                      '<Think>{"ops":["draft"]}</Think>{"ops":["final"]}',
                      '<think>a</think><think>{"ops":["draft"]}</think>{"ops":["final"]}'):
             self.assertEqual(llm.parse_json(text), final, msg=text)
