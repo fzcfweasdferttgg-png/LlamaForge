@@ -107,6 +107,22 @@ class SearchTest(StoreTestCase):
         self.assertEqual(self.st.search(""), [])
         self.assertEqual(self.st.search('"; DROP TABLE items; --'), [])
 
+    def test_non_ascii_terms(self):
+        self.add(page="people/juergen", text="Jürgen schickt die Übersicht bis Freitag")
+        self.add(page="projects/budget", text="बजट review pending")
+        self.add(page="projects/other", text="Unrelated gadget notes")
+        for q in ("Übersicht", "übersicht", "Jürgen", "JÜRGEN"):
+            with self.subTest(q=q):
+                self.assertEqual(self.st.search(q), ["people/juergen"])
+        self.assertEqual(self.st.search("बजट"), ["projects/budget"])
+
+    def test_like_wildcards_are_literal(self):
+        self.add(page="projects/money", text="Budget is 100_000 euro")
+        self.add(page="projects/other", text="Budget is 100x000 euro and 50 percent")
+        self.assertEqual(self.st.search("100_000"), ["projects/money"])
+        self.assertEqual(self.st.search("%"), [])
+        self.assertEqual(self.st.search("___"), [])
+
 
 class SearchFallbackTest(SearchTest):
     fts = False
@@ -161,8 +177,12 @@ class HardeningTest(StoreTestCase):
         for bad in ("id=?, text", "text=text, status", "page", "id", "updated", "1=1; --"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.st.update_item(iid, NOW, **{bad: "z"})
-        with self.assertRaises(ValueError):
-            self.st.update_item(iid, NOW)                      # nothing to update
+        before = self.st.get_item(iid)
+        with self.st.db:
+            self.st.update_item(iid, NOW + dt.timedelta(days=2))   # no fields: only touches updated
+        after = self.st.get_item(iid)
+        self.assertEqual(after["updated"], "2026-10-07T02:00:00")
+        self.assertEqual({k: v for k, v in after.items() if k != "updated"}, {k: v for k, v in before.items() if k != "updated"})
 
     def test_ids_validated_with_fullmatch(self):
         with self.st.db:
@@ -217,6 +237,29 @@ class HardeningTest(StoreTestCase):
         with self.assertRaises(Exception):
             Store(bad)
         os.remove(bad)
+
+
+class MigrationTest(StoreTestCase):
+    def test_fts_backfilled_when_enabled_on_existing_db(self):
+        p = os.path.join(self.dir, "re.db")
+        a = Store(p, fts=False)
+        with a.db:
+            a.ensure_page("projects/acme", "Acme rollout", "", NOW)
+        a.close()
+        b = Store(p)
+        self.addCleanup(b.close)
+        self.assertTrue(b.fts)
+        self.assertEqual(b.search("rollout"), ["projects/acme"])
+
+    def test_user_version_set_on_fresh_db_only(self):
+        self.assertEqual(self.st.db.execute("PRAGMA user_version").fetchone()[0], 1)
+        p = os.path.join(self.dir, "v.db")
+        a = Store(p)
+        a.db.execute("PRAGMA user_version = 7")
+        a.close()
+        b = Store(p)
+        self.addCleanup(b.close)
+        self.assertEqual(b.db.execute("PRAGMA user_version").fetchone()[0], 7)
 
 
 if __name__ == "__main__":

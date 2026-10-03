@@ -29,7 +29,17 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 # Column names never come from callers: update_item maps allow-listed keys to these fixed fragments.
 ITEM_FIELDS = {"kind": "kind=?", "text": "text=?", "owner": "owner=?", "due": "due=?",
                "status": "status=?", "verified": "verified=?"}
-_WORD = re.compile(r"[a-z0-9]{3,}")
+_WORD = re.compile(r"\w{3,}")      # unicode words; "_" counts, so the LIKE fallback escapes it
+SCHEMA_VERSION = 1
+
+
+def _fold(s):
+    return s.casefold() if isinstance(s, str) else ""
+
+
+def _like(term):
+    """Escape LIKE wildcards (use with ESCAPE '\')."""
+    return "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 def ts(now):
@@ -52,14 +62,22 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False)
         try:
             self.db.row_factory = sqlite3.Row
+            self.db.create_function("lf_fold", 1, _fold, deterministic=True)   # LIKE is ASCII-only case-insensitive
             self.db.executescript(SCHEMA)
+            if self.db.execute("PRAGMA user_version").fetchone()[0] == 0:
+                self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")     # constant, for later migrations
             self.fts = False
             if fts:
+                existed = self.db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='pages_fts'").fetchone() is not None
                 try:
                     self.db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(page UNINDEXED, body)")
                     self.fts = True
                 except sqlite3.OperationalError:
                     pass        # sqlite built without FTS5: search() falls back to LIKE
+                if self.fts and not existed:                # db created without FTS: index what is already there
+                    for (page,) in self.db.execute("SELECT page FROM pages").fetchall():
+                        self.index_page(page)
             self.db.commit()
         except BaseException:
             self.db.close()     # don't leak a file handle (Windows can't delete it)
@@ -151,8 +169,6 @@ class Store:
         bad = set(fields) - set(ITEM_FIELDS)
         if bad:
             raise ValueError(f"cannot update {', '.join(sorted(bad))}")
-        if not fields:
-            raise ValueError("nothing to update")
         cols = [ITEM_FIELDS[k] for k in fields] + ["updated=?"]      # fixed fragments only
         self.db.execute(f"UPDATE items SET {', '.join(cols)} WHERE id=?",
                         (*fields.values(), ts(now), iid))
@@ -205,12 +221,14 @@ class Store:
 
     def search(self, text, limit=3):
         """Pages ranked by relevance to free text. Terms are reduced to plain
-        [a-z0-9] words and quoted, so user/model text can't inject FTS syntax."""
-        terms = list(dict.fromkeys(_WORD.findall((text or "").lower())))[:24]
+        unicode words and quoted, so user/model text can't inject FTS syntax.
+        Known limitation: the default FTS5 tokenizer does not split CJK runs,
+        so those match only as whole runs."""
+        terms = list(dict.fromkeys(_WORD.findall(_fold(text))))[:24]
         if not terms:
             return []
         if self.fts:
-            q = " OR ".join(f'"{t}"' for t in terms)      # each term is a quoted FTS5 string literal
+            q = " OR ".join('"' + t.replace('"', '""') + '"' for t in terms)      # each term is a quoted FTS5 string literal
             try:
                 return [r[0] for r in self.db.execute(
                     "SELECT page FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?", (q, limit))]
@@ -218,10 +236,11 @@ class Store:
                 return []                                  # degrade, never raise on odd input
         scores = {}
         for t in terms:
-            like = f"%{t}%"
+            like = _like(t)
             for (page,) in self.db.execute(
-                    "SELECT page FROM pages WHERE page LIKE ? OR title LIKE ? OR summary LIKE ? "
-                    "UNION SELECT page FROM items WHERE text LIKE ?", (like,) * 4):
+                    "SELECT page FROM pages WHERE lf_fold(page) LIKE ? ESCAPE '\\' "
+                    "OR lf_fold(title) LIKE ? ESCAPE '\\' OR lf_fold(summary) LIKE ? ESCAPE '\\' "
+                    "UNION SELECT page FROM items WHERE lf_fold(text) LIKE ? ESCAPE '\\'", (like,) * 4):
                 scores[page] = scores.get(page, 0) + 1
         return [p for p, _ in sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
