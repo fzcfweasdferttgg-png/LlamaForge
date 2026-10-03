@@ -12,7 +12,7 @@ import unicodedata
 _STR = {"type": "string"}
 END_OF_SOURCES = "=== end of sources ==="
 FENCE = "| "
-_HEADERS = ("===", "INDEX (TOP):", "EXISTING PAGES:", "NEW SOURCES:", "END OF SOURCES")
+_HEADERS = ("===", "###", "INDEX (TOP):", "EXISTING PAGES:", "NEW SOURCES:", "END OF SOURCES")
 
 UPDATE_SCHEMA = {
     "type": "object", "required": ["ops"],
@@ -50,15 +50,23 @@ CONTRA_SCHEMA = {
 
 
 def _looks_like_frame(line):
-    # NFKC so full-width lookalikes (＝＝＝) are caught; casefold for the headers
-    probe = unicodedata.normalize("NFKC", line).lstrip().upper()
-    return probe.startswith(_HEADERS)
+    # NFKC so full-width lookalikes (U+FF1D) are caught; leading whitespace AND format
+    # characters (ZWSP, ZWJ, word joiner, BOM, soft hyphen: category Cf) are skipped because a
+    # model reads straight past them; upper() for the case-insensitive headers.
+    probe = unicodedata.normalize("NFKC", line)
+    i = 0
+    while i < len(probe) and (probe[i].isspace() or unicodedata.category(probe[i]) == "Cf"):
+        i += 1
+    return probe[i:].upper().startswith(_HEADERS)
 
 
 def fence(text):
-    """Defuse lines of untrusted text that could pass for prompt framing."""
+    """Defuse lines of untrusted text that could pass for prompt framing.
+    Splits on every line boundary str.splitlines() knows (CR, U+2028, U+0085,
+    VT, FF, ...) and rejoins with LF only, so the output has no break a reader
+    could see that this function did not; safe whether or not text was clipped."""
     return "\n".join(FENCE + line if _looks_like_frame(line) else line
-                     for line in (text or "").split("\n"))
+                     for line in (text or "").splitlines())
 
 
 def _msgs(system, user):

@@ -14,6 +14,7 @@ import json, os, re
 
 import atomicio
 from embers import prompts, reserved_name, sources, templates, verify, wikifs
+from embers.llm import RouterUnavailable
 from embers.store import Store, ts
 
 ID_RE            = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -27,6 +28,12 @@ CONTEXT_ITEMS    = 40        # open items shown per matched page
 MAX_RAWS_PER_RUN = 200       # pending raws folded per run; the rest wait for the next run
 RAW_CAP_BYTES    = 200 * 1024 * 1024
 DIRTY_KEY        = "dirty_pages"
+ATTEMPTS_KEY     = "raw_attempts"
+SOLO_AFTER       = 2         # failed batch attempts before a raw is retried on its own
+MAX_ATTEMPTS     = 3         # failed attempts before a raw is marked "failed" for good
+MIN_N_CTX        = 2048      # below this the fixed instructions leave no room for sources
+MAX_REJECTIONS   = 20        # rejection reasons kept in a run's detail
+_ORPHAN_RE       = re.compile(r"[0-9a-f]{12}\.txt")
 _WORD = re.compile(r"\w{3,}")
 _STOP = frozenset("""the and for that this with from have will your you are was were been into about
 there their what when which would could should them they then than just also only over more some
@@ -106,14 +113,38 @@ def _terms(text, limit=16):
     return " ".join(sorted(counts, key=lambda w: (-counts[w], w))[:limit])
 
 
-def _batches(raws, budget_chars):
+def _est(text):
+    """Conservative token count: ~4 ASCII characters per token, but every
+    non-ASCII character (CJK, emoji, accents) counted as a whole token."""
+    wide = sum(1 for c in text if ord(c) > 127)
+    return wide + -(-(len(text) - wide) // CHARS_PER_TOKEN)
+
+
+def _cut(text, tokens):
+    """The longest prefix of text whose _est() is at most `tokens`."""
+    if _est(text) <= tokens:
+        return text
+    lo, hi = 0, len(text)              # _est of a prefix only grows with its length
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _est(text[:mid]) <= tokens:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
+
+
+def _batches(raws, budget):
+    """Group raws into batches of at most `budget` estimated tokens; a raw over
+    the budget is cut to fit and goes alone."""
     batch, size = [], 0
     for r in raws:
-        n = min(len(r["text"]), budget_chars)
-        if batch and size + n > budget_chars:
+        text = _cut(r["text"], budget)
+        n = _est(text)
+        if batch and size + n > budget:
             yield batch
             batch, size = [], 0
-        batch.append(dict(r, text=r["text"][:budget_chars]))
+        batch.append(dict(r, text=text))
         size += n
     if batch:
         yield batch
@@ -127,32 +158,32 @@ def _schema_text(ember):
         return ember.template["schema_md"]
 
 
-def _prompt(tpl, schema, index_head, context, batch, cap_chars):
-    """Build the ingest prompt and shrink it until it fits cap_chars: first the
-    matched pages, then the index excerpt, the schema, and last the raw text.
-    Returns (messages, size_in_chars)."""
+def _prompt(tpl, schema, index_head, context, batch, cap):
+    """Build the ingest prompt and shrink it until it fits `cap` estimated
+    tokens: first the matched pages, then the index excerpt, the schema, and
+    last the raw text. Returns (messages, size_in_tokens, batch_as_shown)."""
     context = [dict(p, items=list(p["items"])) for p in context]
     batch = [dict(r) for r in batch]
     while True:
         msgs = prompts.ingest_messages(tpl["mission"], schema, tpl["page_kinds"], index_head, context, batch)
-        size = sum(len(m["content"]) for m in msgs)
-        over = size - cap_chars
+        size = sum(_est(m["content"]) for m in msgs)
+        over = size - cap
         if over <= 0:
-            return msgs, size
+            return msgs, size, batch
         if context:
             if context[-1]["items"]:
                 context[-1]["items"].pop()
             else:
                 context.pop()
         elif index_head:
-            index_head = index_head[:max(0, len(index_head) - over)]
+            index_head = _cut(index_head, max(0, _est(index_head) - over))
         elif schema:
-            schema = schema[:max(0, len(schema) - over)]
+            schema = _cut(schema, max(0, _est(schema) - over))
         else:
-            longest = max(batch, key=lambda r: len(r["text"]), default=None)
+            longest = max(batch, key=lambda r: _est(r["text"]), default=None)
             if not longest or not longest["text"]:
-                return msgs, size          # the fixed instructions alone exceed the cap
-            longest["text"] = longest["text"][:max(0, len(longest["text"]) - over)]
+                return msgs, size, batch   # the fixed instructions alone exceed the cap
+            longest["text"] = _cut(longest["text"], max(0, _est(longest["text"]) - over))
 
 
 def _render_page(ember, page):
@@ -168,8 +199,26 @@ def _write_index(ember, lint_md=None):
 
 
 def _dirty(st):
-    v = st.get_meta(DIRTY_KEY, [])
+    try:
+        v = st.get_meta(DIRTY_KEY, [])
+    except (ValueError, RecursionError):   # the list itself is lost: treat every page as dirty
+        return [p["page"] for p in st.all_pages()]
     return [p for p in v if isinstance(p, str)] if isinstance(v, list) else []
+
+
+def _attempts(st):
+    """meta "raw_attempts": {sha: {"attempts": n, "error": str}} for raws whose batch failed."""
+    try:
+        v = st.get_meta(ATTEMPTS_KEY, {})
+    except (ValueError, RecursionError):
+        return {}
+    return {k: a for k, a in v.items() if isinstance(a, dict) and isinstance(a.get("attempts"), int)} \
+        if isinstance(v, dict) else {}
+
+
+def raw_failures(ember):
+    """Raws whose batches failed: {sha: {"attempts": n, "error": last_error}}."""
+    return _attempts(ember.store)
 
 
 def _mark_dirty(st, pages):
@@ -251,17 +300,56 @@ def _err(e):
 
 def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
     """Fetch new source items into raws, then fold pending raws into the wiki
-    batch by batch. Returns a stats dict with "status" and "summary"."""
-    st, root, tpl = ember.store, ember.root, ember.template
+    batch by batch. Returns a stats dict with "status" and "summary".
+    The run row is always closed: on an unexpected error it is finished as
+    "failed" with the error, then the error propagates."""
+    st = ember.store
     with st.db:
+        st.abort_running("ingest", now)    # rows left "running" by a process that died
         run = st.start_run("ingest", now)
-    errors = _flush_dirty(ember)           # repair a run that died between commit and render
+    errors = []
+    try:
+        return _ingest(ember, llm, now, fetch, n_ctx, run, errors)
+    except BaseException as e:
+        try:
+            st.db.rollback()
+            with st.db:
+                st.finish_run(run, now, "failed", "; ".join(errors + [_err(e)]))
+        except Exception:
+            pass                           # the original error matters more
+        raise
+
+
+def _settle_failure(st, shas, error, stats):
+    """Count a failed attempt against each raw of a batch (in one transaction);
+    raws out of attempts are marked "failed" so they stop blocking cursors."""
+    with st.db:
+        att = _attempts(st)
+        for sha in shas:
+            a = att.get(sha) or {"attempts": 0}
+            att[sha] = {"attempts": a["attempts"] + 1, "error": error[:300]}
+            if att[sha]["attempts"] >= MAX_ATTEMPTS:
+                st.mark_raws([sha], "failed")
+                stats["failed_raws"] += 1
+        st.set_meta(ATTEMPTS_KEY, att)
+
+
+def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
+    st, root, tpl = ember.store, ember.root, ember.template
+    errors += _flush_dirty(ember)          # repair a run that died between commit and render
 
     stale, new_by_source, cursors = {}, {}, {}
     for slot, binding in _bound(ember):
         sid = slot["id"]
+        try:
+            cursor_in = st.get_cursor(sid)
+        except (ValueError, RecursionError):
+            cursor_in = None
+        if not isinstance(cursor_in, dict):
+            cursor_in = {}
+            errors.append(f"{sid}: corrupt cursor reset")
         try:                               # any failure isolates this source only
-            items, cursor = fetch(slot["type"], binding, st.get_cursor(sid), now)
+            items, cursor = fetch(slot["type"], binding, cursor_in, now)
             shas = []
             with st.db:
                 for it in items:
@@ -276,11 +364,17 @@ def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
         new_by_source[sid], cursors[sid] = shas, cursor
 
     queued = st.pending_raws()
-    pending = []
+    pending, read_errors = [], 0
     for r in queued[:MAX_RAWS_PER_RUN]:
         try:
             text = wikifs.read_raw(root, r["sha"])
-        except (OSError, ValueError) as e:
+        except FileNotFoundError:
+            text = None
+        except OSError as e:               # locked, permissions, network share: try again next run
+            errors.append(f"raw {r['sha']}: {_err(e)}")
+            read_errors += 1
+            continue
+        except ValueError as e:            # bad id or undecodable bytes: never readable
             errors.append(f"raw {r['sha']}: {_err(e)}")
             text = None
         if text is None:
@@ -291,25 +385,52 @@ def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
     full_text = {r["sha"]: r["text"] for r in pending}
 
     stats = {"raws": len(pending), "deferred": max(0, len(queued) - MAX_RAWS_PER_RUN), "batches": 0,
-             "failed": 0, "ops": 0, "unverified": 0, "rejected": 0, "tokens_in": 0, "tokens_out": 0}
-    budget = int(n_ctx * BUDGET_SHARE * CHARS_PER_TOKEN)
-    cap = int(n_ctx * PROMPT_SHARE * CHARS_PER_TOKEN)
+             "failed": 0, "failed_raws": 0, "truncated": 0, "ops": 0, "unverified": 0, "rejected": 0,
+             "tokens_in": 0, "tokens_out": 0}
+    rejections = []
+    too_small = n_ctx < MIN_N_CTX
+    if too_small:
+        errors.append(f"model context n_ctx={n_ctx} is below the minimum of {MIN_N_CTX} tokens; "
+                      "load the model with a larger context")
+        pending = []
+    budget = int(n_ctx * BUDGET_SHARE)
+    cap = int(n_ctx * PROMPT_SHARE)
     schema = _schema_text(ember)
-    for batch in _batches(pending, budget):
+    att = _attempts(st)
+    grouped = [r for r in pending if att.get(r["sha"], {}).get("attempts", 0) < SOLO_AFTER]
+    alone = [r for r in pending if att.get(r["sha"], {}).get("attempts", 0) >= SOLO_AFTER]
+    batches = list(_batches(grouped, budget)) + [b for r in alone for b in _batches([r], budget)]
+    index_error = False
+    router_down = False
+    for batch in batches:
         stats["batches"] += 1
         context = []
         for page in st.search(_terms(" ".join(r["text"] for r in batch)), CONTEXT_PAGES):
             p = st.get_page(page) or {"title": page}
             context.append({"page": page, "title": p["title"],
                             "items": [i for i in st.items_for_page(page) if i["status"] == "open"][:CONTEXT_ITEMS]})
-        msgs, size = _prompt(tpl, schema, wikifs.index_head(root), context, batch, cap)
-        reply_tokens = max(MIN_REPLY_TOKENS,
-                           min(MAX_REPLY_TOKENS, n_ctx - -(-size // CHARS_PER_TOKEN)))
+        try:
+            index_head = wikifs.index_head(root)
+        except (OSError, ValueError) as e:
+            index_head = ""
+            if not index_error:
+                errors.append(f"index head: {_err(e)}")
+                index_error = True
+        msgs, size, shown = _prompt(tpl, schema, index_head, context, batch, cap)
+        stats["truncated"] += sum(1 for r in shown if len(r["text"]) < len(full_text[r["sha"]]))
+        shown_shas = [r["sha"] for r in shown if r["text"]]   # a raw cut to nothing was not seen
+        reply_tokens = max(MIN_REPLY_TOKENS, min(MAX_REPLY_TOKENS, n_ctx - size))
         try:                               # the model call runs outside any transaction
             update, usage = llm(msgs, prompts.UPDATE_SCHEMA, reply_tokens)
+        except RouterUnavailable as e:     # not the input's fault: stop, count nothing
+            stats["failed"] += 1
+            errors.append(_err(e))
+            router_down = True
+            break
         except Exception as e:
             stats["failed"] += 1
             errors.append(_err(e))
+            _settle_failure(st, shown_shas, _err(e), stats)
             continue
         usage = usage if isinstance(usage, dict) else {}
         for k in ("prompt_tokens", "completion_tokens"):
@@ -318,25 +439,39 @@ def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
             except (TypeError, ValueError):
                 pass
         # Quotes are checked against the full raw, but only raws shown in this batch count.
-        raws = {r["sha"]: full_text[r["sha"]] for r in batch}
+        raws = {sha: full_text[sha] for sha in shown_shas}
         try:
             ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids())
+            kept = []
+            for op in ops:                 # an update/close must name the page its item lives on
+                old = st.get_item(op["item"]) if op["op"] != "add" else None
+                if old is not None and old["page"] != op["page"]:
+                    rejected.append((-1, f"{op['op']} {op['item']}: page {op['page']} "
+                                         f"is not the item's page {old['page']}"))
+                else:
+                    kept.append(op)
+            ops = kept
             with st.db:                    # ops, raw status and the render list commit together
                 touched = _apply(ember, ops, new_pages, now)
-                st.mark_raws(list(raws), "done")
+                st.mark_raws(shown_shas, "done")
+                att = _attempts(st)
+                if any(s in att for s in shown_shas):
+                    st.set_meta(ATTEMPTS_KEY, {k: v for k, v in att.items() if k not in shown_shas})
                 _mark_dirty(st, touched)
         except Exception as e:             # rolled back: the raws stay pending for the next run
             stats["failed"] += 1
             errors.append(f"apply: {_err(e)}")
+            _settle_failure(st, shown_shas, f"apply: {_err(e)}", stats)
             continue
         stats["ops"] += len(ops)
         stats["unverified"] += sum(1 for o in ops if not o["verified"])
         stats["rejected"] += len(rejected)
+        rejections += [str(why) for _, why in rejected][:MAX_REJECTIONS - len(rejections)]
         errors += _flush_dirty(ember)
 
     with st.db:
         for sid, shas in new_by_source.items():
-            # missing/pruned raws can never become done; they must not pin the cursor
+            # missing/pruned/failed raws can never become done; they must not pin the cursor
             if all(st.raw_status(s) != "pending" for s in shas):
                 st.set_cursor(sid, cursors[sid])
     try:
@@ -344,41 +479,67 @@ def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
     except (OSError, ValueError) as e:
         errors.append(f"prune: {_err(e)}")
     render_failed = bool(_dirty(st))
-    if stats["batches"] and stats["failed"] == stats["batches"]:
+    if too_small or (stats["batches"] and stats["failed"] == stats["batches"]):
         status = "failed"
     else:
-        status = "partial" if stats["failed"] or stale or render_failed else "ok"
+        status = ("partial" if stats["failed"] or stale or render_failed or read_errors or router_down
+                  else "ok")
     summary = (f"{stats['raws']} new, {stats['ops']} ops ({stats['unverified']} unverified, "
                f"{stats['rejected']} rejected), {stats['failed']}/{stats['batches']} batches failed")
-    if stats["deferred"]:
-        summary += f", {stats['deferred']} deferred"
+    for key, label in (("deferred", "deferred"), ("truncated", "truncated"), ("failed_raws", "raws given up")):
+        if stats[key]:
+            summary += f", {stats[key]} {label}"
     if stale:
         summary += f", stale: {', '.join(sorted(stale))}"
-    wikifs.append_log(root, now, "ingest", summary)
+    try:
+        wikifs.append_log(root, now, "ingest", summary)
+    except (OSError, ValueError) as e:
+        errors.append(f"log: {_err(e)}")
+        if status == "ok":
+            status = "partial"
     with st.db:
         st.finish_run(run, now, status, "; ".join(errors), stats["tokens_in"], stats["tokens_out"],
-                      dict(stats, stale=stale))
+                      dict(stats, stale=stale, rejections=rejections))
     return dict(stats, run=run, status=status, stale=stale, summary=summary)
 
 
 def prune_raws(ember, cap=RAW_CAP_BYTES):
     """Keep raw/ under `cap` bytes by deleting the oldest raws that are already
-    processed and cited by no item. Referenced or pending raws are never pruned.
-    The file goes first, then the row: a crash in between leaves a "done" row
-    whose file is gone, which the next prune simply marks."""
+    settled (done or failed) and cited by no item. Referenced or pending raws are
+    never pruned. Also removes orphan raw files (named like a raw, no db row),
+    e.g. left by a source whose transaction rolled back. The file goes first,
+    then the row: a crash in between leaves a row whose file is gone, which the
+    next prune simply marks. Returns how many files were removed."""
     st = ember.store
     rows = st.all_raws()
-    total = sum(r["size"] or 0 for r in rows if r["status"] in ("pending", "done"))
+    removed = 0
+    known = {r["sha"] for r in rows}
+    raw_dir = wikifs._safe_path(ember.root, "raw")
+    try:
+        entries = list(os.scandir(raw_dir))
+    except FileNotFoundError:
+        entries = []
+    for entry in entries:
+        if not _ORPHAN_RE.fullmatch(entry.name) or entry.name[:-4] in known:
+            continue
+        try:
+            if entry.is_file(follow_symlinks=False):
+                os.remove(entry.path)
+                removed += 1
+        except FileNotFoundError:
+            pass
+    total = sum(r["size"] or 0 for r in rows if r["status"] in ("pending", "done", "failed"))
     if total <= cap:
-        return 0
-    keep, removed = st.referenced_raws(), 0
+        return removed
+    keep = st.referenced_raws()
     for r in rows:
         if total <= cap:
             break
-        if r["status"] != "done" or r["sha"] in keep or not verify.RAW_RE.fullmatch(r["sha"] or ""):
+        if r["status"] not in ("done", "failed") or r["sha"] in keep \
+                or not verify.RAW_RE.fullmatch(r["sha"] or ""):
             continue
         try:
-            os.remove(os.path.join(ember.root, "raw", r["sha"] + ".txt"))
+            os.remove(os.path.join(raw_dir, r["sha"] + ".txt"))
         except FileNotFoundError:
             pass
         with st.db:
