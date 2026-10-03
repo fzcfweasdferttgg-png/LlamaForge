@@ -9,7 +9,7 @@ commonpath), writes are atomic, and any model/source text written into markdown
 is neutralised so it cannot forge the markers, block ids or footnotes that this
 module parses back.
 """
-import hashlib, os
+import hashlib, os, re
 
 import atomicio
 from . import reserved_name
@@ -30,7 +30,8 @@ def _end(name):
 
 def _neutralise(s):
     """Defuse comment delimiters (region markers) and ^ (block ids, footnotes)."""
-    return (s.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
+    return (s.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+             .replace("<!--", "&lt;!--").replace("-->", "--&gt;")
              .replace("^", "\\^"))
 
 
@@ -89,6 +90,22 @@ def page_path(root, page):
     return _safe_path(root, "pages", kind, slug + ".md")
 
 
+def _find_region(text, name):
+    """Locate a region as (start_marker_pos, body_start, body_end, end_marker_end).
+    Markers count only as whole lines. Pair the FIRST end marker with the LAST
+    start marker before it, so a stray or half-deleted marker never swallows
+    user text. None when there is no complete pair."""
+    start, end = re.escape(_start(name)), re.escape(_end(name))
+    e = re.search(rf"(?m)^({end})\r?$", text)
+    if not e:
+        return None
+    starts = [m for m in re.finditer(rf"(?m)^({start})\r?$", text) if m.end(1) <= e.start(1)]
+    if not starts:
+        return None
+    s = starts[-1]
+    return s.start(1), s.end(1), e.start(1), e.end(1)
+
+
 def replace_region(text, name, body):
     """Swap the body between this region's markers, or append the region if it
     is absent. Everything outside the markers is preserved byte for byte. Any
@@ -96,19 +113,16 @@ def replace_region(text, name, body):
     start, end = _start(name), _end(name)
     body = body.replace("<!--", "&lt;!--")
     block = f"{start}\n{body.rstrip()}\n{end}" if body.strip() else f"{start}\n{end}"
-    i = text.find(start)
-    j = text.find(end, i + len(start)) if i >= 0 else -1
-    if i < 0 or j < 0:
+    found = _find_region(text, name)
+    if not found:
         sep = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
         return f"{text}{sep}{block}\n"
-    return text[:i] + block + text[j + len(end):]
+    return text[:found[0]] + block + text[found[3]:]
 
 
 def read_region(text, name):
-    start, end = _start(name), _end(name)
-    i = text.find(start)
-    j = text.find(end, i + len(start)) if i >= 0 else -1
-    return text[i + len(start):j].strip() if i >= 0 and j >= 0 else ""
+    found = _find_region(text, name)
+    return text[found[1]:found[2]].strip() if found else ""
 
 
 def render_items(items, evidence):

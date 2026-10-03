@@ -82,6 +82,64 @@ class RegionTest(unittest.TestCase):
         self.assertIn("more", wikifs.read_region(out, "items"))
 
 
+class RegionRobustnessTest(unittest.TestCase):
+    def test_stray_inline_start_marker_does_not_eat_user_text(self):
+        t = ("# A\n\nNote: the bot writes below <!-- ember:items --> marker.\nIMPORTANT USER TEXT\n\n"
+             "<!-- ember:items -->\n- [ ] old\n<!-- /ember:items -->\n")
+        out = wikifs.replace_region(t, "items", "- [ ] new")
+        self.assertIn("IMPORTANT USER TEXT", out)
+        self.assertIn("- [ ] new", out)
+        self.assertNotIn("old", out)
+        self.assertEqual(wikifs.read_region(t, "items"), "- [ ] old")
+
+    def test_deleted_end_marker_never_loses_user_notes(self):
+        t = "# A\n\n<!-- ember:items -->\n- [ ] old\nMY NOTES (end marker deleted by mistake)\n"
+        once = wikifs.replace_region(t, "items", "- [ ] one")
+        twice = wikifs.replace_region(once, "items", "- [ ] two")
+        self.assertIn("MY NOTES", once)
+        self.assertIn("MY NOTES", twice)
+        self.assertEqual(wikifs.read_region(twice, "items"), "- [ ] two")
+
+    def test_last_start_before_first_end_is_paired(self):
+        t = "<!-- ember:items -->\nuser\n<!-- ember:items -->\nold\n<!-- /ember:items -->\n"
+        out = wikifs.replace_region(t, "items", "new")
+        self.assertEqual(out, "<!-- ember:items -->\nuser\n<!-- ember:items -->\nnew\n<!-- /ember:items -->\n")
+
+    def test_crlf_files_still_work(self):
+        t = "# A\r\n\r\n<!-- ember:items -->\r\nold\r\n<!-- /ember:items -->\r\nafter\r\n"
+        self.assertEqual(wikifs.read_region(t, "items"), "old")
+        out = wikifs.replace_region(t, "items", "new")
+        self.assertTrue(out.startswith("# A\r\n\r\n<!-- ember:items -->\nnew\n<!-- /ember:items -->"))
+        self.assertTrue(out.endswith("\r\nafter\r\n"))
+        self.assertEqual(wikifs.read_region(out, "items"), "new")
+
+
+class EscapingTest(WikiTestCase):
+    def test_backslash_and_brackets_in_title_cannot_break_or_inject_links(self):
+        wikifs.write_index(self.root, [
+            {"page": "people/sam", "title": "Acme \\", "open": 0},
+            {"page": "people/bob", "title": "x](https://evil.example", "open": 0}])
+        text = self.read("index.md")
+        self.assertIn("[Acme \\\\](pages/people/sam.md)", text)
+        self.assertIn("- [x\\](https://evil.example](pages/people/bob.md)", text)
+
+    def test_backslash_cannot_cancel_caret_escape(self):
+        md = wikifs.render_items([dict(ITEM, text="a \\^it-deadbeef")], {})
+        self.assertEqual(len(re.findall(r"(?<!\\)\^it-", md)), 1)
+
+    def test_trailing_backslash_in_quote_cannot_escape_closing_quote(self):
+        md = wikifs.render_items([ITEM], {"it-8f2c1a2b": [{"raw": "a1b2c3d4e5f6", "quote": "ends with \\"}]})
+        self.assertTrue(md.endswith('ends with \\\\"'), md)
+
+    def test_rewrite_is_byte_identical(self):
+        items = wikifs.render_items([dict(ITEM, text="a [b](c) \\ <!-- x -->")],
+                                    {"it-8f2c1a2b": [{"raw": "a1b2c3d4e5f6", "quote": "q [z] \\"}]})
+        wikifs.write_page(self.root, "people/sam", "T \\ [x]", "S ]", items)
+        first = self.read("pages", "people", "sam.md")
+        wikifs.write_page(self.root, "people/sam", "T \\ [x]", "S ]", items)
+        self.assertEqual(self.read("pages", "people", "sam.md"), first)
+
+
 class RenderItemsTest(unittest.TestCase):
     def test_verified_item_with_footnote_and_block_id(self):
         md = wikifs.render_items([ITEM], EV)
