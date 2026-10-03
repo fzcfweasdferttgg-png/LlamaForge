@@ -282,5 +282,52 @@ class IndexLogRawTest(WikiTestCase):
             wikifs.read_raw(self.root, "ffffffffffff\n")
 
 
+class BriefReviewFixTest(WikiTestCase):
+    def test_items_citing_one_raw_keep_their_own_quotes(self):
+        a = dict(ITEM)
+        b = dict(ITEM, id="it-0000000b", text="Budget may double")
+        ev = {a["id"]: [{"raw": "a1b2c3d4e5f6", "quote": "I'll send the signed SOW by Friday"}],
+              b["id"]: [{"raw": "a1b2c3d4e5f6", "quote": "Maybe the budget doubles"},
+                        {"raw": "a1b2c3d4e5f6", "quote": "I'll send the signed SOW by Friday"}]}
+        md = wikifs.render_items([a, b], ev)
+        self.assertEqual(md, wikifs.render_items([a, b], ev))              # deterministic
+        lines = md.splitlines()
+        self.assertTrue(lines[0].endswith("· [^r-a1b2c3d4e5f6] ^it-8f2c1a2b"), lines[0])
+        self.assertTrue(lines[1].endswith("· [^r-a1b2c3d4e5f6-2] [^r-a1b2c3d4e5f6] ^it-0000000b"), lines[1])
+        self.assertIn('[^r-a1b2c3d4e5f6]: [raw/a1b2c3d4e5f6.txt](../../raw/a1b2c3d4e5f6.txt) '
+                      '"I\'ll send the signed SOW by Friday"', md)
+        self.assertIn('[^r-a1b2c3d4e5f6-2]: [raw/a1b2c3d4e5f6.txt](../../raw/a1b2c3d4e5f6.txt) '
+                      '"Maybe the budget doubles"', md)
+
+    def test_render_items_quotes_escape_html(self):
+        md = wikifs.render_items([ITEM], {ITEM["id"]: [{"raw": "a1b2c3d4e5f6",
+                                                         "quote": "see <img src=x onerror=a()> > here"}]})
+        self.assertNotIn("<img", md)
+        self.assertIn("&lt;img src=x onerror=a()&gt; &gt; here", md)
+
+    def test_inline_breaks_autolinks_and_obsidian_syntax(self):
+        cases = {"https://evil.example/phish": "://",
+                 "go to www.evil.example now": "www.",
+                 "mail sam@evil.example": "@evil",
+                 "x %% hidden %% y": "%%",
+                 "pay $5 or $x$ math": " $",
+                 "see #urgent tag": " #urgent"}
+        for text, raw in cases.items():
+            out = wikifs.inline(text, 300)
+            self.assertNotIn(raw, out, out)
+        self.assertEqual(wikifs.inline("https://evil.example", 300), "https:\u200b//evil.example")
+        self.assertEqual(wikifs.inline("x %% y", 300), "x \\%\\% y")
+        self.assertEqual(wikifs.inline("$x$", 300), "\\$x\\$")
+        self.assertEqual(wikifs.inline("a #tag", 300), "a \\#tag")
+        self.assertEqual(wikifs.inline("# head", 300), "\\# head")
+
+    def test_brief_day_must_be_a_real_date(self):
+        for day in ("9999-99-99", "2026-02-30", "2026-13-01"):
+            with self.assertRaises(wikifs.WikiError, msg=day):
+                wikifs.write_brief(self.root, day, "x")
+        briefs = os.path.join(self.root, "briefs")
+        self.assertEqual(os.listdir(briefs) if os.path.isdir(briefs) else [], [])
+
+
 if __name__ == "__main__":
     unittest.main()

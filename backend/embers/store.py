@@ -105,9 +105,16 @@ class Store:
                                "error='interrupted before it finished' WHERE job=? AND status='running'",
                                (ts(now), job)).rowcount
 
-    def last_run(self, job, status="ok"):
-        r = self.db.execute("SELECT * FROM runs WHERE job=? AND status=? ORDER BY id DESC LIMIT 1",
-                            (job, status)).fetchone()
+    def last_run(self, job, status="ok", before=None):
+        """Latest run of `job` whose status is `status` (a string or a tuple of
+        them), optionally only among runs started before the datetime `before`."""
+        statuses = (status,) if isinstance(status, str) else tuple(status)
+        sql = f"SELECT * FROM runs WHERE job=? AND status IN ({','.join('?' * len(statuses))})"
+        args = [job, *statuses]
+        if before is not None:
+            sql += " AND started<?"
+            args.append(ts(before))
+        r = self.db.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
         return dict(r) if r else None
 
     def recent_runs(self, limit=20):

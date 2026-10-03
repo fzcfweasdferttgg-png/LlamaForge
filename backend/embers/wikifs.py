@@ -9,7 +9,7 @@ commonpath), writes are atomic, and any model/source text written into markdown
 is neutralised so it cannot forge the markers, block ids or footnotes that this
 module parses back.
 """
-import hashlib, os, re
+import datetime as dt, hashlib, os, re
 
 import atomicio
 from . import reserved_name
@@ -44,16 +44,35 @@ _ORDERED = re.compile(r"(\d{1,9})([.)])")
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
+def _html(s):
+    """Defuse raw HTML in already one-lined text (tags render in Obsidian)."""
+    return s.replace("<", "&lt;").replace(">", "&gt;")
+
+
+_WWW = re.compile(r"(?i)\b(www)\.")
+ZWSP = "\u200b"                                   # zero-width space
+
+
 def inline(s, cap):
     """Model text as inert inline markdown: one line, neutralised, raw HTML
-    defused, and a leading character that could open a block (heading, quote,
-    list, rule, ordered list) escaped. Safe at the start of a line, after
-    "- " or after "## "."""
-    s = _one_line(s, cap).replace("<", "&lt;").replace(">", "&gt;")
+    defused, Obsidian syntax (#tag, %%comment%%, $math$) escaped, autolinks
+    (scheme://, www., user@host) broken with a zero-width space so they read
+    the same but do not link, and a leading character that could open a block
+    (heading, quote, list, rule, ordered list) escaped. Safe at the start of a
+    line, after "- " or after "## "."""
+    s = (_html(_one_line(s, cap)).replace("#", "\\#").replace("%%", "\\%\\%").replace("$", "\\$")
+         .replace("://", ":" + ZWSP + "//").replace("@", "@" + ZWSP))
+    s = _WWW.sub(lambda m: m.group(1) + ZWSP + ".", s)
     if _BLOCK_START.match(s):
         return "\\" + s
     m = _ORDERED.match(s)
     return f"{m.group(1)}\\{s[m.end(1):]}" if m else s
+
+
+def footnote_quote(quote):
+    """A quote for a footnote's link title: one line, neutralised, no double
+    quotes (they would end the title), raw HTML defused."""
+    return _html(_one_line(quote, 200).replace('"', "'"))
 
 
 def _read(path):
@@ -150,7 +169,7 @@ def render_items(items, evidence):
     """items: dicts with id/text/owner/due/status/verified; evidence: {item_id:
     [{"raw", "quote"}]}. Returns a checklist with Obsidian block ids (^it-...)
     and footnotes that point at the raw snapshots."""
-    lines, notes = [], {}
+    lines, labels = [], {}
     for it in items:
         if not (isinstance(it.get("id"), str) and verify.ITEM_RE.fullmatch(it["id"])):
             raise WikiError(f"bad item id {it.get('id')!r}")
@@ -163,21 +182,37 @@ def render_items(items, evidence):
             line += " *(unverified)*"
         refs = []
         for ev in evidence.get(it["id"], []):
-            if not (isinstance(ev.get("raw"), str) and verify.RAW_RE.fullmatch(ev["raw"])):
-                continue
-            label = f"r-{ev['raw']}"
-            if label not in refs:
+            label = footnote_label(labels, ev)
+            if label and label not in refs:
                 refs.append(label)
-            notes.setdefault(label, ev)
         if refs:
             line += " · " + " ".join(f"[^{r}]" for r in refs)
         lines.append(f"{line} ^{it['id']}")
-    if notes:
+    if labels:
         lines.append("")
-        for label, ev in notes.items():
-            quote = _one_line(ev.get("quote"), 200).replace('"', "'")
-            lines.append(f'[^{label}]: [raw/{ev["raw"]}.txt](../../raw/{ev["raw"]}.txt) "{quote}"')
+        lines += footnotes(labels, "../../raw")
     return "\n".join(lines)
+
+
+def footnote_label(labels, ev):
+    """Label for one (raw, quote) piece of evidence, registered in `labels`
+    ({(raw, quote): label}, insertion ordered). The first quote cited from a
+    raw is r-<sha>, later different quotes from the same raw r-<sha>-2, -3...
+    so two items citing one raw each keep their own quote. None for a bad raw id."""
+    raw = ev.get("raw")
+    if not (isinstance(raw, str) and verify.RAW_RE.fullmatch(raw)):
+        return None
+    key = (raw, footnote_quote(ev.get("quote")))
+    if key not in labels:
+        n = sum(1 for r, _ in labels if r == raw)
+        labels[key] = f"r-{raw}" + (f"-{n + 1}" if n else "")
+    return labels[key]
+
+
+def footnotes(labels, raw_dir):
+    """Footnote definition lines for footnote_label's `labels`."""
+    return [f'[^{label}]: [raw/{raw}.txt]({raw_dir}/{raw}.txt) "{quote}"'
+            for (raw, quote), label in labels.items()]
 
 
 def write_page(root, page, title, summary, items_md):
@@ -256,6 +291,10 @@ def write_brief(root, day, text):
     A failed write leaves the previous file for that day untouched."""
     if not (isinstance(day, str) and _DAY_RE.fullmatch(day)):
         raise WikiError(f"bad brief day {day!r}")
+    try:
+        dt.date.fromisoformat(day)                      # 9999-99-99, 2026-02-30
+    except ValueError:
+        raise WikiError(f"bad brief day {day!r}") from None
     os.makedirs(_safe_path(root, "briefs"), exist_ok=True)
     path = _safe_path(root, "briefs", day + ".md")      # re-check after creating the folder
     _write(path, text)

@@ -311,13 +311,33 @@ def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
     try:
         return _ingest(ember, llm, now, fetch, n_ctx, run, errors)
     except BaseException as e:
-        try:
-            st.db.rollback()
-            with st.db:
-                st.finish_run(run, now, "failed", "; ".join(errors + [_err(e)]))
-        except Exception:
-            pass                           # the original error matters more
+        _close_failed(st, run, now, "; ".join(errors + [_err(e)]))
         raise
+
+
+def _close_failed(st, run, now, error):
+    """Best-effort close of a run that raised; the original error matters more,
+    so nothing here may raise. First the normal finish_run; if that fails too, a
+    bare UPDATE in its own statement; if even that fails the row stays
+    'running' and the next run of the job aborts it (Store.abort_running).
+    Note abort_running would also abort a live concurrent run of the same job:
+    the M2 scheduler must hold a per-ember lock around runs."""
+    try:
+        st.db.rollback()
+    except Exception:
+        pass
+    try:
+        with st.db:
+            st.finish_run(run, now, "failed", error)
+        return
+    except Exception:
+        pass
+    try:
+        with st.db:
+            st.db.execute("UPDATE runs SET status='failed', finished=?, error=? WHERE id=? AND status='running'",
+                          (ts(now), (error or "")[:2000], run))
+    except Exception:
+        pass
 
 
 def _settle_failure(st, shas, error, stats):
@@ -557,44 +577,82 @@ BRIEF_REPLY_TOKENS = 1500
 BRIEF_FOOTNOTES    = 2       # evidence footnotes per bullet
 LINT_FLAGS_KEY     = "lint_flags"
 _one_line = prompts.one_line            # shared with lint
-# A capitalised first word the model may use without it occurring in the item (sentence starters).
+# A capitalised word the model may use at a sentence start without it occurring in the item.
 _LEAD = frozenset("""today tomorrow tonight this these new still going waiting due overdue open nothing
 one two three a an the you your no next now chase follow reply send remind check review call email ask
-finish prepare schedule confirm submit pay book plan update note watch keep""".split())
+finish prepare schedule confirm submit pay book plan update note watch keep ping nudge get remember
+expect sign also then and but so just please make look try""".split())
 _EDGE = re.compile(r"^\W+|\W+$")
 _TOKEN = re.compile(r"\w+")
+_SENTENCE_END = tuple(".!?:;")
+_LINKISH = re.compile(r"(?i)://|^www\.|@|%%")      # URLs, mail, Obsidian %%comments%%
+_LINK_EDGE = ".,;:!?()[]{}<>\"'"
+_DAYS = "monday tuesday wednesday thursday friday saturday sunday".split()
+_MONTHS = "january february march april may june july august september october november december".split()
+_DATE_NAMES = re.compile(r"\b(" + "|".join(_DAYS + _MONTHS) + r")\b")
 
 
 def _needs_ground(word):
     return any(c.isdigit() or c.isupper() for c in word)
 
 
-def _grounded_text(text, ground):
+def _grounded_text(text, ground, title=False):
     """The brief's version of ingest's owner/due check. Every name or number in
     model text (a word holding a capital letter or a digit) must occur,
     word-bounded (verify._contains), in `ground`: the normalised verified text
-    the model was shown. A capitalised sentence starter from _LEAD may open the
-    text. Caseless scripts (CJK) are only checked for digits."""
+    the model was shown. Allowed without grounding: "I"; a common word from
+    _LEAD capitalised at a sentence start (text start, after . ! ? : ; or an
+    opening parenthesis); with title=True (titles, the headline) any first word.
+    A token that could link or hide text (scheme://, www., user@host, %%) must
+    be grounded whole, whatever its case.
+    Limit: only capitals, digits and link-like tokens are checked, so an
+    invented claim in plain lowercase words ("sam was fired", "lawsuit filed")
+    passes; a sentence-start capital from _LEAD ("Pay Sam") passes too. The
+    bullet always links to the item and its verified evidence footnote.
+    Caseless scripts (CJK) are only checked for digits."""
+    start = True
     for n, chunk in enumerate(text.split()):
+        at_start = start or chunk.startswith("(")
+        start = chunk.rstrip(")]}\"'’”").endswith(_SENTENCE_END)
+        if _LINKISH.search(chunk.strip(_LINK_EDGE)) or "%%" in chunk:
+            core = chunk.strip(_LINK_EDGE)
+            if not (core and verify._contains(ground, verify.normalise(core))):
+                return False
+            continue
         word = _EDGE.sub("", chunk)
         if not word or not _needs_ground(word):
             continue
-        if n == 0 and word.isalpha() and word.casefold() in _LEAD:
-            continue
         if verify._contains(ground, verify.normalise(word)):
             continue
-        parts = [t for t in _TOKEN.findall(word) if _needs_ground(t)]   # Sam's, <b>SOW</b>
-        if parts and all(verify._contains(ground, verify.normalise(t)) for t in parts):
+        parts = _TOKEN.findall(word)                                      # Sam's, I'll, <b>SOW</b>
+        if parts and (n == 0 and title or at_start and parts[0].isalpha() and parts[0].casefold() in _LEAD):
+            parts = parts[1:]
+        parts = [t for t in parts if t != "I" and _needs_ground(t)]
+        if all(verify._contains(ground, verify.normalise(t)) for t in parts):
             continue
         return False
     return True
 
 
-def _ground(item, evidence):
-    """Normalised text a bullet about `item` may draw names and numbers from."""
-    return verify.normalise(" ".join(
+def _date_forms(d):
+    """Ways a model may write the date `d`: Friday Fri 9 09 October Oct 2026."""
+    return f"{d:%A %a} {d.day} {d:%d %B %b %Y}" + (" sept" if d.month == 9 else "")
+
+
+def _ground(item, evidence, now):
+    """Normalised text a bullet about `item` may draw names and numbers from:
+    its verified text, the page, today's date and its due date written out, and
+    3-letter forms of any day or month name in them (Friday -> Fri)."""
+    extra = [_date_forms(now)]
+    try:
+        extra.append(_date_forms(dt.date.fromisoformat((item["due"] or "").strip()[:10])))
+    except ValueError:
+        pass
+    text = verify.normalise(" ".join(
         [item["text"] or "", item["owner"] or "", item["due"] or "",
-         item["page"].replace("/", " ").replace("-", " ")] + [e["quote"] for e in evidence]))
+         item["page"].replace("/", " ").replace("-", " ")] + [e["quote"] for e in evidence] + extra))
+    abbr = sorted({m[:3] for m in _DATE_NAMES.findall(text)} | ({"sept"} if "september" in text else set()))
+    return text + (" " + " ".join(abbr) if abbr else "")
 
 
 def _checked_evidence(ember, items):
@@ -685,10 +743,15 @@ def _clean_brief(reply, shown, by_id, grounds, ground_all):
             bullets.append({"item": iid, "text": text})
         if bullets:
             title = _one_line(sec["title"], 80) if isinstance(sec.get("title"), str) else ""
-            sections.append({"title": title if title and _grounded_text(title, ground_all) else "Notes",
-                             "bullets": bullets})
+            title = title if title and _grounded_text(title, ground_all, title=True) else "Notes"
+            same = [s for s in sections if s["title"].casefold() == title.casefold()]
+            if same:                       # e.g. two ungrounded titles that both became "Notes"
+                same[0]["bullets"] += bullets
+            else:
+                sections.append({"title": title, "bullets": bullets})
     headline = _one_line(reply["headline"], 200) if isinstance(reply.get("headline"), str) else ""
-    return (headline if headline and _grounded_text(headline, ground_all) else "Your brief"), sections, replaced
+    ok = headline and _grounded_text(headline, ground_all, title=True)
+    return (headline if ok else "Your brief"), sections, replaced
 
 
 def _fallback_brief(groups, new_ids, stale_ids):
@@ -706,24 +769,21 @@ def _render_brief(ember, now, headline, sections, by_id, evidence):
     wikifs.inline/_one_line; page names, item ids and raw ids were checked
     against their formats before they reach a link."""
     name = wikifs._one_line(ember.conf.get("name"), 120) or ember.id
-    lines, notes = [f"# {name}: {now:%A %d %B %Y}", "", wikifs.inline(headline, 200), ""], {}
+    lines, labels = [f"# {name}: {now:%A %d %B %Y}", "", wikifs.inline(headline, 200), ""], {}
     for sec in sections:
         lines += [f"## {wikifs.inline(sec['title'], 80)}", ""]
         for b in sec["bullets"]:
             it = by_id[b["item"]]
             refs = []
             for ev in evidence.get(it["id"], [])[:BRIEF_FOOTNOTES]:
-                label = f"r-{ev['raw']}"
-                notes.setdefault(label, ev)
-                if label not in refs:
+                label = wikifs.footnote_label(labels, ev)        # one label per (raw, quote)
+                if label and label not in refs:
                     refs.append(label)
             link = f"([{it['page']}](../pages/{it['page']}.md#^{it['id']}))"
             lines.append(f"- {wikifs.inline(b['text'], verify.MAX_TEXT)} {link} "
                          f"{' '.join(f'[^{r}]' for r in refs)}".rstrip())
         lines.append("")
-    for label, ev in notes.items():
-        quote = wikifs._one_line(ev["quote"], 200).replace('"', "'")
-        lines.append(f'[^{label}]: [raw/{ev["raw"]}.txt](../raw/{ev["raw"]}.txt) "{quote}"')
+    lines += wikifs.footnotes(labels, "../raw")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -749,19 +809,16 @@ def brief(ember, llm, now, n_ctx=8192):
     try:
         return _brief(ember, llm, now, n_ctx, run, errors)
     except BaseException as e:
-        try:
-            st.db.rollback()
-            with st.db:
-                st.finish_run(run, now, "failed", "; ".join(errors + [_err(e)]))
-        except Exception:
-            pass                           # the original error matters more
+        _close_failed(st, run, now, "; ".join(errors + [_err(e)]))
         raise
 
 
 def _brief(ember, llm, now, n_ctx, run, errors):
     st, tpl, root = ember.store, ember.template, ember.root
     errors += _flush_dirty(ember)          # links must point at pages that are rendered
-    last = st.last_run("brief")
+    # NEW = created since the last brief that reached the reader (ok or partial) before
+    # today, so a same-day re-run shows the same NEW set as the day's first brief.
+    last = st.last_run("brief", ("ok", "partial"), before=now.replace(hour=0, minute=0, second=0, microsecond=0))
     since = last["started"] if last else ""
     stale_before = ts(now - dt.timedelta(days=tpl["stale_days"]))
     open_verified = st.open_items(verified_only=True)
@@ -797,8 +854,8 @@ def _brief(ember, llm, now, n_ctx, run, errors):
                 except Exception as e:
                     errors.append(_err(e))
                 else:
-                    grounds = {iid: _ground(by_id[iid], evidence[iid]) for iid in shown}
-                    ground_all = " ".join(list(grounds.values()) + [verify.normalise(f"{now:%A %d %B %Y}")])
+                    grounds = {iid: _ground(by_id[iid], evidence[iid], now) for iid in shown}
+                    ground_all = " ".join(grounds.values())
                     headline, sections, replaced = _clean_brief(reply, shown, by_id, grounds, ground_all)
                     if not sections:
                         errors.append("model reply named no listed item")

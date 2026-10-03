@@ -13,8 +13,10 @@ _STR = {"type": "string"}
 END_OF_SOURCES = "=== end of sources ==="
 END_OF_ITEMS = "=== end of items ==="
 FENCE = "| "
-_HEADERS = ("===", "###", "INDEX (TOP):", "EXISTING PAGES:", "NEW SOURCES:", "END OF SOURCES",
-            "LINT FLAGS:", "TODAY IS")
+_HEADERS = ("===", "###", "INDEX (TOP):", "EXISTING PAGES:", "NEW SOURCES:", "END OF SOURCES")
+# The brief prompt adds its own frame lines; fencing them in ingest would mangle ordinary
+# notes ("Today is Monday, ...") for nothing.
+BRIEF_HEADERS = _HEADERS + ("LINT FLAGS:", "TODAY IS")
 
 UPDATE_SCHEMA = {
     "type": "object", "required": ["ops"],
@@ -51,7 +53,16 @@ CONTRA_SCHEMA = {
         "properties": {"a": _STR, "b": _STR, "why": _STR}}}}}
 
 
-def _looks_like_frame(line):
+def _starts_with_header(probe, header):
+    # A header ending in a word character must end at a word boundary: "TODAY IS" matches
+    # "Today is Friday" but not "Today isn't"; "===" and "LINT FLAGS:" match any continuation.
+    if not probe.startswith(header):
+        return False
+    rest = probe[len(header):]
+    return not (header[-1].isalnum() and rest and (rest[0].isalnum() or rest[0] in "_'’"))
+
+
+def _looks_like_frame(line, headers=_HEADERS):
     # NFKC so full-width lookalikes (U+FF1D) are caught; leading whitespace AND format
     # characters (ZWSP, ZWJ, word joiner, BOM, soft hyphen: category Cf) are skipped because a
     # model reads straight past them; upper() for the case-insensitive headers.
@@ -59,15 +70,16 @@ def _looks_like_frame(line):
     i = 0
     while i < len(probe) and (probe[i].isspace() or unicodedata.category(probe[i]) == "Cf"):
         i += 1
-    return probe[i:].upper().startswith(_HEADERS)
+    probe = probe[i:].upper()
+    return any(_starts_with_header(probe, h) for h in headers)
 
 
-def fence(text):
+def fence(text, headers=_HEADERS):
     """Defuse lines of untrusted text that could pass for prompt framing.
     Splits on every line boundary str.splitlines() knows (CR, U+2028, U+0085,
     VT, FF, ...) and rejoins with LF only, so the output has no break a reader
     could see that this function did not; safe whether or not text was clipped."""
-    return "\n".join(FENCE + line if _looks_like_frame(line) else line
+    return "\n".join(FENCE + line if _looks_like_frame(line, headers) else line
                      for line in (text or "").splitlines())
 
 
@@ -80,7 +92,7 @@ def one_line(s, cap=None):
 
 def _data(s, cap):
     """Untrusted text (item, title, flag) as one fenced line for a prompt."""
-    return fence(one_line(s, cap))
+    return fence(one_line(s, cap), BRIEF_HEADERS)
 
 
 def _msgs(system, user):
