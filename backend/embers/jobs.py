@@ -885,3 +885,211 @@ def _brief(ember, llm, now, n_ctx, run, errors):
                       {"bullets": count, "items": len(items), "dropped": dropped, "replaced": replaced})
     return {"run": run, "status": status, "path": path, "headline": headline, "summary": summary,
             "bullets": count, "dropped": dropped}
+
+
+STALE_LINT_DAYS     = 14
+MAX_CONTRA_ITEMS    = 30     # open items offered to the contradiction check before the n_ctx cut
+MAX_CONTRA_PAIRS    = 10     # contradiction flags kept from one reply
+MAX_REPLY_PAIRS     = 50     # reply pairs looked at (the rest are ignored)
+CONTRA_REPLY_TOKENS = 800
+MAX_LINT_LINES      = 50
+MAX_FLAG_WHY        = 240    # "may contradict it-xxxxxxxx: " + 200 characters of model text
+
+
+def _flag(kind, item, page, why, **extra):
+    """A lint flag: every field a one-line string (the brief and the UI read them)."""
+    return dict({"kind": kind, "item": _one_line(item), "page": _one_line(page),
+                 "why": _one_line(why, MAX_FLAG_WHY)}, **extra)
+
+
+def _evidence_flags(ember):
+    """One flag per evidence row whose quote no longer occurs (word-bounded)
+    in its raw, or whose raw cannot be read. Returns (flags, checked), where
+    checked is _checked_evidence() for every item."""
+    st = ember.store
+    checked = _checked_evidence(ember, [{"id": i} for i in sorted(st.known_item_ids())])
+    good = {(iid, ev["raw"], ev["quote"]) for iid, evs in checked.items() for ev in evs}
+    flags = []
+    for ev in st.all_evidence():
+        if (ev["item"], ev["raw"], ev["quote"]) in good:
+            continue
+        raw = ev["raw"] if isinstance(ev["raw"], str) and verify.RAW_RE.fullmatch(ev["raw"]) else "?"
+        flags.append(_flag("evidence", ev["item"], ev["page"], f"quote no longer verifies against raw {raw}",
+                           raw=raw, quote=_one_line(ev["quote"], verify.MAX_TEXT)))
+    return flags, checked
+
+
+def _paired(pool):
+    """Items of `pool` that share their page with at least one other item."""
+    count = {}
+    for it in pool:
+        count[it["page"]] = count.get(it["page"], 0) + 1
+    return [it for it in pool if count[it["page"]] > 1]
+
+
+def _contra_pool(open_items, checked):
+    """Verified open items with well-formed ids whose evidence still verifies,
+    from pages holding two or more of them, at most MAX_CONTRA_ITEMS."""
+    by_page = {}
+    for it in open_items:
+        if (it["verified"] and it["id"] in checked and isinstance(it["id"], str)
+                and verify.ITEM_RE.fullmatch(it["id"])
+                and isinstance(it["page"], str) and verify.PAGE_RE.fullmatch(it["page"])):
+            by_page.setdefault(it["page"], []).append(it)
+    pool = []
+    for page in sorted(by_page):
+        room = MAX_CONTRA_ITEMS - len(pool)
+        if room < 2:
+            break
+        if len(by_page[page]) > 1:
+            pool += by_page[page][:room]
+    return pool
+
+
+def _contra_prompt(pool, cap):
+    """Drop the last items until the prompt fits `cap` estimated tokens,
+    keeping only items that still have a page-mate. Returns (messages, size,
+    items_shown); items_shown is empty when not even one pair fits."""
+    pool = list(pool)
+    while True:
+        pool = _paired(pool)
+        if len(pool) < 2:
+            return None, 0, []
+        msgs = prompts.contra_messages(pool)
+        size = sum(_est(m["content"]) for m in msgs)
+        if size <= cap:
+            return msgs, size, pool
+        pool.pop()
+
+
+def _clean_pairs(reply, shown):
+    """Contradiction flags from an untrusted reply: both ids must be items the
+    model was shown (shown: {id: item}), distinct, each pair once.
+    Returns (flags, error); error is set when the reply has no pairs list."""
+    pairs = reply.get("pairs") if isinstance(reply, dict) else None
+    if not isinstance(pairs, list):
+        return [], "model reply has no pairs list"
+    flags, seen = [], set()
+    for pr in pairs[:MAX_REPLY_PAIRS]:
+        if len(flags) >= MAX_CONTRA_PAIRS:
+            break
+        if not isinstance(pr, dict):
+            continue
+        a, b = pr.get("a"), pr.get("b")
+        if not (isinstance(a, str) and isinstance(b, str)) or a == b or a not in shown or b not in shown:
+            continue
+        key = frozenset((a, b))
+        if key in seen:
+            continue
+        seen.add(key)
+        why = _one_line(pr["why"], 200) if isinstance(pr.get("why"), str) else ""
+        flags.append(_flag("contradiction", a, shown[a]["page"], f"may contradict {b}" + (f": {why}" if why else "")))
+    return flags, ""
+
+
+def _lint_md(now, flags):
+    """The index's ember:lint region. Page links and item ids only when they
+    match their formats; every text goes through wikifs.inline; broken
+    evidence is cited with a footnote to its raw (wikifs.footnote_label)."""
+    lines, labels = [f"## Lint ({now:%Y-%m-%d})", ""], {}
+    if not flags:
+        return "\n".join(lines + ["All clear."])
+    for f in flags[:MAX_LINT_LINES]:
+        page, item = f["page"], f["item"]
+        target = f"[{page}](pages/{page}.md)" if verify.PAGE_RE.fullmatch(page) else (wikifs.inline(page, 80) or "?")
+        if verify.ITEM_RE.fullmatch(item):
+            target += f" `{item}`"
+        line = f"- **{f['kind']}** {target}: {wikifs.inline(f['why'], MAX_FLAG_WHY)}"
+        if f["kind"] == "evidence":
+            label = wikifs.footnote_label(labels, {"raw": f.get("raw"), "quote": f.get("quote")})
+            if label:
+                line += f" [^{label}]"
+        lines.append(line)
+    if len(flags) > MAX_LINT_LINES:
+        lines.append(f"- … and {len(flags) - MAX_LINT_LINES} more")
+    if labels:
+        lines += [""] + wikifs.footnotes(labels, "raw")
+    return "\n".join(lines)
+
+
+def lint(ember, llm, now, n_ctx=8192):
+    """Mark problems: quotes that no longer verify, stale open items, orphan
+    pages, index drift, and (one model call) contradicting items on a page.
+    Flags go to meta "lint_flags" and the index's ember:lint region. Never
+    closes, deletes or rewrites an item, a page or a raw.
+    The run row is always closed: on an unexpected error it is finished as
+    "failed" and the error propagates."""
+    st = ember.store
+    with st.db:
+        st.abort_running("lint", now)      # rows left "running" by a process that died
+        run = st.start_run("lint", now)
+    errors = []
+    try:
+        return _lint(ember, llm, now, n_ctx, run, errors)
+    except BaseException as e:
+        _close_failed(st, run, now, "; ".join(errors + [_err(e)]))
+        raise
+
+
+def _lint(ember, llm, now, n_ctx, run, errors):
+    st, root = ember.store, ember.root
+    errors += _flush_dirty(ember)          # a page awaiting its render is not drift
+    flags, checked = _evidence_flags(ember)
+    open_items = st.open_items()
+    cutoff = ts(now - dt.timedelta(days=STALE_LINT_DAYS))
+    for it in open_items:
+        if str(it["updated"] or "") < cutoff:
+            flags.append(_flag("stale", it["id"], it["page"], f"open with no new evidence for {STALE_LINT_DAYS}+ days"))
+    pages = st.all_pages()
+    for p in pages:
+        if not st.items_for_page(p["page"]):
+            flags.append(_flag("orphan", "", p["page"], "page has no items"))
+    on_disk, in_db = set(wikifs.list_page_files(root)), {p["page"] for p in pages}
+    for page in sorted(on_disk - in_db):
+        flags.append(_flag("drift", "", page, "page file is not in the ember's index"))
+    for page in sorted(in_db - on_disk, key=str):
+        flags.append(_flag("drift", "", page, "indexed page has no file"))
+
+    status, usage = "ok", {}
+    pool = _contra_pool(open_items, checked)
+    if len(_paired(pool)) > 1:
+        if n_ctx < MIN_N_CTX:
+            errors.append(f"model context n_ctx={n_ctx} is below the minimum of {MIN_N_CTX} tokens; "
+                          "load the model with a larger context")
+            status = "partial"
+        else:
+            msgs, size, shown = _contra_prompt(pool, int(n_ctx * PROMPT_SHARE))
+            if not shown:
+                errors.append("the contradiction check does not fit the model context")
+                status = "partial"
+            else:
+                reply_tokens = max(MIN_REPLY_TOKENS, min(CONTRA_REPLY_TOKENS, n_ctx - size))
+                try:                       # any model failure only skips the contradiction check
+                    reply, usage = llm(msgs, prompts.CONTRA_SCHEMA, reply_tokens)
+                except Exception as e:
+                    errors.append(_err(e))
+                    status = "partial"
+                else:
+                    found, bad = _clean_pairs(reply, {i["id"]: i for i in shown})
+                    flags += found
+                    if bad:
+                        errors.append(bad)
+                        status = "partial"
+
+    _write_index(ember, _lint_md(now, flags))
+    counts = {}
+    for f in flags:
+        counts[f["kind"]] = counts.get(f["kind"], 0) + 1
+    summary = ", ".join(f"{n} {k}" for k, n in sorted(counts.items())) or "all clear"
+    if _dirty(st):
+        status = "partial"                 # a page failed to render, so drift may be overstated
+    try:
+        wikifs.append_log(root, now, "lint", summary)
+    except (OSError, ValueError) as e:
+        errors.append(f"log: {_err(e)}")
+        status = "partial"
+    with st.db:                            # the flags the brief reads and the run close together
+        st.set_meta(LINT_FLAGS_KEY, flags)
+        st.finish_run(run, now, status, "; ".join(errors), _tokens(usage, "prompt_tokens"),
+                      _tokens(usage, "completion_tokens"), counts)
+    return {"run": run, "status": status, "flags": flags, "summary": summary}
