@@ -4,7 +4,7 @@ An item is {"ref", "title", "text"}: ref is a stable human-readable pointer
 (relative path, event UID, feed link, commit sha). Adapters never write
 anywhere and cap what they read, because sources can be large or hostile.
 """
-import datetime as dt, html, os, re, stat, subprocess, urllib.request
+import datetime as dt, html, http.client, os, re, stat, subprocess, time, urllib.request
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
@@ -14,8 +14,10 @@ MAX_EVENTS     = 500
 MAX_FEED_ITEMS = 100
 MAX_COMMITS    = 200
 MAX_DOWNLOAD   = 2 * 1024 * 1024
-MAX_WALK       = 50000      # directory entries visited, whatever their type
-FETCH_TIMEOUT  = 20
+MAX_WALK       = 50000      # directories + files visited, whatever their type
+FETCH_TIMEOUT  = 20         # per socket operation
+DOWNLOAD_DEADLINE = 60      # wall-clock limit for a whole download
+CHUNK          = 64 * 1024
 FIRST_RUN_RELEASES = 30
 TEXT_EXT = (".md", ".txt")
 UA = "LlamaForge-Embers/1 (+https://github.com/dadwritestech/LlamaForge)"
@@ -24,6 +26,10 @@ ATOM = "{http://www.w3.org/2005/Atom}"
 
 class SourceError(Exception):
     """A source could not be read. The run continues; the source is marked stale."""
+
+
+def _now():
+    return time.monotonic()
 
 
 def _dict(v):
@@ -57,16 +63,25 @@ def _download(url, opener=None, timeout=FETCH_TIMEOUT):
     if urlparse(url).scheme.lower() not in ("http", "https"):
         raise SourceError("only http(s) URLs are supported")
     req = urllib.request.Request(url, headers={"User-Agent": UA})
+    deadline = _now() + DOWNLOAD_DEADLINE
+    chunks, total = [], 0
     try:
         with (opener or _OPENER.open)(req, timeout=timeout) as r:
-            data = r.read(MAX_DOWNLOAD + 1)
+            while total <= MAX_DOWNLOAD:
+                chunk = r.read(min(CHUNK, MAX_DOWNLOAD + 1 - total))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+                if _now() > deadline:
+                    raise SourceError(f"{url} took too long to download")
     except SourceError:
         raise
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         raise SourceError(f"could not fetch {url}: {e}") from None
-    if len(data) > MAX_DOWNLOAD:
+    if total > MAX_DOWNLOAD:
         raise SourceError(f"{url} is larger than {MAX_DOWNLOAD // 1024} KB")
-    return data
+    return b"".join(chunks)
 
 
 def _read_bytes(binding, opener=None):
@@ -93,16 +108,33 @@ def _inside(root, path):
 
 def fetch_folder(root, cursor):
     """.md/.txt files under root (dot-dirs skipped, symlinks out of root
-    ignored). Cursor: {relpath: "mtime:size"}."""
-    if not root or not os.path.isdir(root):
+    ignored, each real directory visited once). Cursor: {relpath: "mtime_ns:size"};
+    old "mtime_seconds:size" values are still honoured."""
+    if not isinstance(root, str) or not root or not os.path.isdir(root):
         raise SourceError(f"folder not found: {root}")
     real_root = os.path.realpath(root)
     cursor = _dict(cursor)
     seen, items, visited = {}, [], 0
+    real_dirs = {real_root}
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         # symlinks and junctions that resolve outside the root are never entered
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".")
-                             and _inside(real_root, os.path.realpath(os.path.join(dirpath, d))))
+        keep = []
+        for d in sorted(dirnames):
+            visited += 1
+            if visited > MAX_WALK:
+                return items, seen
+            if d.startswith("."):
+                continue
+            full = os.path.join(dirpath, d)
+            real_d = os.path.realpath(full)
+            if not _inside(real_root, real_d):
+                continue
+            if not os.path.islink(full):        # os.walk never descends symlinks; junctions it does
+                if real_d in real_dirs:         # a junction loop or alias already visited
+                    continue
+                real_dirs.add(real_d)
+            keep.append(d)
+        dirnames[:] = keep
         for name in sorted(filenames):
             visited += 1
             if visited > MAX_WALK:
@@ -122,9 +154,13 @@ def fetch_folder(root, cursor):
             if not stat.S_ISREG(st.st_mode):
                 continue
             rel = os.path.relpath(path, root).replace(os.sep, "/")
-            sig = f"{int(st.st_mtime)}:{st.st_size}"
+            try:
+                rel.encode("utf-8")
+            except UnicodeEncodeError:      # lone surrogates in a file name
+                continue
+            sig = f"{st.st_mtime_ns}:{st.st_size}"
             seen[rel] = sig
-            if cursor.get(rel) == sig:
+            if cursor.get(rel) in (sig, f"{int(st.st_mtime)}:{st.st_size}"):
                 continue
             try:
                 with open(real, "rb") as f:
@@ -161,15 +197,22 @@ def _ics_date(v):
 def parse_ics(text, today):
     """VEVENTs whose DTSTART falls within -7..+30 days of today (recurring
     events are matched on their first DTSTART only in v1)."""
-    events, cur = [], None
+    events, cur, depth = [], None, 0
     for line in _ics_lines(text):
-        if line == "BEGIN:VEVENT":
-            cur = {}
-        elif line == "END:VEVENT":
+        up = line.upper()
+        if up.startswith("BEGIN:"):
             if cur is not None:
-                events.append(cur)
-            cur = None
-        elif cur is not None and ":" in line:
+                depth += 1                      # VALARM etc. inside the event
+            elif up[6:].strip() == "VEVENT":
+                cur, depth = {}, 0
+        elif up.startswith("END:"):
+            if cur is not None:
+                if depth:
+                    depth -= 1
+                else:
+                    events.append(cur)
+                    cur = None
+        elif cur is not None and depth == 0 and ":" in line:
             head, value = line.split(":", 1)
             cur.setdefault(head.split(";", 1)[0].upper(), value)
     lo, hi = today - dt.timedelta(days=7), today + dt.timedelta(days=30)
@@ -186,7 +229,7 @@ def parse_ics(text, today):
 def fetch_ics(binding, cursor, now, opener=None):
     """Cursor: {uid: LAST-MODIFIED or DTSTAMP}."""
     text = _read_bytes(binding, opener).decode("utf-8", "replace")
-    if "BEGIN:VCALENDAR" not in text:
+    if "BEGIN:VCALENDAR" not in text.upper():
         raise SourceError("not an iCalendar file")
     cursor = _dict(cursor)
     seen, items = {}, []
@@ -214,17 +257,20 @@ def _strip_html(s):
 
 def parse_feed(data):
     """RSS 2.0 or Atom entries. Any DTD is refused outright: without one,
-    expat cannot expand custom entities (no billion-laughs, no XXE)."""
+    expat cannot expand custom entities (no billion-laughs, no XXE). The check
+    is a plain byte search, so a feed that merely quotes "<!DOCTYPE" inside
+    CDATA is rejected too: refusing a few odd-but-harmless feeds is the price of
+    never parsing a DTD."""
     flat = data.replace(b"\x00", b"").lower()      # also catches UTF-16/32 spellings
     if b"<!doctype" in flat or b"<!entity" in flat:
         raise SourceError("feed contains a DTD; refusing to parse it")
-    decl = re.match(rb"\s*<\?xml[^>]*?encoding\s*=\s*[\"']([^\"']+)", flat)
+    decl = re.match(rb"(?:\xef\xbb\xbf|\xff\xfe|\xfe\xff)?\s*<\?xml[^>]*?encoding\s*=\s*[\"']([^\"']+)", flat)
     if decl and decl[1].decode("ascii", "replace") not in (
             "utf-8", "utf8", "us-ascii", "ascii", "iso-8859-1", "latin1", "utf-16", "utf-32"):
         raise SourceError("feed uses an unsupported text encoding")
     try:
         root = ET.fromstring(data)
-    except (ET.ParseError, ValueError, RecursionError) as e:
+    except (ET.ParseError, ValueError, RecursionError, LookupError) as e:
         raise SourceError(f"feed is not valid XML ({e})") from None
     entries = []
     if root.tag == ATOM + "feed":
@@ -266,9 +312,6 @@ def fetch_rss(binding, cursor, now, opener=None):
     return items, {"seen": (keys + [k for k in before if k not in current])[:500]}
 
 
-_SEP, _END = "\x1f", "\x1e"
-
-
 def fetch_git(repo, cursor, now, run=subprocess.run):
     """Commits from the last 30 days, newest first, stopping at the cursor's
     last seen sha. argv only, never a shell. Cursor: {"last": sha}."""
@@ -276,9 +319,11 @@ def fetch_git(repo, cursor, now, run=subprocess.run):
         raise SourceError(f"repository not found: {repo}")
     since = (now - dt.timedelta(days=30)).strftime("%Y-%m-%d")
     args = ["git", "--no-pager", "-C", repo,
-            "-c", "core.fsmonitor=false", "-c", "core.hooksPath=",   # a hostile repo config runs nothing
-            "log", f"--max-count={MAX_COMMITS}", f"--since={since}",
-            "--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e"]     # git emits _SEP/_END itself
+            # neutralise the repo-config hooks we know of (fsmonitor, hooks, gpg signature
+            # verification); log with no -p/--ext-diff runs no other configured program
+            "-c", "core.fsmonitor=false", "-c", "core.hooksPath=", "-c", "log.showSignature=false",
+            "log", "--no-show-signature", f"--max-count={MAX_COMMITS}", f"--since={since}",
+            "-z", "--format=%H%n%an%n%aI%n%B"]     # NUL-terminated records; a message cannot contain NUL
     try:
         r = run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
                 env=dict(os.environ, GIT_PAGER="cat", PAGER="cat", GIT_TERMINAL_PROMPT="0"),
@@ -290,11 +335,13 @@ def fetch_git(repo, cursor, now, run=subprocess.run):
     last = _dict(cursor).get("last")
     last = last if isinstance(last, str) else None
     head, items = None, []
-    for rec in r.stdout.split(_END):
-        parts = rec.split(_SEP)
-        if len(parts) < 5:
+    for rec in r.stdout.split("\0"):
+        parts = rec.lstrip("\n").split("\n", 3)
+        if len(parts) < 4 or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", parts[0]):
             continue
-        sha, author, when, subject, body = (p.strip() for p in parts[:5])
+        sha, author, when = parts[0], parts[1].strip(), parts[2].strip()
+        subject, _, body = parts[3].strip().partition("\n")
+        subject, body = subject.strip(), body.strip()
         head = head or sha
         if sha == last:
             break
@@ -311,11 +358,18 @@ def fetch_llamacpp(binding, cursor, now, releases=None):
         rels = releases if releases is not None else feed.llama_releases()
     except Exception as e:      # network, rate limit, bad JSON: the source goes stale
         raise SourceError(f"could not read the llama.cpp release feed: {e}") from None
+    if not isinstance(rels, list):
+        raise SourceError("the llama.cpp release feed was not a list")
     try:
         last = max(0, int(_dict(cursor).get("build", 0)))
     except (TypeError, ValueError, OverflowError):
         last = 0
-    parsed = sorted((r for r in map(feed.parse_release, rels) if r and r["build"] > last),
+    def parse(rel):
+        try:
+            return feed.parse_release(rel) if isinstance(rel, dict) else None
+        except Exception:               # a release with odd field types is skipped
+            return None
+    parsed = sorted((r for r in map(parse, rels) if r and r["build"] > last),
                     key=lambda r: -r["build"])
     parsed = parsed[:FIRST_RUN_RELEASES if not last else MAX_FEED_ITEMS]
     items = [{"ref": r["tag"], "title": r["title"],

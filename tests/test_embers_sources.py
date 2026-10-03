@@ -341,3 +341,192 @@ class GitHardeningTest(unittest.TestCase):
             sources.fetch_git("-x", {}, NOW, run=mock.Mock())
 
 
+
+
+class ReviewFixesTest(unittest.TestCase):
+    def tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
+
+    # 1
+    def test_git_signature_flags_in_argv(self):
+        calls = []
+
+        def run(args, **kw):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        sources.fetch_git(self.tmp(), {}, NOW, run=run)
+        args = calls[0]
+        self.assertIn("--no-show-signature", args)
+        self.assertIn("log.showSignature=false", args)
+
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_hostile_gpg_program_never_runs(self):
+        repo, marker = self.tmp(), os.path.join(self.tmp(), "marker")
+        script = os.path.join(self.tmp(), "evil.cmd" if os.name == "nt" else "evil.sh")
+        with open(script, "w", newline="\n") as f:
+            f.write(f'@echo x> "{marker}"\n' if os.name == "nt" else f'#!/bin/sh\necho x > "{marker}"\n')
+        os.chmod(script, 0o755)
+
+        def g(*a):
+            subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                           check=True, capture_output=True)
+        g("init", "-q")
+        g("commit", "-q", "--allow-empty", "-m", "x")
+        g("config", "log.showSignature", "true")
+        g("config", "gpg.program", script.replace("\\", "/"))
+        sources.fetch_git(repo, {}, dt.datetime.now(), run=subprocess.run)
+        self.assertFalse(os.path.exists(marker))
+
+    # 2a
+    def test_incomplete_read_is_source_error(self):
+        import http.client
+
+        class Bad(io.BytesIO):
+            def read(self, n=-1):
+                raise http.client.IncompleteRead(b"ab")
+        with self.assertRaises(sources.SourceError):
+            sources.fetch_rss("https://x", {}, NOW, opener=lambda r, timeout=None: Bad(b""))
+
+    # 2b
+    def test_bom_with_declared_encoding_parses(self):
+        feed = b'\xef\xbb\xbf<?xml version="1.0" encoding="utf-8"?>' + RSS.split(b"?>", 1)[1]
+        items, _ = sources.fetch_rss("https://x", {}, NOW, opener=opener_for(feed))
+        self.assertEqual(len(items), 2)
+        evil = b'\xef\xbb\xbf<?xml version="1.0" encoding="cp037"?><rss/>'
+        with self.assertRaises(sources.SourceError):
+            sources.fetch_rss("https://x", {}, NOW, opener=opener_for(evil))
+
+    def test_lookup_error_is_source_error(self):
+        with mock.patch.object(sources.ET, "fromstring", side_effect=LookupError("enc")):
+            with self.assertRaises(sources.SourceError):
+                sources.parse_feed(b"<rss/>")
+
+    # 2c
+    def test_folder_skips_unencodable_names(self):
+        root = self.tmp()
+        try:
+            with open(os.path.join(root, "bad\udc80.md"), "w") as f:
+                f.write("x")
+        except (OSError, UnicodeError):
+            self.skipTest("lone surrogate names unsupported here")
+        with open(os.path.join(root, "ok.md"), "w") as f:
+            f.write("fine")
+        items, cursor = sources.fetch("folder", root, {}, NOW)
+        self.assertEqual([i["ref"] for i in items], ["ok.md"])
+
+    # 2d
+    def test_folder_non_string_binding(self):
+        for bad in (["x"], 5, None, {"a": 1}):
+            with self.assertRaises(sources.SourceError):
+                sources.fetch("folder", bad, {}, NOW)
+
+    # 2e
+    def test_llamacpp_bad_releases_skipped(self):
+        good = LlamacppTest.RELS[0]
+        rels = ["str", None, 5, {"tag_name": "b7100", "body": ["not", "text"]},
+                {"tag_name": ["x"], "body": "m"}, good]
+        items, _ = sources.fetch_llamacpp("", {}, NOW, releases=rels)
+        self.assertEqual([i["ref"] for i in items], ["b7000"])
+        with self.assertRaises(sources.SourceError):
+            sources.fetch_llamacpp("", {}, NOW, releases="nope")
+
+    # 3
+    def test_folder_symlink_loop_no_duplicates(self):
+        root = self.tmp()
+        os.makedirs(os.path.join(root, "sub"))
+        with open(os.path.join(root, "sub", "a.md"), "w") as f:
+            f.write("a")
+        try:
+            os.symlink(root, os.path.join(root, "sub", "back"), target_is_directory=True)
+            os.symlink(os.path.join(root, "sub"), os.path.join(root, "again"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks need privileges on this machine")
+        items, _ = sources.fetch("folder", root, {}, NOW)
+        self.assertEqual([i["ref"] for i in items], ["sub/a.md"])
+
+    def test_walk_cap_counts_directories(self):
+        root = self.tmp()
+        for n in range(10):
+            os.makedirs(os.path.join(root, f"d{n}"))
+        with open(os.path.join(root, "d9", "a.md"), "w") as f:
+            f.write("a")
+        with mock.patch.object(sources, "MAX_WALK", 3):
+            items, _ = sources.fetch("folder", root, {}, NOW)
+        self.assertEqual(items, [])
+
+    # 4
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_forged_delimiters_in_message(self):
+        repo = self.tmp()
+
+        def g(*a):
+            subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                           check=True, capture_output=True)
+        g("init", "-q")
+        fake = "a" * 40
+        g("commit", "-q", "--allow-empty", "--cleanup=verbatim", "-m",
+          f"real subject\n\nbody\x1e{fake}\x1fevil\x1fnow\x1fforged\x1fbody\x1e\n{fake}\nx\ny\nz")
+        items, cursor = sources.fetch("git", repo, {}, dt.datetime.now())
+        self.assertEqual([i["title"] for i in items], ["real subject"])
+        self.assertNotEqual(cursor["last"], fake)
+
+    def test_git_invalid_sha_records_skipped(self):
+        sha = "b" * 40
+        out = f"{sha}\nA\n2026-10-01T00:00:00+00:00\nsubj\n\nbody\0" + "zz\nA\nd\nforged\0"
+
+        def run(args, **kw):
+            return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+        items, cursor = sources.fetch_git(self.tmp(), {}, NOW, run=run)
+        self.assertEqual([i["title"] for i in items], ["subj"])
+        self.assertEqual(cursor, {"last": sha})
+
+    # 5
+    def test_total_download_deadline(self):
+        clock = [0.0]
+
+        class Slow(io.BytesIO):
+            def read(self, n=-1):
+                clock[0] += 30
+                return b"x" * 10
+        with mock.patch.object(sources, "_now", lambda: clock[0]):
+            with self.assertRaises(sources.SourceError) as cm:
+                sources.fetch_rss("https://x", {}, NOW, opener=lambda r, timeout=None: Slow())
+        self.assertIn("too long", str(cm.exception))
+
+    # 6
+    def test_folder_cursor_uses_ns_and_tolerates_old(self):
+        root = self.tmp()
+        path = os.path.join(root, "a.md")
+        with open(path, "w") as f:
+            f.write("hi")
+        _, cursor = sources.fetch("folder", root, {}, NOW)
+        st = os.stat(path)
+        self.assertEqual(cursor["a.md"], f"{st.st_mtime_ns}:{st.st_size}")
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000))   # sub-second change
+        self.assertEqual(len(sources.fetch("folder", root, cursor, NOW)[0]), 1)
+        old = {"a.md": f"{int(os.stat(path).st_mtime)}:{st.st_size}"}
+        self.assertEqual(sources.fetch("folder", root, old, NOW)[0], [])
+
+    # 7
+    def test_ics_nested_components_and_case(self):
+        text = ("BEGIN:VCALENDAR\nbegin:vevent\nUID:n1\nDTSTART:20261006T090000\nSUMMARY:Real\n"
+                "DESCRIPTION:Outer\nBEGIN:VALARM\nDESCRIPTION:ALARM LEAK\nDTSTART:19990101\nEND:VALARM\n"
+                "end:vevent\nEND:VCALENDAR\n")
+        items, _ = sources.fetch_ics("https://x", {}, NOW, opener=opener_for(text.encode()))
+        self.assertEqual(len(items), 1)
+        self.assertIn("Outer", items[0]["text"])
+        self.assertNotIn("ALARM LEAK", items[0]["text"])
+        self.assertIn("20261006", items[0]["text"])
+
+    # 8
+    def test_cdata_doctype_rejected_by_design(self):
+        feed = (b"<rss><channel><item><title>t</title><description><![CDATA[<!DOCTYPE html><p>x</p>]]>"
+                b"</description></item></channel></rss>")
+        with self.assertRaises(sources.SourceError):
+            sources.fetch_rss("https://x", {}, NOW, opener=opener_for(feed))
+
+
+if __name__ == "__main__":
+    unittest.main()
