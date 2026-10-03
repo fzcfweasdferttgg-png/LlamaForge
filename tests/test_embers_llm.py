@@ -40,6 +40,14 @@ class ParseJsonTest(unittest.TestCase):
         self.assertEqual(llm.parse_json('<think>hmm {"x": 2} maybe</think>\n{"a": 1}'), {"a": 1})
         self.assertEqual(llm.parse_json('<think>\nthinking\n</think>\n```json\n{"a": 1}\n```'), {"a": 1})
 
+    def test_closing_tag_only_and_variants_take_the_final_answer(self):
+        final = {"ops": ["final"]}
+        for text in ('reasoning {"ops":["draft"]} done</think>\n{"ops":["final"]}',
+                     '﻿<think>try {"ops":["draft"]}</think>{"ops":["final"]}',
+                     '<Think>{"ops":["draft"]}</Think>{"ops":["final"]}',
+                     '<think>a</think><think>{"ops":["draft"]}</think>{"ops":["final"]}'):
+            self.assertEqual(llm.parse_json(text), final, msg=text)
+
     def test_unterminated_think_is_an_error(self):
         with self.assertRaises(llm.LLMError):
             llm.parse_json('<think>ran out of tokens {"a": 1}')
@@ -261,6 +269,34 @@ class RequestTest(unittest.TestCase):
 
     def test_redirects_not_followed(self):
         self.assertIsNone(llm._NoRedirect().redirect_request(None, None, 302, "x", {}, "http://evil/"))
+
+
+class LoopbackTruncationTest(unittest.TestCase):
+    def test_truncated_chunked_body_is_llm_error(self):
+        import http.server, socketserver, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                self.wfile.write(b"64\r\n" + b'{"choices": [')  # promises 100 bytes, sends 13
+                self.wfile.flush()
+                self.close_connection = True
+
+            def log_message(self, *a):
+                pass
+
+        srv = socketserver.TCPServer(("127.0.0.1", 0), H)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(t.join, 5)
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        with self.assertRaises(llm.LLMError):
+            llm._request(f"http://127.0.0.1:{srv.server_address[1]}/x", timeout=5)
 
 
 if __name__ == "__main__":

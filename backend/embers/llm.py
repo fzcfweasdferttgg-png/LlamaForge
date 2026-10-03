@@ -8,7 +8,7 @@ Everything here treats the router's reply and the model's text as untrusted:
 every failure surfaces as LLMError with a short message (never the API key,
 never a KeyError/TypeError), reads are size-capped and time-limited.
 """
-import json, urllib.error, urllib.parse, urllib.request
+import http.client, json, re, urllib.error, urllib.parse, urllib.request
 
 TIMEOUT = 600            # a long batch on a 16 GB card can take minutes
 DEFAULT_N_CTX = 8192
@@ -58,6 +58,10 @@ def check_shape(obj, schema, path="$", depth=0):
     return None
 
 
+_THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+_THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
+
+
 def parse_json(text):
     """Model text -> JSON value. Handles a leading <think>...</think> block
     (reasoning models), ```json fences, and prose around one object.
@@ -66,12 +70,14 @@ def parse_json(text):
         raise JSONParseError("empty reply")
     if len(text) > MAX_JSON_CHARS:
         raise JSONParseError("reply too large to parse")
-    t = text.strip()
-    if t.startswith("<think>"):
-        end = t.find("</think>")
-        if end < 0:
-            raise JSONParseError("reply ended inside a <think> block")
-        t = t[end + len("</think>"):].strip()
+    t = text.lstrip("﻿").strip().lstrip("﻿")
+    # Reasoning models: the answer follows the LAST </think> (case-insensitive).
+    # Some templates put <think> in the prompt, so only the closing tag appears.
+    closes = list(_THINK_CLOSE.finditer(t))
+    if closes:
+        t = t[closes[-1].end():].strip()
+    elif _THINK_OPEN.match(t):
+        raise JSONParseError("reply ended inside a <think> block")
     if t.startswith("```"):
         t = t[3:]
         if t[:4].lower() == "json":
@@ -155,7 +161,7 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
         except Exception:
             detail = ""
         raise LLMError(clean(f"router answered {e.code}: {detail}")[:400]) from None
-    except (OSError, ValueError, RecursionError) as e:
+    except (OSError, ValueError, RecursionError, http.client.HTTPException) as e:
         raise LLMError(clean(f"router unreachable or unreadable: {type(e).__name__}: {e}")[:400]) from None
 
 
