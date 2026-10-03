@@ -74,6 +74,42 @@ class ParseTemplateTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             templates.parse_template("not json")
 
+    def test_trailing_newline_rejected(self):
+        for bad in (base(name="morning-brief\n"),
+                    base(page_kinds=["projects\n"]),
+                    base(slots=[{"id": "a\n", "type": "folder"}]),
+                    base(jobs={"brief": "07:00\n"})):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                templates.parse_template(bad)
+
+    def test_deep_nesting_is_value_error(self):
+        with self.assertRaises(ValueError):
+            templates.parse_template("[" * 20000 + "]" * 20000)
+
+    def test_windows_reserved_names_rejected(self):
+        for bad in (base(name="con"), base(name="NUL"), base(name="com1"),
+                    base(page_kinds=["projects", "aux"]), base(page_kinds=["lpt9"])):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                templates.parse_template(bad)
+        import embers
+        self.assertTrue(embers.reserved_name("CoN"))
+        self.assertFalse(embers.reserved_name("console"))
+
+    def test_blank_required_text_rejected(self):
+        with self.assertRaises(ValueError):
+            templates.parse_template(base(title="   "))
+
+    def test_rss_default_needs_host(self):
+        for url in ("http://", "https:///feed.xml"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                templates.parse_template(base(slots=[
+                    {"id": "feed", "type": "rss", "default": url}]))
+
+    def test_size_cap_counts_utf8_bytes(self):
+        # 30k chars of a 3-byte char = 90 KB of bytes but only 30k characters
+        with self.assertRaises(ValueError):
+            templates.parse_template(json.dumps(base(junk="€" * 30000), ensure_ascii=False))
+
 
 class BundledTemplatesTest(unittest.TestCase):
     def test_morning_brief_is_valid_and_clean(self):

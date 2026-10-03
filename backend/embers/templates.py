@@ -8,6 +8,8 @@ recipes.parse: unknown keys are dropped and reported, not fatal.
 import json, re
 from urllib.parse import urlparse
 
+from . import reserved_name
+
 MAX_BYTES    = 64 * 1024
 MAX_SCHEMA   = 8 * 1024
 MAX_MISSION  = 1000
@@ -26,15 +28,16 @@ SLOT_KEYS = ("id", "type", "label", "required", "default")
 
 
 def _text(v, what, cap, required=True):
-    if v is None or v == "":
+    if v is not None and not isinstance(v, str):
+        raise ValueError(f"{what} must be text")
+    v = (v or "").strip()
+    if not v:
         if required:
             raise ValueError(f"{what} is required")
         return ""
-    if not isinstance(v, str):
-        raise ValueError(f"{what} must be text")
     if len(v) > cap:
         raise ValueError(f"{what} is longer than {cap} characters")
-    return v.strip()
+    return v
 
 
 def _slot(raw, i, dropped):
@@ -42,7 +45,7 @@ def _slot(raw, i, dropped):
         raise ValueError(f"slot {i} must be an object")
     dropped += [f"slots[{i}].{k}" for k in raw if k not in SLOT_KEYS]
     sid = raw.get("id")
-    if not isinstance(sid, str) or not SLOT_ID_RE.match(sid):
+    if not isinstance(sid, str) or not SLOT_ID_RE.fullmatch(sid):
         raise ValueError(f"slot {i}: id must be lowercase letters, digits or _")
     stype = raw.get("type")
     if stype not in SLOT_TYPES:
@@ -58,7 +61,8 @@ def _slot(raw, i, dropped):
             dropped.append(f"slots[{i}].default")
         else:
             url = _text(default, f"slot {sid} default", 500)
-            if urlparse(url).scheme not in ("http", "https"):
+            parts = urlparse(url)
+            if parts.scheme not in ("http", "https") or not parts.netloc:
                 raise ValueError(f"slot {sid}: default must be an http(s) URL")
             out["default"] = url
     return out
@@ -75,7 +79,7 @@ def _jobs(raw, dropped):
             dropped.append(f"jobs.{k}")
         elif v in (None, "", "off"):
             out[k] = "off"
-        elif isinstance(v, str) and WHEN_RE.match(v):
+        elif isinstance(v, str) and WHEN_RE.fullmatch(v):
             out[k] = v
         else:
             raise ValueError(f"jobs.{k}: use HH:MM, 'sun 03:00' or 'off'")
@@ -88,22 +92,28 @@ def parse_template(src):
     """Validate a template (JSON text/bytes or a dict). Returns a clean dict
     with a "dropped" list of ignored keys. Raises ValueError with a reason."""
     if isinstance(src, (bytes, str)):
+        if isinstance(src, str):
+            src = src.encode("utf-8", "surrogatepass")
         if len(src) > MAX_BYTES:
             raise ValueError("template is too large")
         try:
             src = json.loads(src)
-        except ValueError as e:
-            raise ValueError(f"template is not valid JSON ({e})") from None
+        except (ValueError, RecursionError) as e:
+            raise ValueError(f"template is not valid JSON ({type(e).__name__})") from None
     if not isinstance(src, dict):
         raise ValueError("template must be a JSON object")
     dropped = [k for k in src if k not in TOP_KEYS]
     name = src.get("name")
-    if not isinstance(name, str) or not NAME_RE.match(name):
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
         raise ValueError("name must be lowercase letters, digits and dashes")
+    if reserved_name(name):
+        raise ValueError(f"name '{name}' is a reserved device name")
     kinds = src.get("page_kinds")
     if (not isinstance(kinds, list) or not kinds or len(kinds) > MAX_KINDS
-            or not all(isinstance(k, str) and KIND_RE.match(k) for k in kinds)):
+            or not all(isinstance(k, str) and KIND_RE.fullmatch(k) for k in kinds)):
         raise ValueError(f"page_kinds must be 1-{MAX_KINDS} lowercase slugs")
+    if any(reserved_name(k) for k in kinds):
+        raise ValueError("page_kinds contains a reserved device name")
     slots_raw = src.get("slots") or []
     if not isinstance(slots_raw, list) or len(slots_raw) > MAX_SLOTS:
         raise ValueError(f"slots must be a list of at most {MAX_SLOTS}")
