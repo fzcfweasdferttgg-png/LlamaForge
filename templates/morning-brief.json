@@ -1,0 +1,17 @@
+{
+  "name": "morning-brief",
+  "title": "Morning Brief",
+  "mission": "Keep track of my loose ends: promises I made, things I am waiting on, deadlines and meetings. Each morning, tell me what needs attention today.",
+  "schema_md": "# How this wiki is organised\n\n- `projects/<slug>`: one page per project or area of work. Open loops (things to do, things I am waiting on) live here.\n- `people/<slug>`: one page per person I deal with: what they owe me and what I owe them.\n- `events/<slug>`: meetings and deadlines worth preparing for.\n\nItem kinds: `loop` (an open task or promise), `fact` (something true worth remembering), `person` (who someone is), `event` (a dated happening).\n\nClose a loop only when a source says it is done. Prefer updating an existing item over adding a near-duplicate.",
+  "page_kinds": ["projects", "people", "events"],
+  "slots": [
+    {"id": "notes", "type": "folder", "label": "Notes folder (Markdown or text, e.g. an Obsidian vault)"},
+    {"id": "calendar", "type": "ics", "label": "Calendar (.ics file or URL)"},
+    {"id": "repo", "type": "git", "label": "A git repository you work in"},
+    {"id": "feed", "type": "rss", "label": "An RSS or Atom feed"}
+  ],
+  "jobs": {"ingest": "02:00", "brief": "07:00", "lint": "sun 03:00"},
+  "model_hint": "8B+ instruct model; 14B+ recommended",
+  "stale_days": 3,
+  "about": "Bundled with LlamaForge. Reads only; never sends anything."
+}
