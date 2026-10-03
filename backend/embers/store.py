@@ -99,6 +99,12 @@ class Store:
                         "WHERE id=?", (ts(now), status, (error or "")[:2000], tokens_in, tokens_out,
                                        json.dumps(detail or {}), run_id))
 
+    def abort_running(self, job, now):
+        """Close rows of `job` left 'running' by a process that died mid-run. Returns how many."""
+        return self.db.execute("UPDATE runs SET status='aborted', finished=?, "
+                               "error='interrupted before it finished' WHERE job=? AND status='running'",
+                               (ts(now), job)).rowcount
+
     def last_run(self, job, status="ok"):
         r = self.db.execute("SELECT * FROM runs WHERE job=? AND status=? ORDER BY id DESC LIMIT 1",
                             (job, status)).fetchone()
@@ -112,6 +118,12 @@ class Store:
         _check(RAW_RE, sha, "raw id")
         cur = self.db.execute("INSERT OR IGNORE INTO raws(sha, source, ref, title, fetched, size) "
                               "VALUES(?,?,?,?,?,?)", (sha, source, ref, title, ts(now), size))
+        if cur.rowcount == 1:
+            return True
+        # Fetched again after its file vanished or was pruned: the text is back, so it is work again.
+        # done/failed/pending stay as they are (a failed raw must not loop forever).
+        cur = self.db.execute("UPDATE raws SET status='pending', size=?, fetched=? "
+                              "WHERE sha=? AND status IN ('missing', 'pruned')", (size, ts(now), sha))
         return cur.rowcount == 1
 
     def pending_raws(self):

@@ -35,6 +35,18 @@ class RunsTest(StoreTestCase):
         self.assertEqual((last["status"], last["tokens_in"], last["started"]), ("ok", 10, "2026-10-05T02:00:00"))
         self.assertEqual(self.st.recent_runs()[0]["id"], rid)
 
+    def test_abort_running_closes_only_that_jobs_open_rows(self):
+        with self.st.db:
+            stale = self.st.start_run("ingest", NOW)
+            done = self.st.start_run("ingest", NOW)
+            self.st.finish_run(done, NOW, "ok")
+            other = self.st.start_run("brief", NOW)
+            self.assertEqual(self.st.abort_running("ingest", NOW + dt.timedelta(hours=1)), 1)
+        runs = {r["id"]: r for r in self.st.recent_runs()}
+        self.assertEqual((runs[stale]["status"], runs[stale]["finished"]), ("aborted", "2026-10-05T03:00:00"))
+        self.assertIn("interrupted", runs[stale]["error"])
+        self.assertEqual((runs[done]["status"], runs[other]["status"]), ("ok", "running"))
+
 
 class RawsTest(StoreTestCase):
     def test_dedupe_pending_and_status(self):
@@ -48,6 +60,21 @@ class RawsTest(StoreTestCase):
         self.assertEqual(self.st.raw_status("a1b2c3d4e5f6"), "done")
         self.assertIsNone(self.st.raw_status("ffffffffffff"))
         self.assertEqual(len(self.st.all_raws()), 1)
+
+    def test_refetch_revives_missing_and_pruned_only(self):
+        shas = {"missing": "aaaaaaaaaaa1", "pruned": "aaaaaaaaaaa2", "done": "aaaaaaaaaaa3",
+                "failed": "aaaaaaaaaaa4", "pending": "aaaaaaaaaaa5"}
+        with self.st.db:
+            for status, sha in shas.items():
+                self.st.add_raw(sha, "notes", "a.md", "a.md", NOW, 10)
+                self.st.mark_raws([sha], status)
+            got = {status: self.st.add_raw(sha, "notes", "a.md", "a.md", NOW, 99) for status, sha in shas.items()}
+        self.assertEqual(got, {"missing": True, "pruned": True, "done": False, "failed": False, "pending": False})
+        status = {s: self.st.raw_status(sha) for s, sha in shas.items()}
+        self.assertEqual(status, {"missing": "pending", "pruned": "pending", "done": "done",
+                                  "failed": "failed", "pending": "pending"})
+        size = {r["sha"]: r["size"] for r in self.st.all_raws()}
+        self.assertEqual((size[shas["pruned"]], size[shas["done"]]), (99, 10))
 
 
 class ItemsTest(StoreTestCase):

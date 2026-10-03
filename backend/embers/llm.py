@@ -23,6 +23,12 @@ class LLMError(Exception):
     pass
 
 
+class RouterUnavailable(LLMError):
+    """The router refused the connection or answered 503 (down, restarting,
+    loading a model): nothing about the request was at fault, so callers
+    should stop and try later rather than count it against the input."""
+
+
 class JSONParseError(LLMError, ValueError):
     """Model text was not usable JSON (is a ValueError for callers that expect one)."""
 
@@ -160,9 +166,13 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
             detail = e.read(300).decode("utf-8", "replace")
         except Exception:
             detail = ""
-        raise LLMError(clean(f"router answered {e.code}: {detail}")[:400]) from None
+        cls = RouterUnavailable if e.code == 503 else LLMError
+        raise cls(clean(f"router answered {e.code}: {detail}")[:400]) from None
     except (OSError, ValueError, RecursionError, http.client.HTTPException) as e:
-        raise LLMError(clean(f"router unreachable or unreadable: {type(e).__name__}: {e}")[:400]) from None
+        refused = isinstance(e, ConnectionRefusedError) or (
+            isinstance(e, urllib.error.URLError) and isinstance(e.reason, ConnectionRefusedError))
+        cls = RouterUnavailable if refused else LLMError     # a timeout may be the input's fault
+        raise cls(clean(f"router unreachable or unreadable: {type(e).__name__}: {e}")[:400]) from None
 
 
 def _valid_port(v):

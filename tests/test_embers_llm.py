@@ -267,6 +267,28 @@ class RequestTest(unittest.TestCase):
             self.run_with(fake, key="SECRETKEY123")
         self.assertNotIn("SECRETKEY123", str(cm.exception))
 
+    def test_outages_are_router_unavailable_and_other_failures_are_not(self):
+        def raiser(exc):
+            def fake(req, timeout):
+                raise exc
+            return fake
+        outages = [ConnectionRefusedError("refused"),
+                   urllib.error.URLError(ConnectionRefusedError(10061, "refused")),
+                   urllib.error.HTTPError("u", 503, "Loading model", {}, io.BytesIO(b"loading"))]
+        for exc in outages:
+            with self.assertRaises(llm.RouterUnavailable, msg=repr(exc)):
+                self.run_with(raiser(exc))
+        others = [TimeoutError("timed out"), urllib.error.URLError(TimeoutError("timed out")),
+                  urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(b"context too long")),
+                  urllib.error.HTTPError("u", 500, "err", {}, io.BytesIO(b"boom"))]
+        for exc in others:
+            with self.assertRaises(llm.LLMError) as cm:
+                self.run_with(raiser(exc))
+            self.assertNotIsInstance(cm.exception, llm.RouterUnavailable, repr(exc))
+        with self.assertRaises(llm.LLMError) as cm:
+            self.run_with(lambda req, timeout: _FakeResp(b"\xff\xfe not json"))
+        self.assertNotIsInstance(cm.exception, llm.RouterUnavailable)
+
     def test_redirects_not_followed(self):
         self.assertIsNone(llm._NoRedirect().redirect_request(None, None, 302, "x", {}, "http://evil/"))
 
