@@ -20,19 +20,29 @@ ITEM_RE = re.compile(r"it-[0-9a-f]{8}")                     # also a valid Obsid
 RAW_RE  = re.compile(r"[0-9a-f]{12}")
 
 _QUOTES = dict.fromkeys(map(ord, "'\"`\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u00ab\u00bb"), None)
-_DASHES = dict.fromkeys(map(ord, "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"), " ")
+_DASHES = dict.fromkeys(map(ord, "-\u2010\u2011\u2012\u2013\u2014\u2015"), " ")
+MINUS   = "\u2212"                       # kept only in front of a digit
+_MINUS  = re.compile(r"[-" + MINUS + r"](?=\d)")
+_WORD   = r"\w" + MINUS                      # characters that glue a match to its neighbours
+
+
+def _contains(hay, needle):
+    """Whole-word containment on normalised text (a minus sign counts as part of a word)."""
+    return re.search(r"(?<![" + _WORD + r"])" + re.escape(needle) + r"(?![" + _WORD + r"])", hay) is not None
 
 
 def normalise(s):
     """NFKC, lowercase, quotes removed, dashes to spaces, whitespace collapsed."""
     s = unicodedata.normalize("NFKC", s or "").lower()
-    s = s.translate(_QUOTES).translate(_DASHES)
+    s = s.translate(_QUOTES)
+    s = _MINUS.sub(MINUS, s)             # a minus in front of a digit is significant
+    s = s.translate(_DASHES)
     return " ".join(s.split())
 
 
 def check_quote(quote, raw_text):
     q = normalise(quote)
-    return len(q) >= MIN_QUOTE and q in normalise(raw_text)
+    return len(q) >= MIN_QUOTE and _contains(normalise(raw_text), q)
 
 
 def page_ok(page, kinds):
@@ -48,7 +58,7 @@ def _one_line(s, cap):
 
 def _grounded(value, quotes):
     v = normalise(value)
-    return bool(v) and any(v in normalise(q) for q in quotes)
+    return len(v) >= 2 and any(_contains(normalise(q), v) for q in quotes)
 
 
 def verify_op(op, raws, kinds, known_items=()):

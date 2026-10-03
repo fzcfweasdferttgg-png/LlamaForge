@@ -132,6 +132,65 @@ class HardeningTest(unittest.TestCase):
         self.assertIsNone(verify.verify_op(op(page=["projects/acme"]), RAWS, KINDS)[0])
 
 
+class BypassTest(unittest.TestCase):
+    UNPAID = {"c0ffee000001": "The invoice was unpaid on Monday."}
+    ITEM_ID = "it-0000abcd"
+
+    def test_quote_cannot_start_mid_word(self):
+        self.assertFalse(verify.check_quote("paid on Monday", self.UNPAID["c0ffee000001"]))
+        self.assertTrue(verify.check_quote("unpaid on Monday", self.UNPAID["c0ffee000001"]))
+
+    def test_quote_cannot_end_mid_word(self):
+        self.assertFalse(verify.check_quote("The invoice was unpa", self.UNPAID["c0ffee000001"]))
+
+    def test_mid_word_quote_does_not_verify_add(self):
+        clean, _ = verify.verify_op(op(evidence=[{"raw": "c0ffee000001", "quote": "paid on Monday"}]),
+                                    self.UNPAID, KINDS)
+        self.assertFalse(clean["verified"])
+
+    def test_mid_word_quote_cannot_close(self):
+        clean, why = verify.verify_op(op(op="close", item=self.ITEM_ID,
+                                         evidence=[{"raw": "c0ffee000001", "quote": "paid on Monday"}]),
+                                      self.UNPAID, KINDS, {self.ITEM_ID})
+        self.assertIsNone(clean)
+        self.assertIn("evidence", why)
+
+    def test_owner_not_grounded_by_substring(self):
+        raws = {"c0ffee000002": "Signed off by the team on Monday, thanks all"}
+        ev = [{"raw": "c0ffee000002", "quote": "Signed off by the team on Monday"}]
+        for owner in ("Ned", "e", "team on mon"):
+            with self.subTest(owner=owner):
+                clean, _ = verify.verify_op(op(owner=owner, due="", evidence=ev), raws, KINDS)
+                self.assertEqual(clean["owner"], "")
+        clean, _ = verify.verify_op(op(owner="team", due="", evidence=ev), raws, KINDS)
+        self.assertEqual(clean["owner"], "team")
+
+    def test_due_not_grounded_by_prefix(self):
+        clean, _ = verify.verify_op(op(due="Mon", owner="",
+                                       evidence=[{"raw": "c0ffee000001",
+                                                  "quote": "unpaid on Monday"}]), self.UNPAID, KINDS)
+        self.assertEqual(clean["due"], "")
+
+    def test_one_char_value_never_grounded(self):
+        raws = {"c0ffee000003": "Plan b is to ship on Friday afternoon"}
+        clean, _ = verify.verify_op(op(owner="b", due="", evidence=[{"raw": "c0ffee000003",
+                                    "quote": "Plan b is to ship on Friday"}]), raws, KINDS)
+        self.assertEqual(clean["owner"], "")
+
+    def test_minus_sign_is_significant(self):
+        minus = chr(0x2212)
+        for sign in ("-", minus):
+            with self.subTest(sign=sign):
+                raw = "Balance: " + sign + "500 dollars owed by Acme"
+                self.assertFalse(verify.check_quote("Balance: 500 dollars owed", raw))
+                self.assertTrue(verify.check_quote("Balance: " + sign + "500 dollars owed", raw))
+        self.assertTrue(verify.check_quote("Balance: -500 dollars owed",
+                                           "Balance: " + minus + "500 dollars owed by Acme"))
+
+    def test_dash_between_words_still_normalised(self):
+        self.assertTrue(verify.check_quote("ship the thing-today ok", "ship the thing" + chr(0x2014) + "today ok"))
+
+
 class VerifyBatchTest(unittest.TestCase):
     def test_op_cap(self):
         ops, _, rejected = verify.verify_batch({"ops": [op()] * 45}, RAWS, KINDS)
