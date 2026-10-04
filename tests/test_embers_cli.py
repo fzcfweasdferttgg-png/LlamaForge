@@ -383,6 +383,14 @@ class HardeningTest(CliCase):
         self.assertIn("ingest failed", line)
         self.assertIn("lint aborted", line)
 
+    def test_list_shows_skipped(self):
+        self.create()
+        with jobs.Ember(os.path.join(self.dir, "embers", "morning")) as e, e.store.db:
+            e.store.record_skip("brief", NOW, "router never came up")
+        code, out = self.cli("list")
+        self.assertEqual(code, 0)
+        self.assertIn(f"brief skipped ({NOW.strftime('%Y-%m-%dT%H:%M')})", out)
+
     def test_list_skips_odd_folders_and_survives_a_broken_ember(self):
         self.create()
         base = os.path.join(self.dir, "embers")

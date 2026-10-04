@@ -1,7 +1,7 @@
 import conftest_paths  # noqa: F401
 import datetime as dt, os, shutil, tempfile, unittest
 
-from embers.store import Store
+from embers.store import Store, parse_ts, ts
 
 NOW = dt.datetime(2026, 10, 5, 2, 0)
 
@@ -46,6 +46,76 @@ class RunsTest(StoreTestCase):
         self.assertEqual((runs[stale]["status"], runs[stale]["finished"]), ("aborted", "2026-10-05T03:00:00"))
         self.assertIn("interrupted", runs[stale]["error"])
         self.assertEqual((runs[done]["status"], runs[other]["status"]), ("ok", "running"))
+
+
+class ParseTsTest(unittest.TestCase):
+    def test_roundtrip(self):
+        self.assertEqual(parse_ts(ts(NOW)), NOW)
+        self.assertEqual(parse_ts("2026-10-04T07:00:59"), dt.datetime(2026, 10, 4, 7, 0, 59))
+        self.assertIsNone(parse_ts(ts(NOW)).tzinfo)
+
+    def test_rejects_junk_without_raising(self):
+        for bad in ("2026-13-01T00:00:00", "2026-10-04 07:00:00", "x", "", None, 7, b"2026-10-04T07:00:00",
+                    "2026-10-04T07:00:00.123456", "2026-10-04T07:00", "2026-10-04T07:00:00Z", "2026-10-04T07:00:00\n", "２０２６-10-04T07:00:00",
+                    "2026-10-04T07:00:00" + " " * 40, "9" * 10000):
+            with self.subTest(bad=bad):
+                self.assertIsNone(parse_ts(bad))
+
+
+class AttemptsTest(StoreTestCase):
+    def test_last_attempt_none_without_runs(self):
+        self.assertIsNone(self.st.last_attempt("brief"))
+
+    def test_last_attempt_any_status(self):
+        with self.st.db:
+            ok = self.st.start_run("brief", NOW)
+            self.st.finish_run(ok, NOW, "ok")
+            skip = self.st.record_skip("brief", NOW + dt.timedelta(hours=1), "router down")
+        self.assertEqual(self.st.last_attempt("brief")["id"], skip)
+        with self.st.db:
+            run = self.st.start_run("brief", NOW + dt.timedelta(hours=2))
+        got = self.st.last_attempt("brief")
+        self.assertEqual((got["id"], got["status"]), (run, "running"))
+        with self.st.db:
+            self.st.abort_running("brief", NOW + dt.timedelta(hours=3))
+        self.assertEqual(self.st.last_attempt("brief")["status"], "aborted")
+
+    def test_orders_by_started_then_id(self):
+        with self.st.db:
+            late = self.st.record_skip("brief", NOW + dt.timedelta(hours=1), "a")
+            self.st.record_skip("brief", NOW, "b")          # newer id, older start
+        self.assertEqual(self.st.last_attempt("brief")["id"], late)
+        with self.st.db:
+            tie = self.st.record_skip("brief", NOW + dt.timedelta(hours=1), "c")
+        self.assertEqual(self.st.last_attempt("brief")["id"], tie)
+
+    def test_per_job(self):
+        with self.st.db:
+            b = self.st.record_skip("brief", NOW, "x")
+            self.st.record_skip("ingest", NOW + dt.timedelta(hours=1), "y")
+        self.assertEqual(self.st.last_attempt("brief")["id"], b)
+        self.assertIsNone(self.st.last_attempt("lint"))
+
+    def test_record_skip_fields(self):
+        with self.st.db:
+            rid = self.st.record_skip("brief", NOW, "router down " + "z" * 3000)
+            other = self.st.record_skip("brief", NOW, RuntimeError("boom"))
+        r = self.st.last_attempt("brief")
+        self.assertEqual(r["id"], other)
+        self.assertEqual(r["error"], "boom")
+        row = dict(self.st.db.execute("SELECT * FROM runs WHERE id=?", (rid,)).fetchone())
+        self.assertEqual((row["job"], row["started"], row["finished"], row["status"]),
+                         ("brief", "2026-10-05T02:00:00", "2026-10-05T02:00:00", "skipped"))
+        self.assertEqual(len(row["error"]), 2000)
+        self.assertTrue(row["error"].startswith("router down "))
+
+    def test_last_run_ignores_skips(self):
+        with self.st.db:
+            ok = self.st.start_run("brief", NOW)
+            self.st.finish_run(ok, NOW, "ok")
+            self.st.record_skip("brief", NOW + dt.timedelta(hours=1), "router down")
+        self.assertEqual(self.st.last_run("brief")["id"], ok)
+        self.assertEqual(self.st.last_run("brief", ("ok", "partial"))["id"], ok)
 
 
 class RawsTest(StoreTestCase):

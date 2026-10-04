@@ -120,7 +120,7 @@ def _last_runs(root):
     with jobs.Ember(root) as e:
         found = []
         for job in JOBS:
-            r = e.store.last_run(job, ("ok", "partial", "failed", "aborted", "running"))
+            r = e.store.last_run(job, ("ok", "partial", "failed", "aborted", "running", "skipped"))
             if r:
                 found.append(f"{job} {r['status']} ({str(r['started'] or '')[:16]})")
     return ", ".join(found)
