@@ -459,7 +459,9 @@ class StubRouterEndToEndTest(CliCase):
         self.assertIn("lint: ok:", self.cli("lint", "morning", router_cls=llm.Router)[1])
         self.assertTrue(_StubRouter.seen)
         self.assertEqual({auth for _, auth in _StubRouter.seen}, {"Bearer stub-key"})
-        self.assertIn("/props?model=stub-model", [p for p, _ in _StubRouter.seen])
+        props = [p for p, _ in _StubRouter.seen if p.startswith("/props?model=stub-model")]
+        self.assertTrue(props)
+        self.assertTrue(all("autoload=false" in p for p in props), props)
 
 
 if __name__ == "__main__":

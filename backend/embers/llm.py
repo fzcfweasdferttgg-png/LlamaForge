@@ -19,6 +19,21 @@ _TYPES = {"object": dict, "array": list, "string": str, "integer": int,
           "number": (int, float), "boolean": bool}
 
 
+MAX_N_CTX = 1 << 20     # a larger "context" from /props is not believable; clamp it
+
+
+def clamp_n_ctx(value):
+    """The router's context size as an int in [1, MAX_N_CTX], else DEFAULT_N_CTX.
+    Values below jobs.MIN_N_CTX pass through: the jobs record why they cannot run."""
+    if isinstance(value, bool):
+        return DEFAULT_N_CTX
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        value = int(value.strip())
+    if not isinstance(value, int) or value <= 0:
+        return DEFAULT_N_CTX
+    return min(value, MAX_N_CTX)
+
+
 class LLMError(Exception):
     pass
 

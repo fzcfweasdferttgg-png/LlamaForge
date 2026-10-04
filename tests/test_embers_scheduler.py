@@ -1,0 +1,558 @@
+import conftest_paths  # noqa: F401
+import datetime as dt, io, json, os, shutil, tempfile, threading, time, unittest
+from unittest import mock
+
+import config
+import embers_cli
+from embers import jobs, lock, scheduler, templates
+from embers.llm import LLMError, RouterUnavailable
+from embers.sched import SWAP_IDLE, WAIT_MAX
+
+CREATED = dt.datetime(2026, 10, 1, 9, 0)
+NOW = dt.datetime(2026, 10, 5, 8, 0)          # a Monday: ingest 02:00 and brief 07:00 are due
+TPL = templates.parse_template({
+    "name": "sched-test", "title": "Sched Test", "mission": "Test the scheduler.",
+    "schema_md": "# Schema", "page_kinds": ["projects"], "slots": [],
+    "jobs": {"ingest": "02:00", "brief": "07:00", "lint": "off"}})
+
+
+class State:
+    """Scripted router state shared by every FakeRouter built in one test."""
+
+    def __init__(self):
+        self.loaded = "base-model"     # str, None or an Exception to raise
+        self.activity = 0              # int or an Exception to raise
+        self.ctor_error = None
+        self.load_ok = True            # wait_status result after load()
+        self.load_error = None         # raised by load()
+        self.ctors = 0
+        self.calls = []
+        self.probe_errors = []         # activity/n_ctx asked about a model that is not loaded
+
+
+class FakeRouter:
+    def __init__(self, state, cfg):
+        state.ctors += 1
+        if state.ctor_error is not None:
+            raise state.ctor_error
+        self.s = state
+
+    def _current(self):
+        return None if isinstance(self.s.loaded, Exception) else self.s.loaded
+
+    def loaded_model(self):
+        self.s.calls.append(("loaded_model",))
+        if isinstance(self.s.loaded, Exception):
+            raise self.s.loaded
+        return self.s.loaded
+
+    def activity(self, model):
+        self.s.calls.append(("activity", model))
+        if model != self._current():
+            self.s.probe_errors.append(("activity", model))
+        if isinstance(self.s.activity, Exception):
+            raise self.s.activity
+        return self.s.activity
+
+    def load(self, model):
+        self.s.calls.append(("load", model))
+        if self.s.load_error is not None:
+            raise self.s.load_error
+        self.s.loaded = model if self.s.load_ok else None
+
+    def unload(self, model):
+        self.s.calls.append(("unload", model))
+        self.s.loaded = None
+
+    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic):
+        self.s.calls.append(("wait_status", model, want))
+        return self.s.load_ok
+
+    def n_ctx(self, model):
+        self.s.calls.append(("n_ctx", model))
+        if model != self._current():
+            self.s.probe_errors.append(("n_ctx", model))
+        return 16384
+
+    def llm(self, model):
+        def call(messages, schema, max_tokens=2048):
+            raise AssertionError("fake runners never call the model")
+        call.model = model
+        return call
+
+
+class Runners:
+    """Fake jobs: record the call, write a real run row, return a status."""
+
+    def __init__(self, state):
+        self.state = state
+        self.calls = []
+        self.raise_for = set()         # ember ids whose runner raises
+        self.on_run = None             # callable(ember_id, job) run inside the job
+
+    def make(self, job):
+        def run(ember, llm, now, n_ctx=8192):
+            self.calls.append((ember.id, job, llm.model, n_ctx, now))
+            st = ember.store
+            with st.db:
+                rid = st.start_run(job, now)
+            if self.on_run:
+                self.on_run(ember.id, job)
+            if ember.id in self.raise_for:
+                with st.db:
+                    st.finish_run(rid, now, "failed", "boom")
+                raise RuntimeError("boom")
+            with st.db:
+                st.finish_run(rid, now, "ok")
+            return {"status": "ok"}
+        return run
+
+    def table(self):
+        return {j: self.make(j) for j in ("ingest", "brief", "lint")}
+
+
+class SchedCase(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.base = os.path.join(self.dir, "embers")
+        self.cfg = {"embers_dir": self.base, "router_port": 9}
+        self.state = State()
+        self.runners = Runners(self.state)
+        self.t = [0.0]
+        self.now = [NOW]
+        self.sched = self.make_sched()
+
+    def make_sched(self):
+        return scheduler.Scheduler(lambda: dict(self.cfg),
+                                   router_cls=lambda cfg: FakeRouter(self.state, cfg),
+                                   now=lambda: self.now[0], clock=lambda: self.t[0],
+                                   sleep=lambda s: None, runners=self.runners.table())
+
+    def tearDown(self):
+        self.assertEqual(self.state.probe_errors, [], "activity/n_ctx probed an unloaded model")
+
+    def ember(self, eid, created=CREATED, **conf):
+        root = jobs.create_ember(self.base, TPL, eid, {}, created)
+        if conf:
+            self.set_conf(root, **conf)
+        return root
+
+    def set_conf(self, root, **kw):
+        path = os.path.join(root, "ember.json")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        data.update(kw)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+    def runs(self, root, job=None):
+        with jobs.Ember(root) as e:
+            rows = e.store.recent_runs(100)
+        return [r for r in rows if job is None or r["job"] == job]
+
+    def ops(self):
+        return [c for c in self.state.calls if c[0] in ("load", "unload")]
+
+
+class NothingDueTest(SchedCase):
+    def test_no_embers_no_router(self):
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertIsNone(r["error"])
+        self.assertEqual(self.state.ctors, 0)
+
+    def test_nothing_due_makes_no_router_calls(self):
+        self.ember("fresh", created=dt.datetime(2026, 10, 4, 23, 0))
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertEqual(r["waiting"], {})
+        self.assertEqual(self.state.ctors, 0)
+        self.assertEqual(self.state.calls, [])
+        self.assertEqual(self.runners.calls, [])
+
+    def test_scheduler_off_is_idle(self):
+        self.ember("a")
+        self.cfg["embers_scheduler"] = False
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertEqual(self.state.ctors, 0)
+        self.assertEqual(self.runners.calls, [])
+
+    def test_disabled_ember_ignored(self):
+        self.ember("a", enabled=False)
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertEqual(self.state.ctors, 0)
+        self.assertFalse(self.sched.status()["a"]["enabled"])
+
+    def test_invalid_folders_ignored(self):
+        os.makedirs(os.path.join(self.base, "Not_Valid"))
+        os.makedirs(os.path.join(self.base, "con"))
+        os.makedirs(os.path.join(self.base, "nojson"))
+        self.assertIsNone(self.sched.tick()["error"])
+        self.assertEqual(self.state.ctors, 0)
+
+
+class RunTest(SchedCase):
+    def test_due_idle_loaded_runs_once(self):
+        root = self.ember("a")
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(len(self.runners.calls), 1)
+        eid, job, model, n_ctx, _ = self.runners.calls[0]
+        self.assertEqual((eid, job, model, n_ctx), ("a", "ingest", "base-model", 16384))
+        self.assertEqual(self.ops(), [])
+        self.assertEqual(r["ran"], ("a", "ingest", "ok"))
+        # ingest has an attempt row now: brief runs next, then nothing
+        self.assertEqual(self.sched.tick()["ran"], ("a", "brief", "ok"))
+        self.assertIsNone(self.sched.tick()["ran"])
+        self.assertEqual(len(self.runners.calls), 2)
+        self.assertEqual([x["status"] for x in self.runs(root)], ["ok", "ok"])
+
+    def test_ingest_then_brief_order(self):
+        self.ember("a")
+        self.sched.tick()
+        self.sched.tick()
+        self.assertEqual([c[1] for c in self.runners.calls], ["ingest", "brief"])
+
+    def test_n_ctx_is_clamped(self):
+        self.ember("a")
+        with mock.patch.object(FakeRouter, "n_ctx", lambda s, m: 10 ** 12):
+            self.sched.tick()
+        from embers import llm
+        self.assertEqual(self.runners.calls[0][3], llm.MAX_N_CTX)
+
+    def test_status_next_times(self):
+        self.ember("a")
+        self.ember("b", created=dt.datetime(2026, 10, 4, 23, 0))
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)
+        self.sched.tick()
+        st = self.sched.status()
+        self.assertEqual(st["b"]["next"], {"ingest": "2026-10-05T02:00", "brief": "2026-10-05T07:00"})
+        self.assertTrue(st["b"]["enabled"])
+        self.assertIsNone(st["b"]["running"])
+        self.assertIn("last_error", st)
+
+    def test_status_is_a_copy(self):
+        self.ember("a")
+        self.state.activity = 3
+        self.sched.tick()
+        st = self.sched.status()
+        st["a"]["waiting"]["ingest"] = "mutated"
+        self.assertNotEqual(self.sched.status()["a"]["waiting"]["ingest"], "mutated")
+
+    def test_running_is_visible_during_the_job(self):
+        self.ember("a")
+        seen = []
+        self.runners.on_run = lambda eid, job: seen.append(self.sched.status()[eid]["running"])
+        self.sched.tick()
+        self.assertEqual(seen, ["ingest"])
+        self.assertIsNone(self.sched.status()["a"]["running"])
+
+
+class WaitTest(SchedCase):
+    def test_busy_waits_then_skips(self):
+        root = self.ember("a")
+        self.state.activity = 2
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertIn("busy", r["waiting"]["a"]["ingest"])
+        self.assertIn("busy", self.sched.status()["a"]["waiting"]["ingest"])
+        self.t[0] = WAIT_MAX - 1
+        self.assertIn("ingest", self.sched.tick()["waiting"]["a"])
+        self.assertEqual(self.runs(root), [])
+        self.t[0] = WAIT_MAX
+        r = self.sched.tick()
+        self.assertEqual(r["skipped"][0][:2], ("a", "ingest"))
+        rows = self.runs(root, "ingest")
+        self.assertEqual(rows[0]["status"], "skipped")
+        self.assertIn("busy", rows[0]["error"])
+        self.assertEqual(self.runners.calls, [])
+        # the skip counts as the attempt: brief waits next, with a fresh wait clock
+        r = self.sched.tick()
+        self.assertIn("brief", r["waiting"]["a"])
+        self.assertNotIn("ingest", self.sched.status()["a"]["waiting"])
+
+    def test_router_errors_wait_not_reachable(self):
+        self.ember("a")
+        cases = [("ctor_error", LLMError("bad port")), ("loaded", RouterUnavailable("refused")),
+                 ("activity", LLMError("no counters"))]
+        for attr, exc in cases:
+            self.state = State()
+            setattr(self.state, attr, exc)
+            sched = self.make_sched()
+            r = sched.tick()
+            self.assertIsNone(r["ran"], attr)
+            self.assertIn("not reachable", r["waiting"]["a"]["ingest"], attr)
+            self.assertEqual(self.runners.calls, [], attr)
+
+    def test_no_model_loaded_waits(self):
+        self.ember("a")
+        self.state.loaded = None
+        r = self.sched.tick()
+        self.assertIn("no model", r["waiting"]["a"]["ingest"])
+        self.assertNotIn(("activity", None), self.state.calls)
+
+    def test_locked_ember_waits(self):
+        root = self.ember("a")
+        with lock.held(root):
+            r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertIn("running in another process", r["waiting"]["a"]["ingest"])
+        self.assertEqual(self.runners.calls, [])
+        # held for over WAIT_MAX: still no skip while the lock is the only blocker
+        self.t[0] = WAIT_MAX * 2
+        with lock.held(root):
+            r = self.sched.tick()
+        self.assertEqual(r["skipped"], [])
+        self.assertEqual(self.runs(root), [])
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+
+
+class SwapTest(SchedCase):
+    def test_pinned_waits_for_idle_then_swaps_and_restores(self):
+        self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE - 1
+        r = self.sched.tick()
+        self.assertIn("idle minutes", r["waiting"]["a"]["ingest"])
+        self.assertEqual(self.ops(), [])
+        self.t[0] = SWAP_IDLE
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.runners.calls[0][2], "pinned")
+        self.assertEqual(self.ops(), [("load", "pinned"), ("load", "base-model")])
+        self.assertEqual(self.state.loaded, "base-model")
+        # a swap resets the idle clock: brief needs another 10 idle minutes
+        r = self.sched.tick()
+        self.assertIn("idle minutes", r["waiting"]["a"]["brief"])
+        self.t[0] = 2 * SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "brief", "ok"))
+
+    def test_nothing_loaded_before_unloads_after(self):
+        self.ember("a", model="pinned")
+        self.state.loaded = None
+        self.t[0] = SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.ops(), [("load", "pinned"), ("unload", "pinned")])
+
+    def test_user_swapped_meanwhile_no_restore(self):
+        self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE
+
+        def user_takes_gpu(eid, job):
+            self.state.loaded = "users-model"
+        self.runners.on_run = user_takes_gpu
+        self.sched.tick()
+        self.assertEqual(self.ops(), [("load", "pinned")])
+        self.assertEqual(self.state.loaded, "users-model")
+
+    def test_load_fails_skips_and_restores(self):
+        root = self.ember("a", model="pinned")
+        self.state.load_ok = False
+        self.t[0] = SWAP_IDLE
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertEqual(self.runners.calls, [])
+        rows = self.runs(root, "ingest")
+        self.assertEqual(rows[0]["status"], "skipped")
+        self.assertIn("could not load pinned", rows[0]["error"])
+        # the failed load left nothing loaded: the previous model goes back
+        self.assertEqual(self.ops(), [("load", "pinned"), ("load", "base-model")])
+        self.assertNotIn(("n_ctx", "pinned"), self.state.calls)
+
+    def test_load_router_down_waits_without_skip(self):
+        root = self.ember("a", model="pinned")
+        self.state.load_error = RouterUnavailable("restarting")
+        self.t[0] = SWAP_IDLE
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertIn("ingest", r["waiting"]["a"])
+        self.assertEqual(self.runs(root), [])
+
+    def test_swapping_off_waits(self):
+        self.ember("a", model="pinned")
+        self.cfg["embers_swap_models"] = False
+        self.t[0] = SWAP_IDLE * 3
+        r = self.sched.tick()
+        self.assertIn("swapping is off", r["waiting"]["a"]["ingest"])
+        self.assertEqual(self.ops(), [])
+
+    def test_waiting_ember_does_not_block_a_runnable_one(self):
+        self.ember("a", model="pinned")
+        self.ember("b")
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("b", "ingest", "ok"))
+        self.assertIn("idle minutes", r["waiting"]["a"]["ingest"])
+        self.assertEqual(self.ops(), [])
+
+    def test_first_ten_minutes_after_start_never_swap(self):
+        self.ember("a", model="pinned")
+        self.t[0] = 100.0
+        sched = self.make_sched()          # constructed at t=100
+        self.t[0] = 100.0 + SWAP_IDLE - 1
+        self.assertIn("idle minutes", sched.tick()["waiting"]["a"]["ingest"])
+        self.t[0] = 100.0 + SWAP_IDLE
+        self.assertEqual(sched.tick()["ran"], ("a", "ingest", "ok"))
+
+    def test_activity_resets_idle_clock(self):
+        self.ember("a", model="pinned")
+        self.state.activity = 1
+        self.t[0] = SWAP_IDLE
+        self.sched.tick()                  # busy at t=600: the idle clock restarts
+        self.state.activity = 0
+        self.t[0] = SWAP_IDLE + 10
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+        self.t[0] = 2 * SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+
+    def test_loaded_model_change_resets_idle_clock(self):
+        self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE - 5
+        self.sched.tick()
+        self.state.loaded = "other"
+        self.t[0] = SWAP_IDLE
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+
+
+class ErrorTest(SchedCase):
+    def test_runner_raises_restores_and_others_continue(self):
+        ra = self.ember("a", model="pinned")
+        self.ember("b")
+        self.runners.raise_for = {"a"}
+        self.t[0] = SWAP_IDLE
+        r = self.sched.tick()
+        self.assertIn("boom", r["error"])
+        self.assertIn("boom", self.sched.status()["last_error"])
+        self.assertEqual(self.ops(), [("load", "pinned"), ("load", "base-model")])
+        self.assertEqual(self.runs(ra, "ingest")[0]["status"], "failed")
+        ran = [self.sched.tick()["ran"] for _ in range(4)]
+        self.t[0] = 10 * SWAP_IDLE
+        ran += [self.sched.tick()["ran"] for _ in range(4)]
+        self.assertIn(("b", "ingest", "ok"), ran)
+        self.assertIn(("b", "brief", "ok"), ran)
+
+    def test_broken_ember_does_not_stop_others(self):
+        broken = os.path.join(self.base, "aaa")
+        os.makedirs(broken)
+        with open(os.path.join(broken, "ember.json"), "w") as f:
+            f.write("{not json")
+        self.ember("b")
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("b", "ingest", "ok"))
+        self.assertIn("aaa", self.sched.status()["last_error"])
+
+    def test_restore_errors_never_raise(self):
+        self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE
+        real_load = FakeRouter.load
+
+        def load(router, model):
+            if model == "base-model":
+                raise LLMError("restore failed")
+            real_load(router, model)
+        with mock.patch.object(FakeRouter, "load", load):
+            r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "ok"))
+        self.assertIn("restore failed", self.sched.status()["last_error"])
+
+    def test_tick_never_raises_on_cfg_error(self):
+        def bad():
+            raise OSError("disk gone")
+        s = scheduler.Scheduler(bad, router_cls=lambda cfg: FakeRouter(self.state, cfg))
+        r = s.tick()
+        self.assertIn("disk gone", r["error"])
+        self.assertIn("disk gone", s.status()["last_error"])
+
+
+class ThreadTest(SchedCase):
+    def test_start_stop_idempotent_and_prompt(self):
+        self.ember("a")
+        with mock.patch.object(scheduler, "TICK", 0.01):
+            self.sched.start()
+            self.sched.start()
+            names = [t.name for t in threading.enumerate()].count("embers-scheduler")
+            self.assertEqual(names, 1)
+            deadline = time.monotonic() + 10
+            while len(self.runners.calls) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            t0 = time.monotonic()
+            self.sched.stop()
+            self.assertLess(time.monotonic() - t0, 5)
+            self.sched.stop()
+        self.assertEqual([c[1] for c in self.runners.calls], ["ingest", "brief"])
+        self.assertNotIn("embers-scheduler", [t.name for t in threading.enumerate()])
+
+    def test_loop_survives_exceptions(self):
+        calls = []
+
+        def boom():
+            calls.append(1)
+            raise ValueError("bad tick")
+        with mock.patch.object(scheduler, "TICK", 0.01), \
+                mock.patch.object(self.sched, "tick", boom):
+            self.sched.start()
+            deadline = time.monotonic() + 10
+            while len(calls) < 3 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.sched.stop()
+        self.assertGreaterEqual(len(calls), 3)
+        self.assertIn("ValueError: bad tick", self.sched.status()["last_error"])
+
+
+class ServerImportTest(unittest.TestCase):
+    def test_import_starts_nothing(self):
+        import server
+        self.assertIsNone(server.EMBERS_SCHED)
+        self.assertNotIn("embers-scheduler", [t.name for t in threading.enumerate()])
+
+    def test_defaults(self):
+        self.assertIs(config.DEFAULTS["embers_scheduler"], True)
+        self.assertIs(config.DEFAULTS["embers_swap_models"], True)
+
+
+class CliTickTest(SchedCase):
+    def setUp(self):
+        super().setUp()
+        self._orig = config.CONFIG
+        config.CONFIG = os.path.join(self.dir, "config.json")
+        self.addCleanup(setattr, config, "CONFIG", self._orig)
+        config.update({"embers_dir": self.base, "router_port": 9})
+
+    def cli(self, now):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(scheduler, "RUNNERS", self.runners.table()):
+            code = embers_cli.main(["tick"], now=now, out=out, err=err,
+                                   router_cls=lambda cfg: FakeRouter(self.state, cfg))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_nothing_due(self):
+        self.ember("a", created=dt.datetime(2026, 10, 4, 23, 0))
+        code, out, err = self.cli(dt.datetime(2026, 10, 5, 1, 0))
+        self.assertEqual(code, 0, err)
+        self.assertIn("nothing due", out)
+        self.assertIn("2026-10-05T02:00", out)
+        self.assertEqual(self.state.ctors, 0)
+
+    def test_ran(self):
+        self.ember("a")
+        code, out, err = self.cli(NOW)
+        self.assertEqual(code, 0, err)
+        self.assertIn("ran a ingest: ok", out)
+
+    def test_waiting_and_error_exit(self):
+        self.ember("a")
+        self.state.activity = 5
+        code, out, err = self.cli(NOW)
+        self.assertEqual(code, 0, err)
+        self.assertIn("a ingest: waiting: the router is busy", out)
+        self.runners.raise_for = {"a"}
+        self.state.activity = 0
+        code, out, err = self.cli(NOW)
+        self.assertEqual(code, 1)
+        self.assertIn("boom", err)
+
+
+if __name__ == "__main__":
+    unittest.main()
