@@ -248,7 +248,7 @@ class Router:
         return f"Router({self.base})"
 
     def loaded_model(self):
-        return next((m["id"] for m in self.models() if m["status"] == "loaded"), None)
+        return next((m["id"] for m in self.models() if m["status"] in ("loaded", "sleeping")), None)
 
     def models(self):
         """[{"id", "status", "failed"}] for every well-formed registry entry. status

@@ -152,6 +152,12 @@ class RouterTest(_NoNetwork):
         self.assertEqual(self.sent[0], ("http://127.0.0.1:8080/v1/models", None, "k" * 32))
         self.assertTrue(self.sent[1][0].endswith("/props?model=b&autoload=false"))
 
+    def test_loaded_model_counts_a_sleeping_model(self):
+        # llama.cpp puts an idle model to "sleeping"; it is still the one occupying the GPU.
+        r = self.make({"models": {"data": [{"id": "a", "status": {"value": "unloaded"}},
+                                           {"id": "b", "status": {"value": "sleeping"}}]}})
+        self.assertEqual(r.loaded_model(), "b")
+
     def test_n_ctx_never_autoloads_and_quotes_model(self):
         # /props?model=X would autoload X (evicting the user's model); autoload=false -> 400 -> default.
         for model in ("b", "../a/b?c#d&autoload=true"):
