@@ -8,7 +8,7 @@ Everything here treats the router's reply and the model's text as untrusted:
 every failure surfaces as LLMError with a short message (never the API key,
 never a KeyError/TypeError), reads are size-capped and time-limited.
 """
-import http.client, json, re, urllib.error, urllib.parse, urllib.request
+import http.client, json, math, re, time, urllib.error, urllib.parse, urllib.request
 
 TIMEOUT = 600            # a long batch on a 16 GB card can take minutes
 DEFAULT_N_CTX = 8192
@@ -143,7 +143,9 @@ def _open(req, timeout):
     return _opener.open(req, timeout=timeout)
 
 
-def _request(url, body=None, key="", timeout=TIMEOUT):
+def _fetch(url, body, key, timeout):
+    """The single HTTP path: raw reply bytes, size-capped. Every failure is an
+    LLMError (RouterUnavailable for refused/503) with the key scrubbed."""
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
@@ -158,7 +160,7 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
             raw = r.read(MAX_RESPONSE_BYTES + 1)
         if len(raw) > MAX_RESPONSE_BYTES:
             raise LLMError("router reply too large")
-        return json.loads(raw.decode("utf-8", errors="replace"))
+        return raw
     except LLMError:
         raise
     except urllib.error.HTTPError as e:
@@ -173,6 +175,28 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
             isinstance(e, urllib.error.URLError) and isinstance(e.reason, ConnectionRefusedError))
         cls = RouterUnavailable if refused else LLMError     # a timeout may be the input's fault
         raise cls(clean(f"router unreachable or unreadable: {type(e).__name__}: {e}")[:400]) from None
+
+
+def _request(url, body=None, key="", timeout=TIMEOUT):
+    raw = _fetch(url, body, key, timeout)
+    try:
+        return json.loads(raw.decode("utf-8", errors="replace"))
+    except (ValueError, RecursionError) as e:
+        msg = f"router reply unreadable: {type(e).__name__}: {e}"
+        raise LLMError((msg.replace(key, "***") if key else msg)[:400]) from None
+
+
+def _request_text(url, body=None, key="", timeout=TIMEOUT):
+    return _fetch(url, body, key, timeout).decode("utf-8", errors="replace")
+
+
+# One Prometheus sample of a request counter: name, optional {labels}, value, optional timestamp.
+# fullmatch, so llamacpp:requests_processing_total and friends never count.
+_NUM = r"[+-]?(?:\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|[Nn]a[Nn]|[Ii]nf(?:inity)?)"
+_COUNTER = re.compile(r"llamacpp:(requests_processing|requests_deferred)(\{[^}]*\})?[ \t]+(" + _NUM
+                      + r")(?:[ \t]+-?\d+)?")
+_FAILED = ("fail", "error")
+POLL_SECONDS = 2
 
 
 def _valid_port(v):
@@ -192,7 +216,7 @@ class Router:
     port is read from config. The key (router_api_key, else router_local_key,
     as the panel's own proxy does) is never part of repr or error text."""
 
-    def __init__(self, cfg, request=_request):
+    def __init__(self, cfg, request=_request, request_text=_request_text):
         port = _valid_port(cfg.get("router_port"))
         if port is None:
             raise LLMError("router_port must be an integer between 1 and 65535")
@@ -200,6 +224,7 @@ class Router:
         key = cfg.get("router_api_key") or cfg.get("router_local_key") or ""
         self._key = key if isinstance(key, str) else ""
         self.request = request
+        self.request_text = request_text
 
     def __repr__(self):
         return f"Router({self.base})"
@@ -214,6 +239,75 @@ class Router:
             if (st.get("value") if isinstance(st, dict) else st) == "loaded":
                 return m.get("id")
         return None
+
+    def models(self):
+        """[{"id", "status"}] for every well-formed registry entry. status is the
+        router's value as a str ("" when absent); junk entries are skipped."""
+        r = self.request(self.base + "/v1/models", key=self._key, timeout=10)
+        data = r.get("data") if isinstance(r, dict) else None
+        out = []
+        for m in data if isinstance(data, list) else []:
+            if not isinstance(m, dict) or not isinstance(m.get("id"), str):
+                continue
+            st = m.get("status")
+            if isinstance(st, dict):
+                st = st.get("value")
+            out.append({"id": m["id"], "status": "" if st is None else str(st)[:100]})
+        return out
+
+    def activity(self, model):
+        """In-flight plus queued requests for model, from the router's /metrics.
+        Raises LLMError rather than guess 0 when the counters are absent (the
+        router runs without --metrics) or nonsensical."""
+        text = self.request_text(f"{self.base}/metrics?model={urllib.parse.quote(str(model), safe='')}",
+                                 key=self._key, timeout=10)
+        if not isinstance(text, str):
+            raise LLMError("router metrics were not text")
+        if len(text) > MAX_RESPONSE_BYTES:
+            raise LLMError("router metrics too large")
+        total, seen = 0.0, False
+        for line in text.splitlines():
+            m = _COUNTER.fullmatch(line.strip())
+            if not m:
+                continue
+            v = float(m.group(3))
+            if not math.isfinite(v) or v < 0:
+                raise LLMError(f"router metrics has a bad {m.group(1)} value")
+            total += v
+            seen = True
+        if not seen:
+            raise LLMError("router metrics are missing request counters")
+        return int(total)
+
+    def _model_op(self, op, model):
+        if not isinstance(model, str) or not model:
+            raise LLMError("model must be a non-empty string")
+        self.request(f"{self.base}/models/{op}", {"model": model}, key=self._key, timeout=30)
+
+    def load(self, model):
+        """Ask the router to load model. Any 2xx is success; failures raise."""
+        self._model_op("load", model)
+
+    def unload(self, model):
+        self._model_op("unload", model)
+
+    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic):
+        """Poll models() every POLL_SECONDS until model's status is want -> True.
+        False on timeout or on a failed status. RouterUnavailable (busy loading,
+        restarting) is tolerated; any other LLMError propagates."""
+        deadline = clock() + timeout
+        while True:
+            try:
+                status = next((m["status"] for m in self.models() if m["id"] == model), None)
+            except RouterUnavailable:
+                status = None
+            if status == want:
+                return True
+            if status and any(w in status.lower() for w in _FAILED):
+                return False
+            if clock() >= deadline:
+                return False
+            sleep(POLL_SECONDS)
 
     def n_ctx(self, model):
         try:

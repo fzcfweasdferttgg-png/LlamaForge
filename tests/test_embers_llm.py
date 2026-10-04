@@ -118,7 +118,20 @@ class AskJsonTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
-class RouterTest(unittest.TestCase):
+def _no_network(req, timeout):
+    raise AssertionError(f"network: test tried to reach {req.full_url}")
+
+
+class _NoNetwork(unittest.TestCase):
+    """Router tests must inject fake transports; a missed injection fails loudly
+    here instead of reaching the user's live router."""
+    def setUp(self):
+        orig = llm._open
+        llm._open = _no_network
+        self.addCleanup(setattr, llm, "_open", orig)
+
+
+class RouterTest(_NoNetwork):
     def make(self, replies, cfg=None):
         self.sent = []
 
@@ -294,6 +307,289 @@ class RequestTest(unittest.TestCase):
 
     def test_redirects_not_followed(self):
         self.assertIsNone(llm._NoRedirect().redirect_request(None, None, 302, "x", {}, "http://evil/"))
+
+
+class RequestTextTest(unittest.TestCase):
+    def run_with(self, fake, **kw):
+        orig = llm._open
+        llm._open = fake
+        try:
+            return llm._request_text("http://127.0.0.1:1/metrics", **kw)
+        finally:
+            llm._open = orig
+
+    def test_returns_text_and_replaces_bad_utf8(self):
+        self.assertEqual(self.run_with(lambda req, timeout: _FakeResp(b"a 1\n")), "a 1\n")
+        self.assertEqual(self.run_with(lambda req, timeout: _FakeResp(b"x\xffy")), "x�y")
+
+    def test_timeout_get_and_auth_header(self):
+        seen = {}
+
+        def fake(req, timeout):
+            seen.update(timeout=timeout, auth=req.get_header("Authorization"), method=req.get_method())
+            return _FakeResp(b"ok")
+        self.run_with(fake, key="abc", timeout=7)
+        self.assertEqual(seen, {"timeout": 7, "auth": "Bearer abc", "method": "GET"})
+
+    def test_size_capped(self):
+        big = b"x" * (llm.MAX_RESPONSE_BYTES + 10)
+        with self.assertRaises(llm.LLMError):
+            self.run_with(lambda req, timeout: _FakeResp(big))
+
+    def test_key_scrubbed_and_error_mapping_shared(self):
+        def fake(req, timeout):
+            raise urllib.error.HTTPError("u", 401, "no", {}, io.BytesIO(b"bad key SECRETKEY123"))
+        with self.assertRaises(llm.LLMError) as cm:
+            self.run_with(fake, key="SECRETKEY123")
+        self.assertIn("401", str(cm.exception))
+        self.assertNotIn("SECRETKEY123", str(cm.exception))
+
+        def oserr(req, timeout):
+            raise OSError("connect failed SECRETKEY123")
+        with self.assertRaises(llm.LLMError) as cm:
+            self.run_with(oserr, key="SECRETKEY123")
+        self.assertNotIn("SECRETKEY123", str(cm.exception))
+        self.assertNotIsInstance(cm.exception, llm.RouterUnavailable)
+
+        def refused(req, timeout):
+            raise urllib.error.URLError(ConnectionRefusedError(10061, "refused"))
+        with self.assertRaises(llm.RouterUnavailable):
+            self.run_with(refused)
+
+        def loading(req, timeout):
+            raise urllib.error.HTTPError("u", 503, "Loading", {}, io.BytesIO(b"loading"))
+        with self.assertRaises(llm.RouterUnavailable):
+            self.run_with(loading)
+
+    def test_fetch_returns_raw_bytes(self):
+        orig = llm._open
+        llm._open = lambda req, timeout: _FakeResp(b"\x00\xffraw")
+        try:
+            self.assertEqual(llm._fetch("http://127.0.0.1:1/x", None, "", 5), b"\x00\xffraw")
+        finally:
+            llm._open = orig
+
+
+KEY = "k" * 32
+CFG = {"router_port": 8080, "router_api_key": KEY}
+
+
+class RouterControlTest(_NoNetwork):
+    def test_guard_blocks_real_transport(self):
+        with self.assertRaises(AssertionError):
+            llm.Router(CFG).models()
+
+    _UNSET = AssertionError("transport not expected in this test")
+
+    def router(self, request=_UNSET, request_text=_UNSET):
+        # Both transports are always fakes (a canned reply may legitimately be None),
+        # so a test can never reach a real router.
+        self.sent = []
+
+        def rec(fn):
+            def call(url, body=None, key="", timeout=None):
+                self.sent.append({"url": url, "body": body, "key": key, "timeout": timeout})
+                r = fn(url) if callable(fn) else fn
+                if isinstance(r, BaseException):
+                    raise r
+                return r
+            return call
+        return llm.Router(CFG, request=rec(request), request_text=rec(request_text))
+
+    # models()
+    def test_models_mixed_and_junk(self):
+        r = self.router(request={"data": [
+            {"id": "a", "status": {"value": "loaded"}},
+            {"id": "b", "status": "unloaded"},
+            {"id": "c", "status": {"value": "loading", "args": []}},
+            {"id": "d"},
+            {"id": "e", "status": {"value": "weird-new-state"}},
+            {"id": "f", "status": {"nope": 1}},
+            {"id": "g", "status": 3},
+            None, 5, "x", ["id"], {"id": 7, "status": "loaded"}, {"status": "loaded"},
+        ]})
+        self.assertEqual(r.models(), [
+            {"id": "a", "status": "loaded"}, {"id": "b", "status": "unloaded"},
+            {"id": "c", "status": "loading"}, {"id": "d", "status": ""},
+            {"id": "e", "status": "weird-new-state"}, {"id": "f", "status": ""},
+            {"id": "g", "status": "3"}])
+        self.assertEqual(self.sent[0]["url"], "http://127.0.0.1:8080/v1/models")
+        self.assertEqual(self.sent[0]["key"], KEY)
+
+    def test_models_malformed_top_level(self):
+        for bad in ([], {"data": "x"}, None, "str", {"data": {"id": "a"}}):
+            self.assertEqual(self.router(request=bad).models(), [], msg=repr(bad))
+
+    # activity()
+    def test_activity_plain(self):
+        text = ("# HELP llamacpp:requests_processing Number of requests processing.\n"
+                "# TYPE llamacpp:requests_processing gauge\n"
+                "llamacpp:requests_processing 1\n"
+                "# TYPE llamacpp:requests_deferred gauge\n"
+                "llamacpp:requests_deferred 0\n"
+                "llamacpp:prompt_tokens_total 1234\n")
+        r = self.router(request_text=text)
+        self.assertEqual(r.activity("m"), 1)
+        self.assertEqual(self.sent[0]["url"], "http://127.0.0.1:8080/metrics?model=m")
+        self.assertIsNone(self.sent[0]["body"])
+        self.assertEqual(self.sent[0]["key"], KEY)
+
+    def test_activity_labels_floats_and_sum(self):
+        text = ('llamacpp:requests_processing{model="x"} 2.0\r\n'
+                'llamacpp:requests_deferred{model="x",slot="0"}   3\n')
+        self.assertEqual(self.router(request_text=text).activity("x"), 5)
+
+    def test_activity_ignores_prefixed_unrelated_metrics(self):
+        text = ("llamacpp:requests_processing_total 99\n"
+                "llamacpp:requests_deferred_seconds 42\n"
+                "xllamacpp:requests_processing 7\n"
+                "llamacpp:requests_processing 0\n"
+                "llamacpp:requests_deferred 0\n")
+        self.assertEqual(self.router(request_text=text).activity("m"), 0)
+
+    def test_activity_one_counter_is_enough(self):
+        self.assertEqual(self.router(request_text="llamacpp:requests_processing 4\n").activity("m"), 4)
+
+    def test_activity_missing_counters_is_error(self):
+        for text in ("", "# only comments\n", "llamacpp:requests_processing_total 3\n",
+                     "llamacpp:prompt_tokens_total 1\n"):
+            with self.assertRaises(llm.LLMError, msg=repr(text)) as cm:
+                self.router(request_text=text).activity("m")
+            self.assertIn("missing request counters", str(cm.exception))
+
+    def test_activity_non_finite_or_negative_is_error(self):
+        for text in ("llamacpp:requests_processing NaN\n", "llamacpp:requests_processing +Inf\n",
+                     "llamacpp:requests_deferred -1\n", "llamacpp:requests_processing 1e400\n"):
+            with self.assertRaises(llm.LLMError, msg=repr(text)):
+                self.router(request_text=text).activity("m")
+
+    def test_activity_model_is_quoted(self):
+        r = self.router(request_text="llamacpp:requests_processing 0\n")
+        r.activity("org/model a&b=c?#")
+        self.assertEqual(self.sent[0]["url"],
+                         "http://127.0.0.1:8080/metrics?model=org%2Fmodel%20a%26b%3Dc%3F%23")
+
+    def test_activity_oversized_text_is_error(self):
+        big = "llamacpp:requests_processing 0\n" + "#" * (llm.MAX_RESPONSE_BYTES + 1)
+        with self.assertRaises(llm.LLMError):
+            self.router(request_text=big).activity("m")
+
+    def test_activity_non_str_reply_is_error(self):
+        for bad in (None, b"llamacpp:requests_processing 0", 3):
+            with self.assertRaises(llm.LLMError, msg=repr(bad)):
+                self.router(request_text=bad).activity("m")
+
+    def test_activity_propagates_router_unavailable(self):
+        with self.assertRaises(llm.RouterUnavailable):
+            self.router(request_text=llm.RouterUnavailable("down")).activity("m")
+
+    # load() / unload()
+    def test_load_and_unload(self):
+        r = self.router(request={"success": True})
+        self.assertIsNone(r.load("org/m"))
+        self.assertIsNone(r.unload("org/m"))
+        self.assertEqual(self.sent, [
+            {"url": "http://127.0.0.1:8080/models/load", "body": {"model": "org/m"}, "key": KEY, "timeout": 30},
+            {"url": "http://127.0.0.1:8080/models/unload", "body": {"model": "org/m"}, "key": KEY, "timeout": 30}])
+
+    def test_load_any_2xx_reply_is_success(self):
+        for reply in ({}, [], None, "ok", {"success": False}):
+            self.assertIsNone(self.router(request=reply).load("m"))
+
+    def test_load_bad_model(self):
+        r = self.router(request={"success": True})
+        for bad in ("", None, 5, ["m"], b"m"):
+            with self.assertRaises(llm.LLMError, msg=repr(bad)):
+                r.load(bad)
+            with self.assertRaises(llm.LLMError, msg=repr(bad)):
+                r.unload(bad)
+        self.assertEqual(self.sent, [])
+
+    def test_load_failure_raises(self):
+        with self.assertRaises(llm.LLMError):
+            self.router(request=llm.LLMError("router answered 400: nope")).load("m")
+        with self.assertRaises(llm.RouterUnavailable):
+            self.router(request=llm.RouterUnavailable("down")).unload("m")
+
+    # wait_status()
+    def scripted_models(self, *steps):
+        """Each step: a status string for model "m", or an exception to raise."""
+        steps = list(steps)
+
+        def request(url):
+            s = steps.pop(0) if len(steps) > 1 else steps[0]
+            if isinstance(s, Exception):
+                return s
+            return {"data": [{"id": "other", "status": {"value": "loaded"}},
+                             {"id": "m", "status": {"value": s}}]}
+        return self.router(request=request)
+
+    def fake_time(self):
+        self.now = [0.0]
+        self.slept = []
+
+        def sleep(s):
+            self.slept.append(s)
+            self.now[0] += s
+        return sleep, (lambda: self.now[0])
+
+    def test_wait_status_immediate(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loaded")
+        self.assertTrue(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        self.assertEqual(self.slept, [])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_wait_status_after_polls(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("unloaded", "loading", "loading", "loaded")
+        self.assertTrue(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        self.assertEqual(self.slept, [2, 2, 2])
+        self.assertEqual(len(self.sent), 4)
+
+    def test_wait_status_unloaded(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loaded", "unloaded")
+        self.assertTrue(r.wait_status("m", "unloaded", sleep=sleep, clock=clock))
+
+    def test_wait_status_timeout(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loading")
+        self.assertFalse(r.wait_status("m", "loaded", timeout=10, sleep=sleep, clock=clock))
+        self.assertLessEqual(self.now[0], 12)
+        self.assertGreaterEqual(self.now[0], 10)
+        self.assertLessEqual(len(self.sent), 7)
+
+    def test_wait_status_missing_model_times_out(self):
+        sleep, clock = self.fake_time()
+        r = self.router(request={"data": []})
+        self.assertFalse(r.wait_status("m", "loaded", timeout=4, sleep=sleep, clock=clock))
+
+    def test_wait_status_fail_returns_false_at_once(self):
+        for bad in ("failed", "load_error", "ERROR"):
+            sleep, clock = self.fake_time()
+            r = self.scripted_models("loading", bad, "loaded")
+            self.assertFalse(r.wait_status("m", "loaded", sleep=sleep, clock=clock), msg=bad)
+            self.assertEqual(len(self.sent), 2, msg=bad)
+
+    def test_wait_status_tolerates_router_unavailable(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models(llm.RouterUnavailable("503 loading"), llm.RouterUnavailable("refused"),
+                                 "loaded")
+        self.assertTrue(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        self.assertEqual(len(self.sent), 3)
+
+    def test_wait_status_router_unavailable_until_timeout(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models(llm.RouterUnavailable("down"))
+        self.assertFalse(r.wait_status("m", "loaded", timeout=6, sleep=sleep, clock=clock))
+
+    def test_wait_status_other_llm_error_propagates(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loading", llm.LLMError("router answered 401: no"), "loaded")
+        with self.assertRaises(llm.LLMError) as cm:
+            r.wait_status("m", "loaded", sleep=sleep, clock=clock)
+        self.assertNotIsInstance(cm.exception, llm.RouterUnavailable)
 
 
 class LoopbackTruncationTest(unittest.TestCase):
