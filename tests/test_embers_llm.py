@@ -1,5 +1,5 @@
 import conftest_paths  # noqa: F401
-import io, json, time, unittest, urllib.error
+import io, json, time, unittest, urllib.error, urllib.parse
 
 from embers import llm
 
@@ -150,7 +150,18 @@ class RouterTest(_NoNetwork):
         self.assertEqual(r.loaded_model(), "b")
         self.assertEqual(r.n_ctx("b"), 32768)
         self.assertEqual(self.sent[0], ("http://127.0.0.1:8080/v1/models", None, "k" * 32))
-        self.assertTrue(self.sent[1][0].endswith("/props?model=b"))
+        self.assertTrue(self.sent[1][0].endswith("/props?model=b&autoload=false"))
+
+    def test_n_ctx_never_autoloads_and_quotes_model(self):
+        # /props?model=X would autoload X (evicting the user's model); autoload=false -> 400 -> default.
+        for model in ("b", "../a/b?c#d&autoload=true"):
+            r = self.make({"props": {"default_generation_settings": {"n_ctx": 4096}}})
+            self.assertEqual(r.n_ctx(model), 4096)
+            path, _, query = self.sent[0][0].partition("?")
+            self.assertEqual(path, "http://127.0.0.1:8080/props")
+            self.assertNotIn("#", self.sent[0][0])
+            self.assertEqual(urllib.parse.parse_qs(query), {"model": [model], "autoload": ["false"]})
+            self.assertTrue(self.sent[0][0].endswith("&autoload=false"))
 
     def test_n_ctx_falls_back(self):
         r = self.make({"props": llm.LLMError("404")})
@@ -379,7 +390,7 @@ class RouterControlTest(_NoNetwork):
         with self.assertRaises(AssertionError):
             llm.Router(CFG).models()
 
-    _UNSET = AssertionError("transport not expected in this test")
+    _UNSET = object()
 
     def router(self, request=_UNSET, request_text=_UNSET):
         # Both transports are always fakes (a canned reply may legitimately be None),
@@ -389,6 +400,8 @@ class RouterControlTest(_NoNetwork):
         def rec(fn):
             def call(url, body=None, key="", timeout=None):
                 self.sent.append({"url": url, "body": body, "key": key, "timeout": timeout})
+                if fn is self._UNSET:
+                    raise AssertionError("transport not expected in this test")
                 r = fn(url) if callable(fn) else fn
                 if isinstance(r, BaseException):
                     raise r
@@ -406,13 +419,18 @@ class RouterControlTest(_NoNetwork):
             {"id": "e", "status": {"value": "weird-new-state"}},
             {"id": "f", "status": {"nope": 1}},
             {"id": "g", "status": 3},
+            # The real failed-load shape (server-models.cpp): value stays "unloaded".
+            {"id": "h", "status": {"value": "unloaded", "args": [], "failed": True, "exit_code": 1}},
+            {"id": "i", "status": {"value": "sleeping"}},
             None, 5, "x", ["id"], {"id": 7, "status": "loaded"}, {"status": "loaded"},
         ]})
+        f = {"failed": False}
         self.assertEqual(r.models(), [
-            {"id": "a", "status": "loaded"}, {"id": "b", "status": "unloaded"},
-            {"id": "c", "status": "loading"}, {"id": "d", "status": ""},
-            {"id": "e", "status": "weird-new-state"}, {"id": "f", "status": ""},
-            {"id": "g", "status": "3"}])
+            {"id": "a", "status": "loaded", **f}, {"id": "b", "status": "unloaded", **f},
+            {"id": "c", "status": "loading", **f}, {"id": "d", "status": "", **f},
+            {"id": "e", "status": "weird-new-state", **f}, {"id": "f", "status": "", **f},
+            {"id": "g", "status": "3", **f}, {"id": "h", "status": "unloaded", "failed": True},
+            {"id": "i", "status": "sleeping", **f}])
         self.assertEqual(self.sent[0]["url"], "http://127.0.0.1:8080/v1/models")
         self.assertEqual(self.sent[0]["key"], KEY)
 
@@ -430,7 +448,7 @@ class RouterControlTest(_NoNetwork):
                 "llamacpp:prompt_tokens_total 1234\n")
         r = self.router(request_text=text)
         self.assertEqual(r.activity("m"), 1)
-        self.assertEqual(self.sent[0]["url"], "http://127.0.0.1:8080/metrics?model=m")
+        self.assertEqual(self.sent[0]["url"], "http://127.0.0.1:8080/metrics?model=m&autoload=false")
         self.assertIsNone(self.sent[0]["body"])
         self.assertEqual(self.sent[0]["key"], KEY)
 
@@ -447,8 +465,13 @@ class RouterControlTest(_NoNetwork):
                 "llamacpp:requests_deferred 0\n")
         self.assertEqual(self.router(request_text=text).activity("m"), 0)
 
-    def test_activity_one_counter_is_enough(self):
+    def test_activity_processing_only_is_enough(self):
         self.assertEqual(self.router(request_text="llamacpp:requests_processing 4\n").activity("m"), 4)
+
+    def test_activity_deferred_only_is_error(self):
+        with self.assertRaises(llm.LLMError) as cm:
+            self.router(request_text="llamacpp:requests_deferred 4\n").activity("m")
+        self.assertIn("missing request counters", str(cm.exception))
 
     def test_activity_missing_counters_is_error(self):
         for text in ("", "# only comments\n", "llamacpp:requests_processing_total 3\n",
@@ -457,17 +480,43 @@ class RouterControlTest(_NoNetwork):
                 self.router(request_text=text).activity("m")
             self.assertIn("missing request counters", str(cm.exception))
 
+    def test_activity_unparseable_counter_line_is_error(self):
+        for bad in ("llamacpp:requests_processing abc", "llamacpp:requests_processing",
+                    'llamacpp:requests_processing{model="x" 1', "llamacpp:requests_processing 1 2 3",
+                    "llamacpp:requests_deferred 0x10", "llamacpp:requests_deferred{} ",
+                    "llamacpp:requests_processing 1,5"):
+            text = "llamacpp:requests_processing 0\n" + bad + "\n"
+            with self.assertRaises(llm.LLMError, msg=repr(bad)) as cm:
+                self.router(request_text=text).activity("m")
+            self.assertIn("unparseable", str(cm.exception))
+
     def test_activity_non_finite_or_negative_is_error(self):
         for text in ("llamacpp:requests_processing NaN\n", "llamacpp:requests_processing +Inf\n",
-                     "llamacpp:requests_deferred -1\n", "llamacpp:requests_processing 1e400\n"):
+                     "llamacpp:requests_processing 0\nllamacpp:requests_deferred -1\n",
+                     "llamacpp:requests_processing 1e400\n",
+                     # each finite, but the sum overflows to inf
+                     "llamacpp:requests_processing 1e308\nllamacpp:requests_deferred 1e308\n"):
             with self.assertRaises(llm.LLMError, msg=repr(text)):
                 self.router(request_text=text).activity("m")
 
-    def test_activity_model_is_quoted(self):
-        r = self.router(request_text="llamacpp:requests_processing 0\n")
-        r.activity("org/model a&b=c?#")
-        self.assertEqual(self.sent[0]["url"],
-                         "http://127.0.0.1:8080/metrics?model=org%2Fmodel%20a%26b%3Dc%3F%23")
+    def test_activity_fractions_round_up_never_to_idle(self):
+        self.assertEqual(self.router(request_text="llamacpp:requests_processing 0.6\n").activity("m"), 1)
+        self.assertEqual(self.router(request_text="llamacpp:requests_processing 1.2\n"
+                                                  "llamacpp:requests_deferred 0.1\n").activity("m"), 2)
+
+    def test_activity_model_is_quoted_and_never_autoloads(self):
+        # /metrics?model=X autoloads X by default (server-models.cpp is_autoload), which would
+        # evict the user's model under --models-max 1. autoload=false makes it a 400 instead.
+        for model in ("m", "org/model a&b=c?#", "../../x", "a&autoload=true", "a#&autoload=true?"):
+            r = self.router(request_text="llamacpp:requests_processing 0\n")
+            r.activity(model)
+            url = self.sent[0]["url"]
+            path, _, query = url.partition("?")
+            self.assertEqual(path, "http://127.0.0.1:8080/metrics", msg=model)
+            self.assertNotIn("#", url)
+            self.assertEqual(urllib.parse.parse_qs(query, keep_blank_values=True),
+                             {"model": [model], "autoload": ["false"]}, msg=model)
+            self.assertTrue(url.endswith("&autoload=false"), msg=model)
 
     def test_activity_oversized_text_is_error(self):
         big = "llamacpp:requests_processing 0\n" + "#" * (llm.MAX_RESPONSE_BYTES + 1)
@@ -513,7 +562,7 @@ class RouterControlTest(_NoNetwork):
 
     # wait_status()
     def scripted_models(self, *steps):
-        """Each step: a status string for model "m", or an exception to raise."""
+        """Each step: a status string (or full status dict) for model "m", or an exception."""
         steps = list(steps)
 
         def request(url):
@@ -521,7 +570,7 @@ class RouterControlTest(_NoNetwork):
             if isinstance(s, Exception):
                 return s
             return {"data": [{"id": "other", "status": {"value": "loaded"}},
-                             {"id": "m", "status": {"value": s}}]}
+                             {"id": "m", "status": s if isinstance(s, dict) else {"value": s}}]}
         return self.router(request=request)
 
     def fake_time(self):
@@ -571,6 +620,28 @@ class RouterControlTest(_NoNetwork):
             r = self.scripted_models("loading", bad, "loaded")
             self.assertFalse(r.wait_status("m", "loaded", sleep=sleep, clock=clock), msg=bad)
             self.assertEqual(len(self.sent), 2, msg=bad)
+
+    # A real failed load (server-models.cpp): value falls back to "unloaded" plus failed/exit_code.
+    FAILED = {"value": "unloaded", "args": ["llama-server"], "failed": True, "exit_code": 1}
+
+    def test_wait_status_failed_flag_returns_false_at_once(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loading", self.FAILED, "loaded")
+        self.assertFalse(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        self.assertEqual(len(self.sent), 2)
+
+    def test_wait_status_failed_flag_satisfies_want_unloaded(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loaded", self.FAILED)
+        self.assertTrue(r.wait_status("m", "unloaded", sleep=sleep, clock=clock))
+
+    def test_wait_status_sleeping_counts_as_loaded(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loading", "sleeping")
+        self.assertTrue(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("sleeping")
+        self.assertFalse(r.wait_status("m", "unloaded", timeout=4, sleep=sleep, clock=clock))
 
     def test_wait_status_tolerates_router_unavailable(self):
         sleep, clock = self.fake_time()

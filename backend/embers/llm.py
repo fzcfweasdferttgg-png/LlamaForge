@@ -195,7 +195,10 @@ def _request_text(url, body=None, key="", timeout=TIMEOUT):
 _NUM = r"[+-]?(?:\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|[Nn]a[Nn]|[Ii]nf(?:inity)?)"
 _COUNTER = re.compile(r"llamacpp:(requests_processing|requests_deferred)(\{[^}]*\})?[ \t]+(" + _NUM
                       + r")(?:[ \t]+-?\d+)?")
+# Anything that claims to be one of those samples; if it then fails _COUNTER it is garbage, not skipped.
+_COUNTER_CLAIM = re.compile(r"llamacpp:requests_(?:processing|deferred)(?:[{ \t]|$)")
 _FAILED = ("fail", "error")
+_SATISFIES = {"loaded": ("loaded", "sleeping")}   # a sleeping child is loaded; a request wakes it
 POLL_SECONDS = 2
 
 
@@ -230,54 +233,55 @@ class Router:
         return f"Router({self.base})"
 
     def loaded_model(self):
-        r = self.request(self.base + "/v1/models", key=self._key, timeout=10)
-        data = r.get("data") if isinstance(r, dict) else None
-        for m in data if isinstance(data, list) else []:
-            if not isinstance(m, dict):
-                continue
-            st = m.get("status")
-            if (st.get("value") if isinstance(st, dict) else st) == "loaded":
-                return m.get("id")
-        return None
+        return next((m["id"] for m in self.models() if m["status"] == "loaded"), None)
 
     def models(self):
-        """[{"id", "status"}] for every well-formed registry entry. status is the
-        router's value as a str ("" when absent); junk entries are skipped."""
+        """[{"id", "status", "failed"}] for every well-formed registry entry. status
+        is the router's value as a str ("" when absent); failed mirrors the
+        status dict's flag (a failed load reports value "unloaded" + failed).
+        Junk entries are skipped."""
         r = self.request(self.base + "/v1/models", key=self._key, timeout=10)
         data = r.get("data") if isinstance(r, dict) else None
         out = []
         for m in data if isinstance(data, list) else []:
             if not isinstance(m, dict) or not isinstance(m.get("id"), str):
                 continue
-            st = m.get("status")
+            st, failed = m.get("status"), False
             if isinstance(st, dict):
-                st = st.get("value")
-            out.append({"id": m["id"], "status": "" if st is None else str(st)[:100]})
+                st, failed = st.get("value"), bool(st.get("failed"))
+            out.append({"id": m["id"], "status": "" if st is None else str(st)[:100], "failed": failed})
         return out
 
     def activity(self, model):
         """In-flight plus queued requests for model, from the router's /metrics.
         Raises LLMError rather than guess 0 when the counters are absent (the
-        router runs without --metrics) or nonsensical."""
-        text = self.request_text(f"{self.base}/metrics?model={urllib.parse.quote(str(model), safe='')}",
-                                 key=self._key, timeout=10)
+        router runs without --metrics), unparseable or nonsensical.
+        autoload=false: without it the router would load model to answer,
+        evicting the user's model under --models-max 1 (unloaded -> 400)."""
+        text = self.request_text(f"{self.base}/metrics?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
         if not isinstance(text, str):
             raise LLMError("router metrics were not text")
         if len(text) > MAX_RESPONSE_BYTES:
             raise LLMError("router metrics too large")
-        total, seen = 0.0, False
+        total, processing = 0.0, False
         for line in text.splitlines():
-            m = _COUNTER.fullmatch(line.strip())
+            line = line.strip()
+            m = _COUNTER.fullmatch(line)
             if not m:
+                if _COUNTER_CLAIM.match(line):
+                    raise LLMError("router metrics has an unparseable request counter line")
                 continue
             v = float(m.group(3))
             if not math.isfinite(v) or v < 0:
                 raise LLMError(f"router metrics has a bad {m.group(1)} value")
             total += v
-            seen = True
-        if not seen:
+            processing = processing or m.group(1) == "requests_processing"
+        if not processing:
             raise LLMError("router metrics are missing request counters")
-        return int(total)
+        if not math.isfinite(total):
+            raise LLMError("router metrics request counters overflow")
+        return math.ceil(total)       # 0.6 in flight is busy, never a guessed idle
 
     def _model_op(self, op, model):
         if not isinstance(model, str) or not model:
@@ -292,16 +296,21 @@ class Router:
         self._model_op("unload", model)
 
     def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic):
-        """Poll models() every POLL_SECONDS until model's status is want -> True.
-        False on timeout or on a failed status. RouterUnavailable (busy loading,
-        restarting) is tolerated; any other LLMError propagates."""
+        """Poll models() every POLL_SECONDS until model's status is want -> True
+        ("sleeping" satisfies "loaded"). False on timeout or on a failed load
+        (the failed flag, or a status naming fail/error). RouterUnavailable
+        (busy loading, restarting) is tolerated; any other LLMError propagates."""
+        ok = _SATISFIES.get(want, (want,))
         deadline = clock() + timeout
         while True:
             try:
-                status = next((m["status"] for m in self.models() if m["id"] == model), None)
+                entry = next((m for m in self.models() if m["id"] == model), None)
             except RouterUnavailable:
-                status = None
-            if status == want:
+                entry = None
+            status = entry["status"] if entry else None
+            if entry and entry["failed"] and want != "unloaded":
+                return False
+            if status in ok:
                 return True
             if status and any(w in status.lower() for w in _FAILED):
                 return False
@@ -311,8 +320,9 @@ class Router:
 
     def n_ctx(self, model):
         try:
-            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}",
-                                 key=self._key, timeout=10)
+            # autoload=false: never load (and so evict for) a model just to read its props.
+            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
             return int(props.get("default_generation_settings", {}).get("n_ctx") or DEFAULT_N_CTX)
         except (LLMError, TypeError, ValueError, AttributeError):
             return DEFAULT_N_CTX
