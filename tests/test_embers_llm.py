@@ -237,7 +237,8 @@ class RouterTest(_NoNetwork):
         self.assertEqual(usage, {"prompt_tokens": 3, "finish_reason": "length"})
         body = self.sent[0][1]
         self.assertEqual(body["thinking_budget_tokens"], 0)      # reasoning models that ignore enable_thinking
-        self.assertEqual(body["reasoning_budget_tokens"], 0)     # the field this llama.cpp actually honours
+        self.assertEqual(body["reasoning_budget_tokens"], llm.THINK_BUDGET)   # 0 reads as unlimited here
+        self.assertTrue(0 < llm.THINK_BUDGET <= 1024)
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
 
     def test_complete_flags_a_reply_that_is_only_reasoning(self):

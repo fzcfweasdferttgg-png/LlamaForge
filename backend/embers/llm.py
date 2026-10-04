@@ -12,6 +12,7 @@ import http.client, json, math, re, time, urllib.error, urllib.parse, urllib.req
 
 TIMEOUT = 600            # a long batch on a 16 GB card can take minutes
 DEFAULT_N_CTX = 8192
+THINK_BUDGET = 512       # reasoning tokens for a model that cannot switch thinking off
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_JSON_CHARS = 2 * 1024 * 1024
 MAX_DEPTH = 64
@@ -423,12 +424,13 @@ class Router:
 
         def call(messages, schema, max_tokens):
             # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
-            # writes the JSON. Chat templates without the variable ignore it; a zero thinking
-            # budget closes the think block of models that ignore it (older routers drop the field;
-            # llama.cpp honours reasoning_budget_tokens, some forks the thinking_ spelling).
+            # writes the JSON. Chat templates without the variable ignore it, so a thinking
+            # budget bounds the models that always think (older routers drop the fields). Some
+            # builds read the thinking_ spelling; llama.cpp reads reasoning_budget_tokens, where 0
+            # means unlimited, so it gets a small positive budget.
             body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
                     "chat_template_kwargs": {"enable_thinking": False}, "thinking_budget_tokens": 0,
-                    "reasoning_budget_tokens": 0,
+                    "reasoning_budget_tokens": THINK_BUDGET,
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
             try:
