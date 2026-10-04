@@ -213,6 +213,7 @@ class GitTest(unittest.TestCase):
         items, cursor2 = sources.fetch("git", self.repo, cursor, now)
         self.assertEqual([i["title"] for i in items], ["second: fix bug"])
         self.assertIn("Longer body.", items[0]["text"])
+        self.assertIn("already done", items[0]["text"].splitlines()[0])   # small models made commits open loops
         self.assertNotEqual(cursor2["last"], cursor["last"])
 
     def test_not_a_repo(self):

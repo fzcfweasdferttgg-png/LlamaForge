@@ -378,7 +378,7 @@ def fetch_git(repo, cursor, now, run=subprocess.run):
         if sha == last:
             break
         items.append({"ref": sha[:12], "title": subject,
-                      "text": clip(f"Commit {sha[:12]} by {author} on {when}\n\n{subject}\n\n{body}")})
+                      "text": clip(f"Commit {sha[:12]} by {author} on {when} (work already done)\n\n{subject}\n\n{body}")})
     return items, {"last": head or last}
 
 
