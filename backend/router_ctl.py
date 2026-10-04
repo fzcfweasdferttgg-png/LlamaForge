@@ -3,7 +3,7 @@ so changing network settings (host, API key) never requires the user
 to touch a terminal. Windows uses Get-NetTCPConnection to find the
 process bound to a port; Linux/macOS use lsof.
 """
-import os, signal, subprocess, time, socket, urllib.error, urllib.request
+import json, os, signal, subprocess, time, socket, urllib.error, urllib.request
 
 import network_policy, osplat, procs
 
@@ -177,7 +177,29 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", poo
         out.close()
         err.close()
     procs.write_pid(logdir, "router", proc.pid)   # stop.ps1/.sh stop only this one
+    record_pool(logdir, proc.pid, pool)
     return True, ""
+
+
+def record_pool(logdir, pid, pool):
+    """Remember which pool the router under `pid` runs, beside its pidfile."""
+    try:
+        with open(os.path.join(logdir, "router.pool.json"), "w", encoding="utf-8") as f:
+            json.dump({"pid": int(pid), "pool": pool}, f)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def running_pool(logdir):
+    """The pool of the router LlamaForge started, or None (one model at a time)
+    when the recorded router is not the one running: run.ps1 / run.sh start it
+    single and overwrite the pidfile, not this record."""
+    try:
+        with open(os.path.join(logdir, "router.pool.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        return rec["pool"] if rec.get("pid") == procs.read_pid(logdir, "router") else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
 
 def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
     reason = network_policy.start_error(host, api_key)

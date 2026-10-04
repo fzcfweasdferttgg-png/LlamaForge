@@ -397,10 +397,15 @@ def _auto_load(model_id):
 
 
 def _router_startup(model_id):
-    """Background: re-key a router left running by an older build, then load
-    the favourite model - in that order, so the load lands on the new router."""
+    """Background: re-key a router left running by an older build, give it the
+    multi-model pool if that's on, then load the favourite model - in that
+    order, so the load lands on the final router."""
     try:
         routes.reconcile_router_auth()
+    except Exception:
+        pass
+    try:
+        routes.reconcile_router_pool()
     except Exception:
         pass
     if model_id:

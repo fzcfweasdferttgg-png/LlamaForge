@@ -25,7 +25,7 @@ import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, 
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends, prebuilt, version
+import gguf, diag, backends, prebuilt, version, slots
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -1581,6 +1581,8 @@ def _v_mode(v):  return v if v in ("lite", "advanced") else None
 def _v_theme(v): return v if v in ("", "light", "dark") else None
 def _v_dirs(v):
     return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
+def _v_int(lo, hi):
+    return lambda v: v if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi else None
 
 def _v_bandwidths(v):
     """{vram_bw,ram_bw,disk_bw} -> GB/s. Only those keys, each a positive number.
@@ -1610,7 +1612,13 @@ CONFIG_WRITABLE = {
     "anthropic_shim_enabled":  _v_bool,
     "vram_bandwidths":         _v_bandwidths,
     "vram_predict_enabled":    _v_bool,
+    "multi_model":             _v_bool,
+    "slot_cap":                _v_int(slots.CAP_MIN, slots.CAP_MAX),
+    "slot_headroom_mib":       _v_int(0, 32768),
+    "slot_autoload":           _v_bool,
 }
+# what the router is started with: changing one restarts it (and unloads models)
+_POOL_KEYS = ("multi_model", "slot_cap", "slot_autoload")
 
 
 def post_config(req):
@@ -1634,6 +1642,10 @@ def post_config(req):
     out = {"ok": True, "config": _public_config(c), "applied": sorted(accepted)}
     if rejected:
         out["rejected"] = sorted(rejected)
+    if any(k in accepted for k in _POOL_KEYS):
+        with _ROUTER_LIFECYCLE_LOCK:
+            restarted, err = _sync_router_pool(c)
+        out["router"] = {"restarted": restarted, "error": err or ""}
     return 200, out
 
 
@@ -1643,6 +1655,44 @@ def _active_server_bin(c=None):
     if c.get("active_engine") == "ikllama":
         return c.get("ik_llama_server_bin", "")
     return c.get("server_bin", "")
+
+
+def _router_pool(c, sbin):
+    """router_ctl's pool for config `c` on binary `sbin` (None = single)."""
+    return slots.router_pool(c, bool(sbin) and router_ctl.supports_no_autoload(sbin))
+
+
+def _sync_router_pool(c):
+    """Restart a running router whose pool isn't the one `c` asks for.
+    (restarted, error). Callers hold _ROUTER_LIFECYCLE_LOCK."""
+    sbin = _active_server_bin(c)
+    if not sbin or not os.path.exists(sbin) or not router_ctl.is_running(c["router_port"]):
+        return False, ""
+    want = _router_pool(c, sbin)
+    if want == router_ctl.running_pool(LOGDIR):
+        return False, ""
+    ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
+                                 c.get("router_host", "127.0.0.1"),
+                                 c.get("router_api_key", ""), LOGDIR,
+                                 c.get("router_local_key", ""), want)
+    return bool(ok), err
+
+
+def reconcile_router_pool(wait_s=20):
+    """Startup check: run.ps1 / run.sh start the router one-model-at-a-time;
+    with multi_model on (or just turned off) restart it with the right pool,
+    before anything is loaded. True when a restart was attempted."""
+    c = cfg()
+    if not c.get("multi_model") and router_ctl.running_pool(LOGDIR) is None:
+        return False                    # single mode, single router: nothing to do
+    deadline = time.monotonic() + wait_s   # the runner's router may still be binding
+    while not router_ctl.is_running(c["router_port"]) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    with _ROUTER_LIFECYCLE_LOCK:
+        restarted, err = _sync_router_pool(cfg())
+    if err:
+        print(f"  WARNING: router restart for multi-model failed ({err})")
+    return restarted or bool(err)
 
 
 def reconcile_router_auth():
@@ -1661,7 +1711,7 @@ def reconcile_router_auth():
         ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                      c.get("router_host", "127.0.0.1"),
                                      c.get("router_api_key", ""), LOGDIR,
-                                     c.get("router_local_key", ""))
+                                     c.get("router_local_key", ""), _router_pool(c, sbin))
     print("  router restarted with API-key auth" if ok
           else f"  WARNING: router auth restart failed ({err})")
     return True
@@ -1711,10 +1761,11 @@ def _post_network_locked(req):
     except Exception:
         raise ApiError(500, "network settings could not be saved") from None
     try:
+        sbin = _active_server_bin(c)
         ok, error = router_ctl.restart(
-            _active_server_bin(c), config.ini_path(), c["router_port"],
+            sbin, config.ini_path(), c["router_port"],
             mutation.router_host, mutation.router_api_key, LOGDIR,
-            c.get("router_local_key", ""))
+            c.get("router_local_key", ""), _router_pool(c, sbin))
     except Exception as exc:
         ok, error = False, exc
     running = router_ctl.is_running(c["router_port"])
@@ -1764,7 +1815,7 @@ def _post_engine_switch_locked(req):
     ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                  c.get("router_host", "127.0.0.1"),
                                  c.get("router_api_key", ""), LOGDIR,
-                                 c.get("router_local_key", ""))
+                                 c.get("router_local_key", ""), _router_pool(c, sbin))
     return 200, {"ok": ok, "active_engine": engine, "error": err}
 
 
@@ -1925,7 +1976,7 @@ def _activate_prebuilt(sbin):
             ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                          c.get("router_host", "127.0.0.1"),
                                          c.get("router_api_key", ""), LOGDIR,
-                                         c.get("router_local_key", ""))
+                                         c.get("router_local_key", ""), _router_pool(c, sbin))
         except Exception as e:
             ok, err = False, str(e)
         return ok, err
