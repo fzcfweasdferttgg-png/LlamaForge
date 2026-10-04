@@ -771,6 +771,25 @@ class FinishedWorkTest(EmberCase, unittest.TestCase):
         self.assertIn("SOW", page)
         self.assertNotIn("Export the pricing sheet", page)
 
+    def test_commit_loops_are_not_blamed_on_quoting(self):
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"
+        commits = [{"ref": f"{i:012x}", "title": f"feat: part {i} of the export",
+                    "text": f"Commit {i:012x} (work already done)\n\nfeat: part {i} of the export"} for i in range(4)]
+
+        def fetch(stype, binding, cursor, now):
+            return (commits if stype == "git" and not cursor else []), {"last": "x"}
+
+        def reply(messages):
+            return {"ops": [{"op": "add", "page": "projects/x", "kind": "loop", "text": f"Part {i}",
+                             "evidence": [{"raw": s, "quote": f"feat: part {i} of the export"}]}
+                            for s, i in zip(raw_ids(messages), range(4))]}
+        r = jobs.ingest(ember, FakeLLM(reply), NOW, fetch=fetch)
+        self.assertEqual((r["status"], r["rejected"], r["finished"]), ("ok", 4, 4))
+        self.assertNotIn("quoted the sources", ember.store.recent_runs()[0]["error"] or "")
+
 
 class ModelScoutTest(EmberCase, unittest.TestCase):
     def test_zero_setup_ember_ingests_releases_and_the_machine(self):

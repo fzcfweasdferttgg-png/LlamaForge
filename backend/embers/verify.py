@@ -18,6 +18,7 @@ ITEM_KINDS   = ("loop", "fact", "person", "event")
 PAGE_RE = re.compile(r"[a-z0-9-]{1,40}/[a-z0-9-]{1,60}")   # <kind>/<slug>
 ITEM_RE = re.compile(r"it-[0-9a-f]{8}")                     # also a valid Obsidian block id
 RAW_RE  = re.compile(r"[0-9a-f]{12}")
+DONE_WORK = "a loop opened on finished work alone"
 
 _QUOTES = dict.fromkeys(map(ord, "'\"`\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u00ab\u00bb"), None)
 _DASHES = dict.fromkeys(map(ord, "-\u2010\u2012\u2013\u2014\u2015"), " ")
@@ -188,7 +189,7 @@ def verify_op(op, raws, kinds, known_items=(), ref_date=None, done_raws=()):
     if action == "close" and not evidence:
         return None, "close without passing evidence"
     if action == "add" and kind == "loop" and evidence and all(e["raw"] in done_raws for e in evidence):
-        return None, "a loop opened on finished work alone"
+        return None, DONE_WORK
     quotes = [e["quote"] for e in evidence]
     owner, due = op.get("owner"), op.get("due")
     return {"op": action, "page": page, "kind": kind, "item": item, "text": text,

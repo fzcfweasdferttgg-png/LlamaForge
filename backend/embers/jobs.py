@@ -429,7 +429,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
     done = {r["sha"] for r in pending if slot_type.get(r["source"]) in sources.DONE_TYPES}
 
     stats = {"raws": len(pending), "deferred": max(0, len(queued) - MAX_RAWS_PER_RUN), "batches": 0,
-             "failed": 0, "failed_raws": 0, "truncated": 0, "split": 0, "ops": 0, "unverified": 0, "rejected": 0,
+             "failed": 0, "failed_raws": 0, "truncated": 0, "split": 0, "ops": 0, "unverified": 0, "rejected": 0, "finished": 0,
              "tokens_in": 0, "tokens_out": 0}
     rejections = []
     too_small = n_ctx < MIN_N_CTX
@@ -544,6 +544,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         stats["ops"] += len(ops)
         stats["unverified"] += sum(1 for o in ops if not o["verified"])
         stats["rejected"] += len(rejected)
+        stats["finished"] += sum(1 for _, why in rejected if why == verify.DONE_WORK)
         rejections += [str(why) for _, why in rejected][:MAX_REJECTIONS - len(rejections)]
         errors += _flush_dirty(ember)
 
@@ -557,7 +558,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
     except (OSError, ValueError) as e:
         errors.append(f"prune: {_err(e)}")
     render_failed = bool(_dirty(st))
-    proposed = stats["ops"] + stats["rejected"]
+    proposed = stats["ops"] + stats["rejected"] - stats["finished"]    # commits as loops quoted fine
     never_quoted = proposed >= FLAG_MIN_OPS and stats["ops"] == stats["unverified"]
     if never_quoted:
         errors.append(f"none of the model's {proposed} proposed changes quoted the sources exactly; "
