@@ -1,13 +1,13 @@
 import conftest_paths  # noqa: F401
-import datetime as dt, io, json, os, re, shutil, tempfile, threading, unittest
+import io, json, os, re, shutil, tempfile, threading, unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 import config
 import embers_cli
-from embers import jobs, llm
+from embers import jobs, llm, lock
 from embers.llm import LLMError, RouterUnavailable
-from embers_testkit import NOW
+from embers_testkit import NOW, LockHolder
 
 TPL = os.path.join(config.ROOT, "templates", "morning-brief.json")
 _CTRL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
@@ -151,16 +151,26 @@ class HardeningTest(CliCase):
 
     def test_locked_ember_is_refused(self):
         self.create()
-        lockfile = os.path.join(self.dir, "embers", "morning", ".ember.lock")
-        # A live pid that is not ours, and a fresh 'since' so the age check keeps the lock.
-        with open(lockfile, "w", encoding="utf-8") as f:
-            json.dump({"pid": os.getppid(), "since": dt.datetime.now().isoformat()}, f)
+        root = os.path.join(self.dir, "embers", "morning")
+        holder = LockHolder(root)                 # a real second process holds the lock
+        self.addCleanup(holder.kill)
         with mock.patch.object(jobs, "ingest", wraps=jobs.ingest) as m:
             code, out = self.cli("run", "morning")
         self.assertEqual(code, 1)
-        self.assertIn(f"morning is already running in another process (pid {os.getppid()})", self.err)
+        self.assertIn(f"morning is already running in another process (pid {holder.pid}; lock: "
+                      f"{os.path.join(root, lock.LOCK_NAME)})", self.err)
         m.assert_not_called()
-        self.assertTrue(os.path.isfile(lockfile))
+        holder.release()
+        self.assertEqual(self.cli("run", "morning")[0], 0)
+        self.assertTrue(os.path.isfile(os.path.join(root, lock.LOCK_NAME)))
+
+    def test_busy_raised_inside_a_job_is_not_reported_as_locked(self):
+        self.create()
+        with mock.patch.object(jobs, "ingest", side_effect=lock.Busy(4242, "", "elsewhere")):
+            code, out = self.cli("ingest", "morning")
+        self.assertEqual(code, 1)
+        self.assertNotIn("already running", self.err)
+        self.assertIn("error: Busy", self.err)
 
     def test_bad_ember_names_are_refused(self):
         for bad in ("../escape", "..", "Morning", "con", "COM1", "lpt9", "a/b", "a\\b", "", "_x",

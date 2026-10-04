@@ -1,6 +1,6 @@
 """Shared fakes for Embers pipeline tests (not a test module itself)."""
 import conftest_paths  # noqa: F401
-import datetime as dt, os, re, shutil, tempfile
+import datetime as dt, os, re, shutil, subprocess, sys, tempfile, time
 
 from embers import jobs, templates
 
@@ -63,3 +63,48 @@ class EmberCase:
     def read(self, ember, *parts):
         with open(os.path.join(ember.root, *parts), encoding="utf-8") as f:
             return f.read()
+
+
+_HOLDER = """
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+from embers import lock
+root, ready, release = sys.argv[2:5]
+with lock.held(root):
+    open(ready, "w").close()
+    while not os.path.exists(release):
+        time.sleep(0.02)
+"""
+
+
+class LockHolder:
+    """A child Python process holding embers.lock.held(root) until release() or kill()."""
+
+    def __init__(self, root, timeout=20):
+        self.dir = tempfile.mkdtemp()
+        self.ready = os.path.join(self.dir, "ready")
+        self.release_flag = os.path.join(self.dir, "release")
+        backend = os.path.dirname(os.path.dirname(os.path.abspath(jobs.__file__)))
+        self.proc = subprocess.Popen([sys.executable, "-c", _HOLDER, backend, root,
+                                      self.ready, self.release_flag])
+        deadline = time.monotonic() + timeout
+        while not os.path.exists(self.ready):
+            if self.proc.poll() is not None or time.monotonic() > deadline:
+                self.kill()
+                raise RuntimeError("lock holder did not start")
+            time.sleep(0.02)
+
+    @property
+    def pid(self):
+        return self.proc.pid
+
+    def release(self, timeout=20):
+        open(self.release_flag, "w").close()
+        self.proc.wait(timeout)
+        shutil.rmtree(self.dir, True)
+
+    def kill(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
+        self.proc.wait(20)
+        shutil.rmtree(self.dir, True)

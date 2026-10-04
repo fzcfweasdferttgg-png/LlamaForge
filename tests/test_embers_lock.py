@@ -1,13 +1,9 @@
 import conftest_paths  # noqa: F401
-import datetime as dt, json, os, shutil, subprocess, sys, tempfile, time, unittest
+import json, os, shutil, sys, tempfile, time, unittest
+from unittest import mock
 
 from embers import lock
-
-
-def _dead_pid():
-    p = subprocess.Popen([sys.executable, "-c", "pass"])
-    p.wait()
-    return p.pid
+from embers_testkit import LockHolder
 
 
 class LockCase(unittest.TestCase):
@@ -16,89 +12,106 @@ class LockCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         self.path = os.path.join(self.root, lock.LOCK_NAME)
 
-    def write(self, data, age=None):
-        with open(self.path, "w", encoding="utf-8") as f:
-            f.write(data if isinstance(data, str) else json.dumps(data))
-        if age is not None:
-            t = time.time() - age
-            os.utime(self.path, (t, t))
+    def holder(self):
+        h = LockHolder(self.root)
+        self.addCleanup(h.kill)
+        return h
 
-    def since(self, hours_ago=0):
-        return (dt.datetime.now() - dt.timedelta(hours=hours_ago)).isoformat(timespec="seconds")
+    def read_info(self):
+        with open(self.path, "rb") as f:
+            return json.loads(f.read(lock.MAX_READ).decode("utf-8"))
+
+    def acquire_eventually(self, seconds=10):
+        """The kernel drops a dead process's lock promptly but not necessarily instantly."""
+        deadline = time.monotonic() + seconds
+        while True:
+            try:
+                with lock.held(self.root):
+                    return True
+            except lock.Busy:
+                if time.monotonic() > deadline:
+                    return False
+                time.sleep(0.05)
 
 
 class HeldTest(LockCase):
-    def test_acquire_creates_and_release_removes(self):
+    def test_acquire_writes_diagnostics_and_file_stays_after_release(self):
         with lock.held(self.root):
-            self.assertTrue(os.path.isfile(self.path))
-            with open(self.path, encoding="utf-8") as f:
-                data = json.load(f)
-            self.assertEqual(data["pid"], os.getpid())
-            self.assertIsInstance(data["since"], str)
-        self.assertFalse(os.path.exists(self.path))
+            info = self.read_info()
+            self.assertEqual(info["pid"], os.getpid())
+            self.assertIsInstance(info["since"], str)
+        self.assertTrue(os.path.isfile(self.path))       # permanent, never deleted
+        with lock.held(self.root):                        # and reusable
+            pass
 
     def test_same_process_second_hold_is_busy(self):
+        spellings = [self.root, self.root + os.sep, os.path.join(self.root, ".")]
+        if sys.platform == "win32":
+            spellings += [self.root.upper(), self.root.lower()]
         with lock.held(self.root):
-            with self.assertRaises(lock.Busy) as cm:
-                with lock.held(os.path.join(self.root, ".")):
-                    pass
-            self.assertEqual(cm.exception.pid, os.getpid())
-            self.assertTrue(os.path.isfile(self.path))     # the outer hold is untouched
-        self.assertFalse(os.path.exists(self.path))
-        with lock.held(self.root):                          # released for reuse
+            for other in spellings:
+                with self.assertRaises(lock.Busy, msg=other) as cm:
+                    with lock.held(other):
+                        pass
+                self.assertEqual(cm.exception.pid, os.getpid())
+            self.assertEqual(self.read_info()["pid"], os.getpid())   # the outer hold is untouched
+        with lock.held(self.root + os.sep):               # released for reuse
             pass
 
     def test_release_on_exception(self):
         with self.assertRaises(ValueError):
             with lock.held(self.root):
                 raise ValueError("boom")
-        self.assertFalse(os.path.exists(self.path))
         with lock.held(self.root):
             pass
 
-    def test_dead_pid_is_broken(self):
-        self.write({"pid": _dead_pid(), "since": self.since()})
-        with lock.held(self.root):
-            with open(self.path, encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["pid"], os.getpid())
+    def test_release_never_raises(self):
+        # Closing the fd behind the lock's back makes unlock and close fail; the body's
+        # result must still come through and the in-process guard must be cleared.
+        real_open, fds = os.open, []
 
-    def test_live_foreign_pid_blocks(self):
-        self.write({"pid": os.getppid(), "since": self.since()})
+        def spy(*a, **k):
+            fd = real_open(*a, **k)
+            fds.append(fd)
+            return fd
+        with mock.patch.object(lock.os, "open", spy):
+            with lock.held(self.root):
+                os.close(fds[0])
+        with lock.held(self.root):
+            pass
+
+
+class CrossProcessTest(LockCase):
+    def test_other_process_blocks_until_it_releases(self):
+        h = self.holder()
+        info = self.read_info()                           # readable while locked
+        self.assertEqual(info["pid"], h.pid)
         with self.assertRaises(lock.Busy) as cm:
             with lock.held(self.root):
                 pass
-        self.assertEqual(cm.exception.pid, os.getppid())
-        self.assertTrue(os.path.isfile(self.path))          # never removed someone else's lock
+        self.assertEqual(cm.exception.pid, h.pid)
+        self.assertTrue(cm.exception.since)
+        self.assertEqual(cm.exception.path, self.path)
+        h.release()
+        with lock.held(self.root):
+            self.assertEqual(self.read_info()["pid"], os.getpid())
 
-    def test_old_garbage_is_broken_fresh_garbage_is_busy(self):
-        self.write("{not json", age=0)
+    def test_killed_holder_releases_the_lock(self):
+        h = self.holder()
+        with self.assertRaises(lock.Busy):
+            with lock.held(self.root):
+                pass
+        h.kill()
+        self.assertTrue(self.acquire_eventually())
+
+    def test_unreadable_diagnostics_give_unknown_pid(self):
+        self.holder()
+        with open(self.path, "wb") as f:                  # the JSON region is not locked
+            f.write(b"{not json")
         with self.assertRaises(lock.Busy) as cm:
             with lock.held(self.root):
                 pass
         self.assertIsNone(cm.exception.pid)
-        self.write("{not json", age=lock.GARBAGE_AGE + 30)
-        with lock.held(self.root):
-            pass
-        self.assertFalse(os.path.exists(self.path))
-
-    def test_too_old_since_is_broken(self):
-        self.write({"pid": os.getppid(), "since": self.since(hours_ago=13)})
-        with lock.held(self.root):
-            with open(self.path, encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["pid"], os.getpid())
-
-    def test_lock_taken_over_is_not_removed_on_exit(self):
-        with lock.held(self.root):
-            self.write({"pid": os.getppid(), "since": self.since()})
-        self.assertTrue(os.path.isfile(self.path))
-
-
-class PidAliveTest(unittest.TestCase):
-    def test_pid_alive(self):
-        self.assertTrue(lock.pid_alive(os.getpid()))
-        self.assertFalse(lock.pid_alive(_dead_pid()))
-        for bad in (0, -1, True, "12", None, 3.0):
-            self.assertFalse(lock.pid_alive(bad), repr(bad))
 
 
 if __name__ == "__main__":

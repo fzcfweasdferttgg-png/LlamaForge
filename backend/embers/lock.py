@@ -1,4 +1,4 @@
-"""A cross-process lock per ember folder: <root>/.ember.lock.
+"""A cross-process lock per ember folder, on <root>/.ember.lock.
 
 Store.abort_running assumes it is the only runner of a job, so anything that
 runs jobs (the CLI, the panel's scheduler) holds this lock around them:
@@ -6,191 +6,108 @@ runs jobs (the CLI, the panel's scheduler) holds this lock around them:
     with lock.held(root):
         jobs.ingest(...)
 
-The file is created with O_EXCL and holds {"pid", "since"}. A lock whose pid
-is dead, whose since is older than MAX_AGE, or that is unreadable and older
-than GARBAGE_AGE is stale: it is removed and the create is retried once.
-Inside one process a module-level set refuses a second hold of the same root
-(our own pid is alive, so the file alone cannot tell).
+The lock is an OS file lock (msvcrt byte-range lock on Windows, flock on
+POSIX) held on an open fd for the whole block. The kernel drops it when the
+process dies, so there is no stale-lock detection. The file is permanent and
+never deleted; while held it says {"pid", "since"} for diagnostics only.
+Within one process a module-level set refuses a second hold of the same
+folder, because OS locks do not reliably exclude the process holding them.
 """
-import contextlib, datetime as dt, json, os, sys, threading, time
+import contextlib, datetime as dt, json, os, sys, threading
 
 LOCK_NAME   = ".ember.lock"
-MAX_AGE     = dt.timedelta(hours=12)   # no run is that long: the holder is hung or the pid reused
-GARBAGE_AGE = 60                       # seconds an unreadable lock may be mid-write
+LOCK_OFFSET = 1 << 20      # Windows: the locked byte sits past the JSON so rivals can still read it
 MAX_READ    = 4096
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 _mutex = threading.Lock()
-_held = set()                          # normcased absolute roots held by this process
+_held = set()              # normcased real paths of the folders this process holds
 
 
 class Busy(Exception):
-    """Another live holder has the lock. pid is None when the file is unreadable."""
+    """Another holder has the lock. pid is None when its diagnostics are unreadable."""
 
-    def __init__(self, pid=None, since=""):
-        self.pid, self.since = pid, since or ""
+    def __init__(self, pid=None, since="", path=""):
+        self.pid, self.since, self.path = pid, since or "", path
         who = f"pid {pid}" if pid is not None else "an unknown process"
         super().__init__(f"ember is locked by {who}" + (f" since {self.since}" if self.since else ""))
 
 
-def _valid_pid(pid):
-    return isinstance(pid, int) and not isinstance(pid, bool) and 0 < pid <= 0xFFFFFFFF
-
-
-if sys.platform == "win32":
-    import ctypes
-    from ctypes import wintypes
-
-    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    _STILL_ACTIVE = 259
-    _ERROR_ACCESS_DENIED = 5
-    _k32 = None
-
-    def _kernel32():
-        global _k32
-        if _k32 is None:
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            k.OpenProcess.restype = wintypes.HANDLE
-            k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-            k.GetExitCodeProcess.restype = wintypes.BOOL
-            k.CloseHandle.argtypes = (wintypes.HANDLE,)
-            k.CloseHandle.restype = wintypes.BOOL
-            _k32 = k
-        return _k32
-
-    def pid_alive(pid):
-        """True if a process with this pid exists. Never os.kill here: on Windows
-        that is TerminateProcess."""
-        if not _valid_pid(pid):
-            return False
-        k = _kernel32()
-        h = k.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not h:
-            return ctypes.get_last_error() == _ERROR_ACCESS_DENIED   # exists, just not ours
-        try:
-            code = wintypes.DWORD()
-            if not k.GetExitCodeProcess(h, ctypes.byref(code)):
-                return True                    # opened but unreadable: assume alive (fail closed)
-            return code.value == _STILL_ACTIVE
-        finally:
-            k.CloseHandle(h)
-else:
-    def pid_alive(pid):
-        """True if a process with this pid exists (signal 0 only probes)."""
-        if not _valid_pid(pid):
-            return False
-        try:
-            os.kill(pid, 0)
-        except PermissionError:
-            return True                        # exists, owned by someone else
-        except (OSError, OverflowError):
-            return False
-        return True
-
-
-def _read(path):
-    """(raw bytes, pid, since); pid is None when the content is not a valid lock.
-    raw is None when the file is gone."""
+def _try_lock(fd):
+    """Take the exclusive lock without blocking; False if someone else has it."""
     try:
-        with open(path, "rb") as f:
-            raw = f.read(MAX_READ)
-    except FileNotFoundError:
-        return None, None, ""
-    except OSError:
-        return b"", None, ""
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
-        return raw, None, ""
-    if not isinstance(data, dict) or not _valid_pid(data.get("pid")) \
-            or not isinstance(data.get("since"), str):
-        return raw, None, ""
-    return raw, data["pid"], data["since"]
-
-
-def _since_too_old(since):
-    try:
-        t = dt.datetime.fromisoformat(since)
-    except ValueError:
+        if sys.platform == "win32":
+            os.lseek(fd, LOCK_OFFSET, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:        # PermissionError / BlockingIOError: held elsewhere
         return False
-    if t.tzinfo is not None:
-        t = t.astimezone().replace(tzinfo=None)
-    return dt.datetime.now() - t > MAX_AGE
+    return True
 
 
-def _stale(path, raw, pid, since):
-    """Whether the lock read as (raw, pid, since) can be broken."""
-    if raw is None:
-        return True                            # vanished meanwhile: just retry the create
-    if pid is None:
-        try:
-            return time.time() - os.path.getmtime(path) > GARBAGE_AGE
-        except OSError:
-            return True
-    if pid == os.getpid():
-        return True                            # not in _held, so a leftover with a reused pid
-    return not pid_alive(pid) or _since_too_old(since)
+def _unlock(fd):
+    if sys.platform == "win32":
+        os.lseek(fd, LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def _break(path, raw):
-    """Remove a stale lock, but only if it still has the content judged stale."""
-    if raw is None:
-        return
-    if _read(path)[0] != raw:
-        return                                 # replaced meanwhile; the retry will see it
-    with contextlib.suppress(FileNotFoundError):
-        os.remove(path)
-
-
-def _create(path):
-    """Create the lock file; the content on success, None if it already exists."""
+def _read_info(fd):
+    """(pid, since) from the holder's diagnostics, best effort; (None, "") if unreadable."""
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-    except FileExistsError:
-        return None
-    except PermissionError:
-        if os.path.exists(path):               # Windows: a lock file pending deletion
-            return None
-        raise
+        os.lseek(fd, 0, os.SEEK_SET)
+        data = json.loads(os.read(fd, MAX_READ).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None, ""
+    if not isinstance(data, dict):
+        return None, ""
+    pid, since = data.get("pid"), data.get("since")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        pid = None
+    return pid, since if isinstance(since, str) else ""
+
+
+def _write_info(fd):
     since = dt.datetime.now().isoformat(timespec="seconds")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"pid": os.getpid(), "since": since}, f)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.remove(path)
-        raise
-    return since
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, json.dumps({"pid": os.getpid(), "since": since}).encode("utf-8"))
 
 
-def _acquire(path):
-    for attempt in range(2):
-        if _create(path) is not None:
-            return
-        raw, pid, since = _read(path)
-        if attempt == 0 and _stale(path, raw, pid, since):
-            _break(path, raw)
-            continue
-        raise Busy(pid, since)
-
-
-def _release(path):
-    if _read(path)[1] == os.getpid():          # someone may have broken and retaken it
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(path)
+def _release(fd):
+    """Clear the diagnostics, unlock, close. Never raises: it runs in a finally."""
+    for step in (lambda: os.ftruncate(fd, 0), lambda: _unlock(fd), lambda: os.close(fd)):
+        try:
+            step()
+        except OSError:
+            pass
 
 
 @contextlib.contextmanager
 def held(root):
     """Hold the ember's lock for the with-block; raises Busy if someone else has it."""
-    key = os.path.normcase(os.path.abspath(root))
+    key = os.path.normcase(os.path.realpath(root))
     path = os.path.join(root, LOCK_NAME)
     with _mutex:
         if key in _held:
-            raise Busy(os.getpid(), _read(path)[2])
+            raise Busy(os.getpid(), "", path)
         _held.add(key)
     try:
-        _acquire(path)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        if not _try_lock(fd):
+            pid, since = _read_info(fd)
+            os.close(fd)
+            raise Busy(pid, since, path)
+        try:
+            _write_info(fd)
+        except OSError:
+            pass           # diagnostics only; the lock itself is what matters
     except BaseException:
         with _mutex:
             _held.discard(key)
@@ -198,8 +115,6 @@ def held(root):
     try:
         yield
     finally:
-        try:
-            _release(path)
-        finally:
-            with _mutex:
-                _held.discard(key)
+        _release(fd)
+        with _mutex:
+            _held.discard(key)

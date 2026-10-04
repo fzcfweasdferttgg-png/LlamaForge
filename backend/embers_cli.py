@@ -20,7 +20,7 @@ model, a source file or the router.
 Lives in backend/ rather than as `python -m embers` because from the repo root
 `embers` would resolve to the data folder <ROOT>/embers, not this package.
 """
-import argparse, datetime as dt, os, re, sys
+import argparse, contextlib, datetime as dt, os, re, sys
 
 import config
 import embers
@@ -159,12 +159,13 @@ def _jobs(a, base, cfg, router_cls, out):
     root = _ember_root(base, a.id)
     if not os.path.isfile(os.path.join(root, "ember.json")):
         raise SystemExit(safe(f"No ember named {a.id!r} in {base}"))
-    try:
-        with lock.held(root):              # the panel's scheduler may be running this ember
-            return _run_steps(a, root, cfg, router_cls, out)
-    except lock.Busy as e:
-        pid = e.pid if e.pid is not None else "unknown"
-        raise _Fail(f"{a.id} is already running in another process (pid {pid})")
+    with contextlib.ExitStack() as stack:
+        try:                               # the panel's scheduler may be running this ember
+            stack.enter_context(lock.held(root))
+        except lock.Busy as e:             # only the acquire maps to this message
+            pid = e.pid if e.pid is not None else "unknown"
+            raise _Fail(f"{a.id} is already running in another process (pid {pid}; lock: {e.path})")
+        return _run_steps(a, root, cfg, router_cls, out)
 
 
 def _run_steps(a, root, cfg, router_cls, out):
