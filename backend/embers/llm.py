@@ -16,6 +16,7 @@ THINK_BUDGET = 512       # reasoning tokens for a model that cannot switch think
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_JSON_CHARS = 2 * 1024 * 1024
 THINK_TAILS = 8          # closing tags tried from the end: each try is a full parse
+PREFILL = "<think>\n\n</think>\n\n"   # an already-finished think block, for templates that force one
 MAX_DEPTH = 64
 _TYPES = {"object": dict, "array": list, "string": str, "integer": int,
           "number": (int, float), "boolean": bool}
@@ -148,6 +149,18 @@ def parse_json(text):
     if found:
         return found[0]
     raise JSONParseError("reply is not valid JSON")
+
+
+def forced_think(template):
+    """True when a chat template opens a <think> block in every reply and has no
+    enable_thinking switch to skip it (the distill templates do this). Thinking
+    then ends only when the model chooses: the one lever left is to write the
+    closed block ourselves as the start of the reply."""
+    if not isinstance(template, str) or "enable_thinking" in template:
+        return False
+    i = template.rfind("add_generation_prompt")
+    tail = template[i:] if i >= 0 else ""
+    return "<think>" in tail and "</think>" not in tail
 
 
 def _unfence(t):
@@ -434,12 +447,31 @@ class Router:
         except (LLMError, TypeError, ValueError, AttributeError):
             return DEFAULT_N_CTX
 
+    def _forced_think(self, model):
+        try:
+            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
+            return forced_think(props.get("chat_template"))
+        except Exception:        # a template we cannot read is left to the thinking budget
+            return False
+
     def complete(self, model, autoload=True):
         """complete(messages, schema, max_tokens) -> (text, usage). autoload=False
-        never loads model to answer: an unloaded model raises ModelNotLoaded."""
+        never loads model to answer: an unloaded model raises ModelNotLoaded.
+        A model that thinks although asked not to has its template read once: if the
+        template forces thinking, this call and every later one prefill a closed block."""
         url = self.base + "/v1/chat/completions" + ("" if autoload else "?autoload=false")
+        state = {"prefill": None}           # None until a reply shows whether it is needed
 
         def call(messages, schema, max_tokens):
+            text, usage, thought = send(messages, schema, max_tokens, state["prefill"])
+            if state["prefill"] is None and thought:
+                state["prefill"] = self._forced_think(model)
+                if state["prefill"]:
+                    text, usage, _ = send(messages, schema, max_tokens, True)
+            return text, usage
+
+        def send(messages, schema, max_tokens, prefill):
             # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
             # writes the JSON. Chat templates without the variable ignore it, so a thinking
             # budget bounds the models that always think (older routers drop the fields). Some
@@ -450,6 +482,15 @@ class Router:
                     "reasoning_budget_tokens": THINK_BUDGET,
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
+            if prefill:          # llama.cpp runs the grammar over the prefill too and refuses it,
+                del body["response_format"]           # so the schema moves into the prompt
+                msgs = list(messages)
+                hint = "Reply with only a JSON object matching this JSON Schema:\n" + json.dumps(schema)
+                if msgs and msgs[-1].get("role") == "user" and isinstance(msgs[-1].get("content"), str):
+                    msgs[-1] = dict(msgs[-1], content=msgs[-1]["content"] + "\n\n" + hint)
+                else:
+                    msgs.append({"role": "user", "content": hint})
+                body["messages"] = msgs + [{"role": "assistant", "content": PREFILL}]
             try:
                 r = self.request(url, body, key=self._key, timeout=TIMEOUT)
             except LLMError as e:
@@ -468,9 +509,12 @@ class Router:
                 usage["finish_reason"] = finish
             msg = r["choices"][0]["message"]
             thought = msg.get("reasoning_content") if isinstance(msg, dict) else None
-            if finish == "length" and not text.strip() and isinstance(thought, str) and thought.strip():
+            thought = isinstance(thought, str) and bool(thought.strip())
+            if finish == "length" and not text.strip() and thought:
                 usage["thinking_only"] = True
-            return text, usage
+            if prefill and text.startswith(PREFILL):        # the router echoes the prefill
+                text = text[len(PREFILL):]
+            return text, usage, thought
         return call
 
     def llm(self, model, max_tokens_cap=MAX_REPLY_CAP, autoload=True):

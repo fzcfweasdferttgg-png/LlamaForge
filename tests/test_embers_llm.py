@@ -263,6 +263,71 @@ class RouterTest(_NoNetwork):
         _, usage = r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
         self.assertNotIn("thinking_only", usage)        # it got to the answer: an ordinary truncation
 
+    FORCED = ("{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\n<think>\n' }}\n{%- endif %}")
+
+    def test_forced_think_reads_the_generation_prompt(self):
+        self.assertTrue(llm.forced_think(self.FORCED))
+        # A switch, a think block the template closes itself, or no think at all: leave it be.
+        self.assertFalse(llm.forced_think("{%- if enable_thinking is false %}<think>\n\n</think>{% endif %}"
+                                          + self.FORCED))
+        self.assertFalse(llm.forced_think("{%- if add_generation_prompt %}assistant\n<think>\n\n</think>\n\n"))
+        self.assertFalse(llm.forced_think("{%- if add_generation_prompt %}<|turn>model\n"))
+        self.assertFalse(llm.forced_think("<think> in a message, then {%- if add_generation_prompt %}assistant"))
+        self.assertFalse(llm.forced_think(None))
+
+    def test_a_template_that_always_thinks_gets_its_think_block_closed(self):
+        # A distill template hardcodes <think> into every reply: no flag turns it off, so
+        # Embers writes the closed block itself. llama.cpp runs the JSON grammar over the
+        # prefill too and refuses it, so those calls go without response_format.
+        thought = {"choices": [{"message": {"content": '{"ops": []}', "reasoning_content": "hmm"},
+                                "finish_reason": "stop"}]}
+        r = self.make({"completions": thought, "props": {"chat_template": self.FORCED}})
+        call = r.complete("b")
+        msgs = [{"role": "user", "content": "x"}]
+        r.request = self._then(r.request, {"choices": [{"message": {"content": llm.PREFILL + '{"ops": [1]}'},
+                                                        "finish_reason": "stop"}]})
+        text, _ = call(msgs, SCHEMA, 10)
+        self.assertEqual(text, '{"ops": [1]}')
+        urls = [u.split("?")[0].rsplit("/", 1)[-1] for u, _, _ in self.sent]
+        self.assertEqual(urls, ["completions", "props", "completions"])
+        self.assertTrue(self.sent[1][0].endswith("&autoload=false"))
+        body = self.sent[2][1]
+        self.assertNotIn("response_format", body)
+        # Without the grammar the model never sees the schema (a live 9B invented its own
+        # keys), so the schema goes into the prompt instead.
+        self.assertEqual(body["messages"][-1], {"role": "assistant", "content": llm.PREFILL})
+        self.assertEqual(len(body["messages"]), 2)
+        self.assertTrue(body["messages"][0]["content"].startswith("x\n\n"))
+        self.assertIn(json.dumps(SCHEMA), body["messages"][0]["content"])
+        self.assertEqual(msgs, [{"role": "user", "content": "x"}])        # the caller's list is untouched
+        call(msgs, SCHEMA, 10)                                           # known now: no probe, no wasted call
+        self.assertEqual(len(self.sent), 4)
+        self.assertNotIn("response_format", self.sent[3][1])
+
+    def test_a_model_that_thinks_with_a_switchable_template_is_left_alone(self):
+        thought = {"choices": [{"message": {"content": '{"ops": []}', "reasoning_content": "hmm"}}]}
+        for props in ({"chat_template": "{% if enable_thinking %}<think>{% endif %}"}, llm.LLMError("404")):
+            r = self.make({"completions": thought, "props": props})
+            call = r.complete("b")
+            self.assertEqual(call([{"role": "user", "content": "x"}], SCHEMA, 10)[0], '{"ops": []}')
+            call([{"role": "user", "content": "x"}], SCHEMA, 10)
+            urls = [u.split("?")[0].rsplit("/", 1)[-1] for u, _, _ in self.sent]
+            self.assertEqual(urls, ["completions", "props", "completions"])   # asked once per run
+            self.assertIn("response_format", self.sent[2][1])
+
+    def _then(self, request, second):
+        """After the first completion, every later one answers with second."""
+        seen = []
+
+        def wrapped(url, body=None, key="", timeout=None):
+            if url.split("?")[0].endswith("/completions"):
+                seen.append(1)
+                if len(seen) > 1:
+                    self.sent.append((url, body, key))
+                    return second
+            return request(url, body, key=key, timeout=timeout)
+        return wrapped
+
     def test_complete_not_loaded_is_model_not_loaded(self):
         err = llm.LLMError('router answered 400: {"error":{"code":400,"message":"model is not loaded"}}')
         r = self.make({"completions": err})
