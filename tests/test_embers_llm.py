@@ -48,6 +48,18 @@ class ParseJsonTest(unittest.TestCase):
                      '<think>a</think><think>{"ops":["draft"]}</think>{"ops":["final"]}'):
             self.assertEqual(llm.parse_json(text), final, msg=text)
 
+    def test_a_think_tag_inside_the_json_is_data(self):
+        # a model quoting a commit that says "after the last </think>" lost its whole reply
+        reply = {"ops": [{"quote": "take the answer after the last </think>, map errors"},
+                         {"op": "add", "text": "x </think> {\"op\": \"close\"}"}]}
+        text = json.dumps(reply)
+        self.assertEqual(llm.parse_json(text), reply)
+        self.assertEqual(llm.parse_json("<think>plan</think>\n" + text), reply)
+        self.assertEqual(llm.parse_json("<think>a</think><think>b</think>```json\n" + text + "\n```"), reply)
+        self.assertEqual(llm.parse_json("Here it is: " + text), reply)
+        self.assertEqual(llm.parse_json('draft {"ops":["draft"]}</think> Answer: {"ops":["final"]} ok'),
+                         {"ops": ["final"]})
+
     def test_unterminated_think_is_an_error(self):
         with self.assertRaises(llm.LLMError):
             llm.parse_json('<think>ran out of tokens {"a": 1}')

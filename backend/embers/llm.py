@@ -15,6 +15,7 @@ DEFAULT_N_CTX = 8192
 THINK_BUDGET = 512       # reasoning tokens for a model that cannot switch thinking off
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_JSON_CHARS = 2 * 1024 * 1024
+THINK_TAILS = 8          # closing tags tried from the end: each try is a full parse
 MAX_DEPTH = 64
 _TYPES = {"object": dict, "array": list, "string": str, "integer": int,
           "number": (int, float), "boolean": bool}
@@ -111,7 +112,7 @@ _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 def parse_json(text):
     """Model text -> JSON value. Handles a leading <think>...</think> block
     (reasoning models), ```json fences, and prose around one object.
-    Linear-time string ops only; raises JSONParseError on anything else."""
+    A bounded number of linear-time parses; raises JSONParseError on anything else."""
     if not isinstance(text, str):
         raise JSONParseError("empty reply")
     if len(text) > MAX_JSON_CHARS:
@@ -119,11 +120,37 @@ def parse_json(text):
     t = text.lstrip("﻿").strip().lstrip("﻿")
     # Reasoning models: the answer follows the LAST </think> (case-insensitive).
     # Some templates put <think> in the prompt, so only the closing tag appears.
+    # But a quote inside the JSON can contain "</think>" too: a reply that is JSON
+    # as a whole wins, then the text after each closing tag from last to first,
+    # parsed strictly before any prose is skipped. Skipping prose, an object that
+    # leaves a stray } or ] behind was cut out of the middle of the real answer.
     closes = list(_THINK_CLOSE.finditer(t))
-    if closes:
-        t = t[closes[-1].end():].strip()
-    elif _THINK_OPEN.match(t):
+    whole = [] if _THINK_OPEN.match(t) else [_unfence(t)]
+    if not closes and not whole:
         raise JSONParseError("reply ended inside a <think> block")
+    tails = [_unfence(t[m.end():].strip()) for m in reversed(closes[-THINK_TAILS:])]
+    for s in whole + tails:
+        try:
+            return json.loads(s)
+        except (ValueError, RecursionError):
+            pass
+    found = []
+    for s in tails + whole:
+        starts = [i for i in (s.find("{"), s.find("[")) if i >= 0]
+        if starts:
+            try:
+                obj, end = json.JSONDecoder().raw_decode(s, min(starts))
+            except (ValueError, RecursionError):
+                continue
+            if not any(c in s[end:] for c in "}]"):
+                return obj
+            found.append(obj)
+    if found:
+        return found[0]
+    raise JSONParseError("reply is not valid JSON")
+
+
+def _unfence(t):
     if t.startswith("```"):
         t = t[3:]
         if t[:4].lower() == "json":
@@ -131,17 +158,7 @@ def parse_json(text):
         t = t.strip()
         if t.endswith("```"):
             t = t[:-3].strip()
-    try:
-        return json.loads(t)
-    except (ValueError, RecursionError):
-        pass
-    starts = [i for i in (t.find("{"), t.find("[")) if i >= 0]
-    if starts:
-        try:
-            return json.JSONDecoder().raw_decode(t, min(starts))[0]
-        except (ValueError, RecursionError):
-            pass
-    raise JSONParseError("reply is not valid JSON")
+    return t
 
 
 def ask_json(complete, messages, schema, max_tokens=2048):
