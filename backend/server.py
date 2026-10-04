@@ -9,7 +9,7 @@ write SSE to the socket themselves rather than returning a payload.
 
 Pure Python stdlib.
 """
-import json, os, urllib.parse
+import json, os, socket, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, wiki, anthropic_shim, chatproxy
@@ -40,6 +40,11 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_PROXY_JSON_BODY_BYTES = 64 * 1024 * 1024
 _BODY_ERROR = object()
+# A refused POST closes with its body unread. Closing over unread input sends
+# RST, not FIN, and an RST can destroy the refusal before the client reads it
+# (WinError 10053 on Windows). So drain what is in flight first, within bounds.
+LINGER_SECONDS = 2
+LINGER_MAX_BYTES = 1024 * 1024
 EMBERS_SCHED = None        # the panel's ember scheduler, started by main() only
 
 
@@ -82,8 +87,34 @@ def _origin_ok(origin, port):
 
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    _body_read = False
 
     def log_message(self, *a): pass
+
+    def finish(self):
+        super().finish()
+        if self.close_connection and self.command == "POST" and not self._body_read:
+            self._linger()
+
+    def _linger(self):
+        """Half-close, then read off the unread request body until the client
+        closes, LINGER_SECONDS pass or LINGER_MAX_BYTES arrive."""
+        sock = self.connection
+        deadline = time.monotonic() + LINGER_SECONDS
+        drained = 0
+        try:
+            sock.shutdown(socket.SHUT_WR)
+            while drained < LINGER_MAX_BYTES:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                sock.settimeout(left)
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                drained += len(chunk)
+        except OSError:
+            pass
 
     # ------------------------------------------------------------- responding
     def _send(self, code, body, ctype="application/json"):
@@ -134,6 +165,7 @@ class H(BaseHTTPRequestHandler):
             return self._body_error(413, "request body too large")
         size = int(normalized)
         data = self.rfile.read(size)
+        self._body_read = True
         if len(data) != size:
             return self._body_error(400, "incomplete request body")
         try:
