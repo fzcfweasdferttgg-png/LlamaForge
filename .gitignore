@@ -6,6 +6,7 @@ config.json.backup-*
 models.ini.backup-*
 stats.json
 wiki/
+/embers/
 logs/
 __pycache__/
 *.pyc

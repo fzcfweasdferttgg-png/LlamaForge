@@ -66,6 +66,7 @@ DEFAULTS = {
     "vram_bandwidths":      {},   # optional {vram_bw,ram_bw,disk_bw} GB/s overrides (empty = presets/defaults)
     "vram_predict_enabled": True, # compute vramwise placement/tok-s estimates (offline; Discover only on expand)
     "docs_dir":      "",                        # "" = <ROOT>/docs/content
+    "embers_dir":    "",                        # "" = <ROOT>/embers (ember wikis + embers.db)
 }
 
 def load():
