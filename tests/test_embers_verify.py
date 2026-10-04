@@ -258,7 +258,8 @@ class DueDatesTest(unittest.TestCase):
         for text in ("payment due 2026-10-09 sharp", "Start: 20261009T150000Z", "on 20261009",
                      "by Friday Oct 9", "by October 9", "by Oct. 9th", "the 9 Oct deadline",
                      "on 9 October 2026", "the 9th of October", "Oct 9, 2026", "OCT 9",
-                     "Start: 2026-10-09 15:00 UTC (Friday 09 October 2026)"):
+                     "Start: 2026-10-09 15:00 UTC (Friday 09 October 2026)", "due by 2026-10-09.",
+                     "at 2026-10-09T15:00", "(2026-10-09)", "on 20261009."):
             with self.subTest(text=text):
                 self.assertEqual(verify.due_dates(text, self.REF), {d})
 

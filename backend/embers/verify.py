@@ -73,8 +73,8 @@ _DAY  = r"(\d{1,2})(?:st|nd|rd|th)?(?!\w)"
 _YEAR = r"(?:,?\s+(\d{4})(?!\w))?"
 _D    = "[-‐‑‒–−]"
 _DATE_RES = (
-    ("ymd", re.compile(r"(?<![\w.])(\d{4})" + _D + r"(\d{2})" + _D + r"(\d{2})(?![\w.])")),
-    ("ymd", re.compile(r"(?<!\w)(\d{4})(\d{2})(\d{2})(?=t\d|[^\w]|$)")),       # ICS 20261009T150000Z
+    ("ymd", re.compile(r"(?<!\w)(\d{4})" + _D + r"(\d{2})" + _D + r"(\d{2})(?=t\d|\W|$)")),  # 2026-10-09
+    ("ymd", re.compile(r"(?<!\w)(\d{4})(\d{2})(\d{2})(?=t\d|\W|$)")),          # ICS 20261009T150000Z
     ("mdy", re.compile(r"(?<!\w)" + _MON + r"\s+" + _DAY + _YEAR)),            # Oct 9th, 2026
     ("dmy", re.compile(r"(?<!\w)" + _DAY + r"\s+(?:of\s+)?" + _MON + _YEAR)),  # 9 October 2026
 )
