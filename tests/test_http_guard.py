@@ -260,6 +260,47 @@ class LiveServerTest(unittest.TestCase):
             self.assertEqual(status, 415, ctype)
         self.assertEqual(self.seen, [])
 
+    def test_refused_post_waits_for_its_body_before_closing(self):
+        """Closing with the request body still unread sends RST instead of FIN,
+        and on Windows an RST destroys the refusal before the client reads it
+        (WinError 10053). Force the losing order: the body arrives only after
+        the server has answered, and the response must still come through."""
+        closed = threading.Event()
+        real_shutdown = self.httpd.shutdown_request
+        mine = []
+
+        def shutdown_request(request):
+            # an earlier test's connection may still be closing; only ours counts
+            try:
+                ours = request.getpeername() in mine
+            except OSError:
+                ours = False
+            real_shutdown(request)
+            if ours:
+                closed.set()
+        body = json.dumps({"a": 1}).encode()
+        head = (f"POST /api/_probe HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
+                f"Content-Type: text/plain\r\nContent-Length: {len(body)}\r\n\r\n")
+        with mock.patch.object(self.httpd, "shutdown_request", shutdown_request), \
+                socket.create_connection(("127.0.0.1", self.port), timeout=10) as sock:
+            mine.append(sock.getsockname())
+            sock.sendall(head.encode("ascii"))
+            resp = sock.makefile("rb")
+            status = int(resp.readline().split()[1])
+            headers = {}
+            while (line := resp.readline().strip()):
+                key, _, value = line.decode("iso-8859-1").partition(":")
+                headers[key.lower()] = value.strip()
+            payload = json.loads(resp.read(int(headers["content-length"])))
+            self.assertEqual(status, 415)
+            self.assertIn("application/json", payload["error"])
+            self.assertFalse(closed.wait(0.25), "closed with the body still in flight")
+            sock.sendall(body)
+            sock.shutdown(socket.SHUT_WR)
+            self.assertEqual(resp.read(), b"")       # a clean FIN, not a reset
+            self.assertTrue(closed.wait(5))
+        self.assertEqual(self.seen, [])
+
     def test_secret_preview_posts_share_origin_and_json_guards(self):
         for path in ("/api/client/config", "/api/agent/config"):
             with self.subTest(path=path, guard="origin"):
