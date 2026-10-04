@@ -109,13 +109,20 @@ class SaveAndPresetTest(unittest.TestCase):
                                           side_effect=lambda *a, **k: self.calls.append(("set", a)))
         self.set_keys.start()
         self.addCleanup(self.set_keys.stop)
+        sleep = mock.patch.object(routes, "_sleep", lambda s: None)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def _router(self, loaded_ids=()):
+        loaded = set(loaded_ids)
+
         def fake(path, method="GET", body=None, timeout=30):
             self.calls.append(("router", path, method, body))
             if path == "/models":
                 return 200, {"data": [{"id": i, "status": {"value": "loaded"}}
-                                      for i in loaded_ids]}
+                                      for i in sorted(loaded)]}
+            if path == "/models/unload":
+                loaded.discard(body["model"])
             return 200, {}
         return fake
 

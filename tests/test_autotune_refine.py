@@ -45,6 +45,18 @@ class TestRefine(unittest.TestCase):
         out = autotune.refine(base, "balanced", load_fn, lambda: 0.0,
                               budget_s=100, clock=FakeClock())
         self.assertEqual(out["knobs"], base)
+        self.assertIn("load failed", out["error"])
+
+    def test_one_measured_candidate_is_not_an_error(self):
+        base = {"n-gpu-layers": "99", "ubatch-size": "512"}
+
+        def load_fn(knobs):
+            if knobs["ubatch-size"] == "1024":
+                raise RuntimeError("out of memory")
+
+        out = autotune.refine(base, "balanced", load_fn, lambda: 12.0,
+                              budget_s=100, clock=FakeClock())
+        self.assertNotIn("error", out)
 
     def test_respects_time_budget(self):
         base = {"n-gpu-layers": "99", "ubatch-size": "512"}

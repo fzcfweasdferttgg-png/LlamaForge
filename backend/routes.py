@@ -409,60 +409,75 @@ def _autotune_refine(body):
             return rec
         base = rec.get("knobs") or {}
 
+    was_running = (_model_status(mid) or {}).get("value") in slotctl.RUNNING
+    main = SLOTS._main()
+    # beside another main it's tuned where it would run: as a worker
+    role = "main" if main == mid or not (main or was_running) else "worker"
+    before = config.read_sections(raw=True).get(mid, {})
+    touched = set()
+
     def load_fn(knobs):
-        config.set_keys(mid, _clean_settings(knobs))     # blank = unset (left to --fit)
-        router("/models?reload=1")
-        code, res = router("/models/load", "POST", {"model": mid})
-        if code >= 400:
-            raise RuntimeError((res or {}).get("error", "load failed"))
+        clean = _clean_settings(knobs)              # blank = unset (left to --fit)
+        touched.update(clean)
+        _apply_knobs_and_reload(mid, clean)
+        _load_and_wait(mid, role)
 
-    def measure_fn():
-        """Send a real completion request and measure tok/s (generation only, excludes prompt eval)."""
-        import time
-        prompt = "Write a Python function that computes the Fibonacci sequence iteratively. Explain your approach briefly."
-        payload = {"model": mid, "prompt": prompt, "n_predict": 200, "stream": True}
-        url = router_base() + "/completion"
-        data = json.dumps(payload).encode()
-        headers = {"Content-Type": "application/json"}
-        key = network_policy.effective_key(cfg())
-        if key:
-            headers["Authorization"] = "Bearer " + key
-        req = urllib.request.Request(url, data=data, method="POST",
-                                     headers=headers)
-        tokens = 0
-        first_tok = None
-        last_tok = None
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                for line in r:
-                    line = line.decode().strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    try:
-                        obj = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("stop"):
-                        break
-                    content = obj.get("content", "")
-                    if content:
-                        tokens += 1
-                        now = time.monotonic()
-                        if first_tok is None:
-                            first_tok = now
-                        last_tok = now
-        except Exception as e:
-            return 0.0
-        if first_tok is None or last_tok is None or tokens < 10:
-            return 0.0
-        elapsed = last_tok - first_tok
-        if elapsed < 0.01:
-            return 0.0
-        return round(tokens / elapsed, 1)
-
-    out = autotune.refine(base, intent, load_fn, measure_fn)
+    out = autotune.refine(base, intent, load_fn, lambda: _measure_tok_s(mid))
+    # benchmarking isn't saving: models.ini goes back to what the user wrote and
+    # the model to how it was found; the UI offers the winner as unsaved changes
+    if touched:
+        _apply_knobs_and_reload(mid, {k: before.get(k) for k in touched})
+        if was_running:
+            try:
+                _load_and_wait(mid, role)
+            except RuntimeError as e:
+                out["restore_error"] = str(e)
     out["model"] = mid
     return out
+
+
+def _measure_tok_s(mid):
+    """Send a real completion request and measure tok/s (generation only, excludes prompt eval)."""
+    prompt = "Write a Python function that computes the Fibonacci sequence iteratively. Explain your approach briefly."
+    payload = {"model": mid, "prompt": prompt, "n_predict": 200, "stream": True}
+    url = router_base() + "/completion"
+    data = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"}
+    key = network_policy.effective_key(cfg())
+    if key:
+        headers["Authorization"] = "Bearer " + key
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers=headers)
+    tokens = 0
+    first_tok = None
+    last_tok = None
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            for line in r:
+                line = line.decode().strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                try:
+                    obj = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("stop"):
+                    break
+                content = obj.get("content", "")
+                if content:
+                    tokens += 1
+                    now = time.monotonic()
+                    if first_tok is None:
+                        first_tok = now
+                    last_tok = now
+    except Exception:
+        return 0.0
+    if first_tok is None or last_tok is None or tokens < 10:
+        return 0.0
+    elapsed = last_tok - first_tok
+    if elapsed < 0.01:
+        return 0.0
+    return round(tokens / elapsed, 1)
 
 
 # ---------- unified model list (llama.cpp + vLLM) ----------
@@ -611,15 +626,71 @@ def _write_anthropic_stream(write, model, status, resp):
 def _apply_knobs_and_reload(mid, clean):
     """Write knobs to models.ini, then make the router pick them up. A loaded
     model has to be unloaded first - llama.cpp reads args at load time.
-    Returns whether it had been running."""
+    /models/unload only signals the process, so wait for it to stop: then the
+    reload never sees it running, whatever this router build does with a
+    running model's changed preset. On a pool the slot manager unloads it, so
+    the per-GPU books stay right. Returns whether it had been running."""
     config.set_keys(mid, clean)
-    st, data = router("/models")
-    running = any(m["id"] == mid and m["status"]["value"] == "loaded"
-                  for m in data.get("data", [])) if st == 200 else False
+    running = (_model_status(mid) or {}).get("value") in slotctl.RUNNING
     if running:
-        router("/models/unload", "POST", {"model": mid})
+        if _slots_on():
+            SLOTS.unload(mid)               # waits, and keeps the per-GPU books
+        else:
+            router("/models/unload", "POST", {"model": mid})
+            _wait_status(mid, lambda s: s.get("value") not in slotctl.RUNNING + ("loading",),
+                         slotctl.UNLOAD_TIMEOUT_S)
     router("/models?reload=1")
     return running
+
+
+_sleep = time.sleep
+
+
+def _model_status(mid):
+    """The router's status for mid; {} if it doesn't list it, None if it isn't answering."""
+    st, data = router("/models")
+    if st != 200 or not isinstance(data, dict):
+        return None
+    return next((m.get("status") or {} for m in data.get("data", [])
+                 if m.get("id") == mid), {})
+
+
+def _wait_status(mid, done, timeout):
+    """Poll once a second until done(status); that status, or None on timeout."""
+    for _ in range(timeout):
+        s = _model_status(mid)
+        if s is not None and done(s):
+            return s
+        _sleep(1)
+    return None
+
+
+def _router_error(res, default):
+    e = res.get("error") if isinstance(res, dict) else None
+    if isinstance(e, dict):
+        e = e.get("message")
+    return e or default
+
+
+def _load_and_wait(mid, role):
+    """Load mid and return once it serves; RuntimeError says why it didn't.
+    /models/load only starts a load - a request sent before it finishes would
+    measure a model that's still loading."""
+    if _slots_on():
+        status, out = SLOTS.load(mid, role, False, wait=True)
+        if status != 200:
+            raise RuntimeError(_slot_error(out) or "load failed")
+        return
+    code, res = router("/models/load", "POST", {"model": mid})
+    if code >= 400:
+        raise RuntimeError(_router_error(res, "load failed"))
+    s = _wait_status(mid, lambda s: s.get("failed") or s.get("value") in slotctl.RUNNING,
+                     slotctl.LOAD_TIMEOUT_S)
+    if s is None:
+        raise RuntimeError(f"still loading after {slotctl.LOAD_TIMEOUT_S} s")
+    if s.get("failed"):
+        raise RuntimeError(f"the router reports the load failed (exit code "
+                           f"{s.get('exit_code', '?')}); see the router log")
 
 
 def _clean_settings(updates):
