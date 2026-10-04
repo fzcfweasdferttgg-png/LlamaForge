@@ -234,8 +234,9 @@ def ini_path(engine=None):
         return stem + "-ikllama" + (ext or ".ini")
     return _abs(c["models_ini"])
 
-def read_sections(path=None):
-    """Return {section: {key: value}} for all sections including [*]."""
+def read_sections(path=None, raw=False):
+    """Return {section: {key: value}} for all sections including [*].
+    raw: keep each value's inline `; comment`, to write the line back as it was."""
     path = path or ini_path()
     if not path or not os.path.exists(path):
         return {}
@@ -250,7 +251,7 @@ def read_sections(path=None):
                 continue
             if "=" in s:
                 k, v = s.split("=", 1)
-                v = v.split(";", 1)[0].strip() if ";" in v else v.strip()
+                v = v.split(";", 1)[0].strip() if ";" in v and not raw else v.strip()
                 out[cur][k.strip()] = v
     return out
 
@@ -309,9 +310,9 @@ def _set_keys_locked(section, updates, path):
         if km and km.group(1) in updates:
             if updates[km.group(1)] is not None:
                 new_body.append(f"{km.group(1)} = {updates[km.group(1)]}")
-            continue
-        new_body.append(line)
-        if j + 1 == last_key_local:
+        else:
+            new_body.append(line)
+        if j + 1 == last_key_local:          # even when that last key was just replaced
             for k, v in updates.items():
                 if v is not None and k not in seen:
                     new_body.append(f"{k} = {v}"); seen.add(k)
