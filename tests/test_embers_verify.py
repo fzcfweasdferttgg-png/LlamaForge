@@ -119,6 +119,25 @@ class VerifyOpTest(unittest.TestCase):
         closed, _ = verify.verify_op(op(op="close", item=ITEM, evidence=ev), RAWS, KINDS, {ITEM}, done_raws=done)
         self.assertEqual(closed["op"], "close")             # finished work is what closes a loop
 
+    def test_an_unquoted_loop_from_finished_work_is_still_finished_work(self):
+        # A 2-bit model garbles every quote, so the loop would pass as "unverified":
+        # seen live as open loops named after this repo's own commit subjects.
+        done = {"0123456789ab"}
+        garbled = [{"raw": "0123456789ab", "quote": "budget got approved"}]
+        clean, why = verify.verify_op(op(evidence=garbled), RAWS, KINDS, done_raws=done)
+        self.assertEqual((clean, why), (None, verify.DONE_WORK))
+        header = [{"raw": "=== raw 0123456789ab (git) ===", "quote": "nope"}]
+        self.assertEqual(verify.verify_op(op(evidence=header), RAWS, KINDS, done_raws=done)[1], verify.DONE_WORK)
+        lifted = op(text="budget approved by Priya", evidence=[])      # the commit's own words
+        self.assertEqual(verify.verify_op(lifted, RAWS, KINDS, done_raws=done)[1], verify.DONE_WORK)
+        # Not finished work: an unquoted loop citing an open source, or nothing at all, stays unverified.
+        mixed = garbled + [{"raw": "a1b2c3d4e5f6", "quote": "nope"}]
+        for ev in (mixed, []):
+            clean, _ = verify.verify_op(op(evidence=ev), RAWS, KINDS, done_raws=done)
+            self.assertFalse(clean["verified"])
+        self.assertTrue(verify.verify_op(op(evidence=garbled), RAWS, KINDS)[0])   # no commits in play
+        self.assertTrue(verify.verify_op(op(evidence=garbled, kind="fact"), RAWS, KINDS, done_raws=done)[0])
+
     def test_close_needs_passing_evidence(self):
         clean, why = verify.verify_op(op(op="close", item=ITEM, evidence=[]), RAWS, KINDS, {ITEM})
         self.assertIsNone(clean)

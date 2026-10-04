@@ -150,6 +150,25 @@ def cited_raw(sha, quote, raws):
     return None
 
 
+def _from_done_work(evidence, evs, text, raws, done_raws):
+    """True when finished work is all a new loop rests on. With passing quotes,
+    every quoted raw is done work. Without them (a small model garbles every
+    quote), every raw the op names is done work, or it names none and its text
+    is lifted from a done raw."""
+    if not done_raws:
+        return False
+    if evidence:
+        return all(e["raw"] in done_raws for e in evidence)
+    named = set()
+    for ev in evs[:MAX_EVIDENCE]:
+        sha = ev.get("raw") if isinstance(ev, dict) else None
+        if isinstance(sha, str):
+            named.update(s for s in [sha] + RAW_RE.findall(sha[:400]) if s in raws)
+    if named:
+        return named <= set(done_raws)
+    return bool(text) and any(s in raws and check_quote(text, raws[s]) for s in done_raws)
+
+
 def verify_op(op, raws, kinds, known_items=(), ref_date=None, done_raws=()):
     """Check one proposed op against raws ({sha12: text}). ref_date (the run's
     date) places a month/day without a year. done_raws are raws that record
@@ -188,7 +207,7 @@ def verify_op(op, raws, kinds, known_items=(), ref_date=None, done_raws=()):
             evidence.append({"raw": sha, "quote": _one_line(quote, MAX_TEXT)})
     if action == "close" and not evidence:
         return None, "close without passing evidence"
-    if action == "add" and kind == "loop" and evidence and all(e["raw"] in done_raws for e in evidence):
+    if action == "add" and kind == "loop" and _from_done_work(evidence, evs, text, raws, done_raws):
         return None, DONE_WORK
     quotes = [e["quote"] for e in evidence]
     owner, due = op.get("owner"), op.get("due")
