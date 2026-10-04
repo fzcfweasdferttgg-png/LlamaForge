@@ -446,8 +446,10 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
     first = {}                             # one source's raws share words and pages: batch them together
     for r in pending:
         first.setdefault(r["source"], len(first))
+    # Finished work goes last: a model with a small thinking budget spends it on the
+    # first raws of a batch, and those should be the ones that can still be open.
     grouped = sorted((r for r in pending if att.get(r["sha"], {}).get("attempts", 0) < SOLO_AFTER),
-                     key=lambda r: first[r["source"]])
+                     key=lambda r: (r["sha"] in done, first[r["source"]]))
     alone = [r for r in pending if att.get(r["sha"], {}).get("attempts", 0) >= SOLO_AFTER]
     queue = collections.deque((b, 0) for b in list(_batches(grouped, budget()))
                               + [b for r in alone for b in _batches([r], budget())])

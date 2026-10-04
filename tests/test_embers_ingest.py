@@ -771,6 +771,25 @@ class FinishedWorkTest(EmberCase, unittest.TestCase):
         self.assertIn("SOW", page)
         self.assertNotIn("Export the pricing sheet", page)
 
+    def test_commits_come_after_what_is_still_open(self):
+        # a small thinking budget runs out on the first raws of a batch: put open work first
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({"acme.md": NOTE}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"
+        commits = [{"ref": f"{i:012x}", "title": f"feat: part {i}",
+                    "text": f"Commit {i:012x} (work already done)\n\nfeat: part {i}"} for i in range(6)]
+
+        def fetch(stype, binding, cursor, now):
+            if stype == "git":
+                return (commits if not cursor else []), {"last": "x"}
+            return sources.fetch(stype, binding, cursor, now)
+        fake = FakeLLM({"ops": []})
+        jobs.ingest(ember, fake, NOW, fetch=fetch)
+        content = fake.calls[0][-1]["content"]
+        first = content.split("=== raw ")[1]
+        self.assertIn("signed SOW", first)
+
     def test_commit_loops_are_not_blamed_on_quoting(self):
         tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
             {"id": "repo", "type": "git", "label": "Repo"}]))
