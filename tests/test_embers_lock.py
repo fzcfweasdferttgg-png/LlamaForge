@@ -1,5 +1,5 @@
 import conftest_paths  # noqa: F401
-import json, os, shutil, sys, tempfile, time, unittest
+import errno, json, os, shutil, sys, tempfile, time, unittest
 from unittest import mock
 
 from embers import lock
@@ -79,6 +79,39 @@ class HeldTest(LockCase):
                 os.close(fds[0])
         with lock.held(self.root):
             pass
+
+    def _patch_lock_call(self, side_effect):
+        if sys.platform == "win32":
+            return mock.patch.object(lock.msvcrt, "locking", side_effect=side_effect)
+        return mock.patch.object(lock.fcntl, "flock", side_effect=side_effect)
+
+    def test_lock_unsupported_raises_instead_of_busy(self):
+        # ENOLCK (e.g. a filesystem without locks) is not "someone else has it":
+        # reporting Busy would say "already running" forever.
+        with self._patch_lock_call(OSError(errno.ENOLCK, "no locks available")):
+            with self.assertRaises(OSError) as cm:
+                with lock.held(self.root):
+                    pass
+        self.assertNotIsInstance(cm.exception, lock.Busy)
+        with lock.held(self.root):                       # guard cleared, fd not leaked
+            pass
+
+    def test_interrupt_during_acquire_closes_the_fd(self):
+        real_open, fds = os.open, []
+
+        def spy(*a, **k):
+            fd = real_open(*a, **k)
+            fds.append(fd)
+            return fd
+        with mock.patch.object(lock.os, "open", spy), \
+                mock.patch.object(lock, "_write_info", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                with lock.held(self.root):
+                    pass
+        with self.assertRaises(OSError):                 # already closed
+            os.fstat(fds[0])
+        h = self.holder()                                # and another process can take it
+        h.release()
 
 
 class CrossProcessTest(LockCase):

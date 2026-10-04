@@ -13,11 +13,13 @@ never deleted; while held it says {"pid", "since"} for diagnostics only.
 Within one process a module-level set refuses a second hold of the same
 folder, because OS locks do not reliably exclude the process holding them.
 """
-import contextlib, datetime as dt, json, os, sys, threading
+import contextlib, datetime as dt, errno, json, os, sys, threading
 
 LOCK_NAME   = ".ember.lock"
 LOCK_OFFSET = 1 << 20      # Windows: the locked byte sits past the JSON so rivals can still read it
 MAX_READ    = 4096
+# "Someone else holds it". Anything else (ENOLCK, EBADF...) is a real error, not Busy.
+_HELD_ERRNOS = {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
 
 if sys.platform == "win32":
     import msvcrt
@@ -45,8 +47,10 @@ def _try_lock(fd):
             msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
         else:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:        # PermissionError / BlockingIOError: held elsewhere
-        return False
+    except OSError as e:
+        if e.errno in _HELD_ERRNOS:
+            return False
+        raise
     return True
 
 
@@ -98,17 +102,25 @@ def held(root):
         if key in _held:
             raise Busy(os.getpid(), "", path)
         _held.add(key)
+    fd, locked = None, False
     try:
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-        if not _try_lock(fd):
+        locked = _try_lock(fd)
+        if not locked:
             pid, since = _read_info(fd)
-            os.close(fd)
             raise Busy(pid, since, path)
         try:
             _write_info(fd)
         except OSError:
             pass           # diagnostics only; the lock itself is what matters
-    except BaseException:
+    except BaseException:  # including KeyboardInterrupt: never leave the fd (or the lock) behind
+        if locked:
+            _release(fd)
+        elif fd is not None:
+            try:
+                os.close(fd)   # not ours: leave the holder's diagnostics alone
+            except OSError:
+                pass
         with _mutex:
             _held.discard(key)
         raise
