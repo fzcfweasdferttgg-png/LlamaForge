@@ -188,6 +188,33 @@ class RouterTest(_NoNetwork):
         # (seen on a live 27B with reasoning-effort xhigh); templates ignore unknown kwargs.
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
 
+    def test_complete_without_autoload(self):
+        # The scheduler must never auto-load its model over one the user just loaded.
+        r = self.make({"completions": {"choices": [{"message": {"content": "{}"}}]}})
+        text, _ = r.complete("b", autoload=False)([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertEqual(text, "{}")
+        self.assertTrue(self.sent[0][0].endswith("/v1/chat/completions?autoload=false"))
+        r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertTrue(self.sent[1][0].endswith("/v1/chat/completions"))
+
+    def test_complete_not_loaded_is_model_not_loaded(self):
+        err = llm.LLMError('router answered 400: {"error":{"code":400,"message":"model is not loaded"}}')
+        r = self.make({"completions": err})
+        with self.assertRaises(llm.ModelNotLoaded) as cm:
+            r.complete("b", autoload=False)([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertIsInstance(cm.exception, llm.RouterUnavailable)
+        r = self.make({"completions": err})          # with autoload the text is just an error
+        with self.assertRaises(llm.LLMError) as cm:
+            r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertNotIsInstance(cm.exception, llm.RouterUnavailable)
+
+    def test_loaded_entry(self):
+        r = self.make({"models": {"data": [{"id": "a", "status": {"value": "unloaded"}},
+                                           {"id": "b", "status": {"value": "sleeping"}}]}})
+        self.assertEqual(r.loaded_entry(), {"id": "b", "status": "sleeping", "failed": False})
+        r = self.make({"models": {"data": [{"id": "a", "status": {"value": "loading"}}]}})
+        self.assertIsNone(r.loaded_entry())
+
     def test_missing_message(self):
         r = self.make({"completions": {"choices": []}})
         with self.assertRaises(llm.LLMError):
@@ -445,6 +472,19 @@ class RouterControlTest(_NoNetwork):
             self.assertEqual(self.router(request=bad).models(), [], msg=repr(bad))
 
     # activity()
+    def test_report_reads_busy_and_decode_counter(self):
+        text = ("llamacpp:requests_processing 0\nllamacpp:requests_deferred 0\n"
+                "# TYPE llamacpp:n_decode_total counter\nllamacpp:n_decode_total 4242\n"
+                "llamacpp:n_decode_total_extra 9\n")
+        self.assertEqual(self.router(request_text=text).report("m"), {"busy": 0, "work": 4242})
+
+    def test_report_work_is_none_without_counter_or_when_garbled(self):
+        for extra in ("", "llamacpp:n_decode_total nan\n", "llamacpp:n_decode_total -1\n",
+                      "llamacpp:n_decode_total abc\n"):
+            text = "llamacpp:requests_processing 2\n" + extra
+            self.assertEqual(self.router(request_text=text).report("m"), {"busy": 2, "work": None},
+                             msg=repr(extra))
+
     def test_activity_plain(self):
         text = ("# HELP llamacpp:requests_processing Number of requests processing.\n"
                 "# TYPE llamacpp:requests_processing gauge\n"
@@ -648,6 +688,25 @@ class RouterControlTest(_NoNetwork):
         sleep, clock = self.fake_time()
         r = self.scripted_models("sleeping")
         self.assertFalse(r.wait_status("m", "unloaded", timeout=4, sleep=sleep, clock=clock))
+
+    def test_wait_status_gives_up_when_another_model_starts_loading(self):
+        # The user loaded something else while ours was loading: ours will never come up.
+        sleep, clock = self.fake_time()
+        steps = [{"data": [{"id": "m", "status": {"value": "loading"}}]},
+                 {"data": [{"id": "m", "status": {"value": "unloaded"}},
+                           {"id": "u", "status": {"value": "loading"}}]},
+                 {"data": [{"id": "m", "status": {"value": "loaded"}}]}]
+        r = self.router(request=lambda url: steps.pop(0))
+        self.assertFalse(r.wait_status("m", "loaded", sleep=sleep, clock=clock))
+        self.assertEqual(len(self.sent), 2)
+
+    def test_wait_status_cancelled(self):
+        sleep, clock = self.fake_time()
+        r = self.scripted_models("loading")
+        flag = []
+        self.assertFalse(r.wait_status("m", "loaded", sleep=lambda s: flag.append(1), clock=clock,
+                                       cancelled=lambda: bool(flag)))
+        self.assertEqual(len(self.sent), 1)
 
     def test_wait_status_tolerates_router_unavailable(self):
         sleep, clock = self.fake_time()

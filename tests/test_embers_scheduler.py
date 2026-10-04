@@ -29,6 +29,12 @@ class State:
         self.calls = []
         self.probe_errors = []         # activity/n_ctx asked about a model that is not loaded
         self.sleeping = None           # model id models() reports as "sleeping"
+        self.loading = None            # model id models() reports as "loading"
+        self.work = 0                  # n_decode_total of the loaded model (None: no counter)
+        self.replies = []              # texts complete() returns first, then "{}"
+        self.on_complete = None        # callable() run inside each complete()
+        self.complete_error = None     # raised by complete()
+        self.cancelled = []            # the cancelled callables wait_status received
 
 
 class FakeRouter:
@@ -41,19 +47,27 @@ class FakeRouter:
     def _current(self):
         return None if isinstance(self.s.loaded, Exception) else self.s.loaded
 
-    def loaded_model(self):
+    def loaded_entry(self):
         self.s.calls.append(("loaded_model",))
         if isinstance(self.s.loaded, Exception):
             raise self.s.loaded
-        return self.s.loaded
+        if self.s.loaded:
+            return {"id": self.s.loaded, "status": "loaded", "failed": False}
+        if self.s.sleeping:
+            return {"id": self.s.sleeping, "status": "sleeping", "failed": False}
+        return None
 
-    def activity(self, model):
+    def loaded_model(self):
+        e = self.loaded_entry()
+        return e["id"] if e else None
+
+    def report(self, model):
         self.s.calls.append(("activity", model))
-        if model != self._current():
+        if model != self._current():           # asleep or not loaded: /metrics would load or wake it
             self.s.probe_errors.append(("activity", model))
         if isinstance(self.s.activity, Exception):
             raise self.s.activity
-        return self.s.activity
+        return {"busy": self.s.activity, "work": self.s.work}
 
     def load(self, model):
         self.s.calls.append(("load", model))
@@ -65,13 +79,15 @@ class FakeRouter:
         self.s.calls.append(("unload", model))
         self.s.loaded = None
 
-    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic):
+    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic,
+                    cancelled=None):
         self.s.calls.append(("wait_status", model, want))
+        self.s.cancelled.append(cancelled)
         return self.s.load_ok
 
     def n_ctx(self, model):
         self.s.calls.append(("n_ctx", model))
-        if model != self._current():
+        if model not in (self._current(), self.s.sleeping):   # /props bypasses sleep
             self.s.probe_errors.append(("n_ctx", model))
         return 16384
 
@@ -80,13 +96,18 @@ class FakeRouter:
         out = [{"id": self.s.loaded, "status": "loaded"}] if isinstance(self.s.loaded, str) else []
         if self.s.sleeping:
             out.append({"id": self.s.sleeping, "status": "sleeping"})
+        if self.s.loading:
+            out.append({"id": self.s.loading, "status": "loading"})
         return out
 
-    def llm(self, model):
-        def call(messages, schema, max_tokens=2048):
-            self.s.calls.append(("chat", model))
-            return {}, {}
-        call.model = model
+    def complete(self, model, autoload=True):
+        def call(messages, schema, max_tokens):
+            self.s.calls.append(("chat", model) if autoload is False else ("chat-autoload", model))
+            if self.s.on_complete:
+                self.s.on_complete()
+            if self.s.complete_error is not None:
+                raise self.s.complete_error
+            return (self.s.replies.pop(0) if self.s.replies else "{}"), {}
         return call
 
 
@@ -333,6 +354,7 @@ class WaitTest(SchedCase):
 class SwapTest(SchedCase):
     def test_pinned_waits_for_idle_then_swaps_and_restores(self):
         self.ember("a", model="pinned")
+        self.sched.tick()                  # the first look: the idle clock starts here
         self.t[0] = SWAP_IDLE - 1
         r = self.sched.tick()
         self.assertIn("idle minutes", r["waiting"]["a"]["ingest"])
@@ -352,12 +374,14 @@ class SwapTest(SchedCase):
     def test_nothing_loaded_before_unloads_after(self):
         self.ember("a", model="pinned")
         self.state.loaded = None
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
         self.assertEqual(self.ops(), [("load", "pinned"), ("unload", "pinned")])
 
     def test_user_swapped_meanwhile_no_restore(self):
         self.ember("a", model="pinned")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
 
         def user_takes_gpu(eid, job):
@@ -370,6 +394,7 @@ class SwapTest(SchedCase):
     def test_load_fails_skips_and_restores(self):
         root = self.ember("a", model="pinned")
         self.state.load_ok = False
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         r = self.sched.tick()
         self.assertIsNone(r["ran"])
@@ -384,11 +409,13 @@ class SwapTest(SchedCase):
     def test_load_router_down_waits_without_skip(self):
         root = self.ember("a", model="pinned")
         self.state.load_error = RouterUnavailable("restarting")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         r = self.sched.tick()
         self.assertIsNone(r["ran"])
         self.assertIn("ingest", r["waiting"]["a"])
         self.assertEqual(self.runs(root), [])
+        self.assertEqual(self.ops(), [("load", "pinned")])   # never loaded: nothing to put back
 
     def test_swapping_off_waits(self):
         self.ember("a", model="pinned")
@@ -406,13 +433,16 @@ class SwapTest(SchedCase):
         self.assertIn("idle minutes", r["waiting"]["a"]["ingest"])
         self.assertEqual(self.ops(), [])
 
-    def test_first_ten_minutes_after_start_never_swap(self):
+    def test_first_look_never_swaps(self):
+        # Unwatched time is not idle time: nobody saw what the router did before.
         self.ember("a", model="pinned")
         self.t[0] = 100.0
         sched = self.make_sched()          # constructed at t=100
-        self.t[0] = 100.0 + SWAP_IDLE - 1
+        self.t[0] = 100.0 + 5 * SWAP_IDLE
         self.assertIn("idle minutes", sched.tick()["waiting"]["a"]["ingest"])
-        self.t[0] = 100.0 + SWAP_IDLE
+        self.t[0] = 100.0 + 6 * SWAP_IDLE - 1
+        self.assertIn("idle minutes", sched.tick()["waiting"]["a"]["ingest"])
+        self.t[0] = 100.0 + 6 * SWAP_IDLE
         self.assertEqual(sched.tick()["ran"], ("a", "ingest", "ok"))
 
     def test_activity_resets_idle_clock(self):
@@ -445,6 +475,7 @@ class PreemptTest(SchedCase):
 
     def test_user_swaps_mid_run_preempts_without_restore(self):
         root = self.ember("a", model="pinned")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         self.runners.llm_calls = 2
 
@@ -463,6 +494,7 @@ class PreemptTest(SchedCase):
 
     def test_unloaded_mid_run_preempts_without_restore(self):
         self.ember("a", model="pinned")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         self.runners.llm_calls = 1
 
@@ -497,6 +529,7 @@ class PreemptTest(SchedCase):
     def test_preemption_resets_idle_clock(self):
         self.ember("a", model="pinned")
         self.ember("b", model="pinned")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         self.runners.llm_calls = 1
         self.runners.on_run = lambda eid, job: setattr(self.state, "loaded", "users-model")
@@ -541,17 +574,16 @@ class ErrorTest(SchedCase):
         ra = self.ember("a", model="pinned")
         self.ember("b")
         self.runners.raise_for = {"a"}
+        self.assertEqual(self.sched.tick()["ran"], ("b", "ingest", "ok"))
+        self.assertEqual(self.sched.tick()["ran"], ("b", "brief", "ok"))
+        self.sched.tick()                  # a's first look after b's jobs
         self.t[0] = SWAP_IDLE
         r = self.sched.tick()
         self.assertIn("boom", r["error"])
         self.assertIn("boom", self.sched.status()["last_error"])
         self.assertEqual(self.ops(), [("load", "pinned"), ("load", "base-model")])
         self.assertEqual(self.runs(ra, "ingest")[0]["status"], "failed")
-        ran = [self.sched.tick()["ran"] for _ in range(4)]
-        self.t[0] = 10 * SWAP_IDLE
-        ran += [self.sched.tick()["ran"] for _ in range(4)]
-        self.assertIn(("b", "ingest", "ok"), ran)
-        self.assertIn(("b", "brief", "ok"), ran)
+        self.assertEqual(len(self.runs(ra, "ingest")), 1)
 
     def test_broken_ember_does_not_stop_others(self):
         broken = os.path.join(self.base, "aaa")
@@ -565,6 +597,7 @@ class ErrorTest(SchedCase):
 
     def test_restore_errors_never_raise(self):
         self.ember("a", model="pinned")
+        self.sched.tick()
         self.t[0] = SWAP_IDLE
         real_load = FakeRouter.load
 
@@ -672,6 +705,131 @@ class CliTickTest(SchedCase):
         code, out, err = self.cli(NOW)
         self.assertEqual(code, 1)
         self.assertIn("boom", err)
+
+
+class ObservedIdleTest(SchedCase):
+    """The idle clock only runs across looks that prove nothing happened in between."""
+
+    def test_work_between_two_idle_looks_is_not_idle(self):
+        # busy is 0 at both looks, but the decode counter moved: someone used the model.
+        self.ember("a", model="pinned")
+        self.sched.tick()
+        self.state.work = 57
+        self.t[0] = SWAP_IDLE
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+        self.t[0] = 2 * SWAP_IDLE - 1
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+        self.t[0] = 2 * SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+
+    def test_without_counter_only_close_looks_count(self):
+        self.ember("a", model="pinned")
+        self.state.work = None
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE              # a 10-minute gap the gauge cannot vouch for
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+        for k in range(1, 11):             # looks every TICK: trusted
+            self.t[0] = SWAP_IDLE + k * scheduler.TICK
+            r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "ok"))
+
+    def test_sleeping_model_is_idle_and_never_probed(self):
+        # /metrics wakes a sleeping model: the scheduler must not ask it.
+        self.ember("a", model="pinned")
+        self.state.loaded, self.state.sleeping = None, "base-model"
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertNotIn(("activity", "base-model"), self.state.calls)
+
+    def test_sleeping_unpinned_job_runs_on_it(self):
+        self.ember("a")
+        self.state.loaded, self.state.sleeping = None, "base-model"
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.runners.calls[0][2], "base-model")
+
+
+class GuardTest(SchedCase):
+    def test_requests_never_autoload(self):
+        self.ember("a")
+        self.runners.llm_calls = 2
+        self.sched.tick()
+        self.assertEqual(self.state.calls.count(("chat", "base-model")), 2)
+        self.assertNotIn(("chat-autoload", "base-model"), self.state.calls)
+
+    def test_retry_is_guarded_too(self):
+        # The first reply is junk; before ask_json's retry the user loads their model.
+        self.ember("a")
+        self.runners.llm_calls = 1
+        self.state.replies = ["not json"]
+        self.state.on_complete = lambda: setattr(self.state, "loaded", "users-model")
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "failed"))
+        self.assertEqual(self.state.calls.count(("chat", "base-model")), 1)
+        self.assertIn("pre-empted: users-model", str(self.runners.llm_errors[0]))
+
+    def test_model_not_loaded_reply_is_preemption(self):
+        # Switched between our check and the request: the router refuses instead of loading ours.
+        from embers.llm import ModelNotLoaded
+        self.ember("a", model="pinned")
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE
+        self.runners.llm_calls = 1
+
+        def switch():
+            self.state.loaded = "users-model"
+            self.state.complete_error = ModelNotLoaded("router answered 400: model is not loaded")
+        self.state.on_complete = switch
+        self.sched.tick()
+        self.assertIsInstance(self.runners.llm_errors[0], RouterUnavailable)
+        self.assertIn("pre-empted: users-model", str(self.runners.llm_errors[0]))
+        self.assertEqual(self.ops(), [("load", "pinned")])          # theirs now: no restore
+
+    def test_error_mid_request_after_switch_is_not_the_inputs_fault(self):
+        self.ember("a")
+        self.runners.llm_calls = 1
+
+        def killed():
+            self.state.loaded = "users-model"
+            self.state.complete_error = LLMError("router unreachable or unreadable: connection reset")
+        self.state.on_complete = killed
+        self.sched.tick()
+        self.assertIsInstance(self.runners.llm_errors[0], RouterUnavailable)
+
+    def test_plain_error_with_our_model_still_loaded_propagates(self):
+        self.ember("a")
+        self.runners.llm_calls = 1
+        self.state.complete_error = LLMError("router answered 500: oops")
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "error"))
+        self.assertIn("oops", r["error"])
+
+
+class RestoreTest(SchedCase):
+    def test_no_restore_while_the_user_loads_a_model(self):
+        self.ember("a", model="pinned")
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE
+        self.runners.on_run = lambda eid, job: setattr(self.state, "loading", "users-model")
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.ops(), [("load", "pinned")])
+
+    def test_wait_for_load_is_cancellable_by_stop(self):
+        self.ember("a", model="pinned")
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE
+        self.sched.tick()
+        cancelled = self.state.cancelled[0]
+        self.assertFalse(cancelled())
+        self.sched.stop()
+        self.assertTrue(cancelled())
+
+    def test_default_sleep_is_interrupted_by_stop(self):
+        s = scheduler.Scheduler(lambda: {})
+        s.stop()
+        t0 = time.monotonic()
+        s.sleep(30)
+        self.assertLess(time.monotonic() - t0, 5)
 
 
 if __name__ == "__main__":

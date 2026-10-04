@@ -7,17 +7,22 @@ and the panel never run one ember at once.
 
 Sharing the GPU: the router is only contacted when something is due. A job
 waits while the router is busy or down; a job pinned to another model may
-swap it in after SWAP_IDLE seconds of observed idleness (never in the first
-SWAP_IDLE seconds after start) and puts the previous model back afterwards,
-unless the user loaded something else meanwhile. activity() and n_ctx() are
-only ever asked about the loaded model (asking about another one makes the
-router load it).
+swap it in after SWAP_IDLE seconds of observed idleness and puts the previous
+model back afterwards, unless the user loaded something else meanwhile.
+Idleness is only ever observed, never assumed: the idle clock runs between
+two looks at the same loaded model that show no work in between (the
+router's decode counter did not move; without the counter, two idle looks at
+most 2*TICK apart). Time nobody watched counts as activity, so the first look
+after start or after a quiet spell never swaps. report() and n_ctx() are only
+ever asked about the loaded model (asking about another one makes the router
+load it), and never about a sleeping one (/metrics wakes it).
 
-Pre-emption: before every model call the job checks that our model is still
-the loaded one (sleeping counts). If the user loaded another model, or
+Pre-emption: before every model request (ask_json's retry too) the job checks
+that our model is still the loaded one (sleeping counts), and requests go out
+with autoload=false, so even a switch between the check and the request
+never loads ours back over theirs. If the user loaded another model, or
 unloaded ours, the call raises RouterUnavailable, so the job stops cleanly
-(its raws stay pending) and our next batch never auto-loads our model back
-over theirs. The GPU is then theirs: no restore. The end of any job, like a
+(its raws stay pending). The GPU is then theirs: no restore. The end of any job, like a
 swap, counts as router activity, so the next swap needs fresh idle minutes.
 
 Everything that can go wrong is caught: tick() never raises, a broken ember
@@ -33,7 +38,8 @@ so it never swaps models.
 import copy, datetime as dt, os, threading, time
 
 from . import embers_dir, jobs, lock, reserved_name
-from .llm import LLMError, Router, RouterUnavailable, clamp_n_ctx
+from .llm import (MAX_REPLY_CAP, LLMError, ModelNotLoaded, Router, RouterUnavailable, ask_json,
+                  clamp_n_ctx)
 from .sched import ORDER, decide, due_jobs, next_occurrence
 from .store import parse_ts
 
@@ -42,7 +48,6 @@ STOP_JOIN = 5              # s stop() waits for the thread
 ERROR_CHARS = 400
 RUNNERS = {"ingest": jobs.ingest, "brief": jobs.brief, "lint": jobs.lint}
 LOCKED = "running in another process"
-_UNSEEN = object()         # no router observation yet
 
 
 def list_embers(base):
@@ -68,12 +73,20 @@ def jobs_conf(conf):
     return j if isinstance(j, dict) else {}
 
 
-def _sleeping(router, model):
-    """True if the router reports model as sleeping (loaded, woken by a request)."""
-    models = getattr(router, "models", None)
-    if models is None:
+def _quiet_since(prev, now, loaded, status, work):
+    """True if nothing can have used the router between the previous look and this one."""
+    if prev is None:
+        return False                           # nobody watched before this look
+    p_time, p_loaded, p_status, p_work = prev
+    if p_loaded != loaded:
         return False
-    return any(m.get("id") == model and m.get("status") == "sleeping" for m in models() or [])
+    if loaded is None:
+        return True                            # nothing loaded both times: the GPU is free
+    if work is not None and p_work is not None:
+        return work == p_work                  # the decode counter misses nothing
+    if status == "sleeping" and p_status == "sleeping":
+        return True                            # asleep both times: nobody used it
+    return now - p_time <= 2 * TICK            # gauge only: trust close looks alone
 
 
 def _msg(e):
@@ -82,17 +95,19 @@ def _msg(e):
 
 class Scheduler:
     def __init__(self, cfg_fn, router_cls=Router, now=dt.datetime.now, clock=time.monotonic,
-                 sleep=time.sleep, runners=None):
+                 sleep=None, runners=None):
         self.cfg_fn, self.router_cls = cfg_fn, router_cls
-        self.now, self.clock, self.sleep = now, clock, sleep
+        self._stop = threading.Event()
+        # The default sleep is the stop event, so stop() cuts short a wait for a model load.
+        self.now, self.clock, self.sleep = now, clock, sleep or self._stop.wait
         self.runners = dict(runners if runners is not None else RUNNERS)
         self._lock = threading.Lock()          # guards _status and _last_error
         self._tick_lock = threading.Lock()     # one tick at a time
         self._status, self._last_error = {}, None
         self._waiting = {}                     # (id, job) -> {"since": clock|None, "reason": str}
         self._last_active = clock()            # construction counts as activity: no swap for SWAP_IDLE
-        self._last_loaded = _UNSEEN
-        self._thread, self._stop = None, threading.Event()
+        self._last_seen = None                 # (clock, loaded, status, work) of the last good look
+        self._thread = None
 
     # ------------------------------------------------------------ public
     def status(self):
@@ -217,23 +232,30 @@ class Scheduler:
                 "model": model if isinstance(model, str) else ""}
 
     def _observe(self, cfg):
-        """(router|None, loaded, busy) once per tick; busy None means unreachable."""
-        router, loaded, busy = None, None, None
+        """(router|None, loaded, busy) once per tick; busy None means unreachable.
+        Moves the idle clock: see the module docstring."""
+        router, loaded, status, busy, work = None, None, None, None, None
         try:
             router = self.router_cls(cfg)
-            loaded = router.loaded_model()
-            if not (isinstance(loaded, str) and loaded):
-                loaded = None
-            busy = router.activity(loaded) if loaded else 0
+            entry = router.loaded_entry()
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]:
+                loaded, status = entry["id"], entry.get("status")
+            if loaded is None or status == "sleeping":
+                busy = 0                       # asleep is idle, and /metrics would wake it
+            else:
+                rep = router.report(loaded)
+                busy, work = rep.get("busy"), rep.get("work")
         except LLMError:
             busy, loaded = None, None
         except Exception as e:                 # a router bug is still "not reachable"
             self._error(f"router: {_msg(e)}")
             busy, loaded = None, None
-        if busy is None or busy or (self._last_loaded is not _UNSEEN and loaded != self._last_loaded):
-            self._last_active = self.clock()
+        now = self.clock()
+        prev, self._last_seen = self._last_seen, None
         if busy is not None:
-            self._last_loaded = loaded
+            self._last_seen = (now, loaded, status, work)
+        if busy != 0 or not _quiet_since(prev, now, loaded, status, work):
+            self._last_active = now
         return router, loaded, busy
 
     def _wait(self, result, c, reason, count=True):
@@ -276,10 +298,11 @@ class Scheduler:
             swapped, preempted = False, []
             try:
                 if action == "swap":
-                    swapped = True
                     try:
                         router.load(model)
-                        ok = router.wait_status(model, "loaded", sleep=self.sleep, clock=self.clock)
+                        swapped = True             # only now is there anything to put back
+                        ok = router.wait_status(model, "loaded", sleep=self.sleep, clock=self.clock,
+                                                cancelled=self._stop.is_set)
                     except RouterUnavailable as e:
                         self._wait(result, c, f"could not load {model}: {e}"[:ERROR_CHARS])
                         return
@@ -300,21 +323,36 @@ class Scheduler:
                     self._restore(router, prev, model)
 
     def _guarded_llm(self, router, model, preempted):
-        """router.llm(model), but every call first checks our model is still loaded."""
-        inner = router.llm(model)
+        """Like router.llm(model), but every request (ask_json's retry too) first
+        checks our model is still loaded, and goes out with autoload=false."""
+        complete = router.complete(model, autoload=False)
 
-        def call(messages, schema, max_tokens=2048):
+        def check():
             try:
-                cur = router.loaded_model()
-                if cur is None and _sleeping(router, model):
-                    cur = model                # a request wakes it; still ours
+                cur = router.loaded_model()    # sleeping counts: a request wakes it, still ours
             except LLMError as e:
                 raise RouterUnavailable(f"could not check the loaded model: {e}"[:ERROR_CHARS]) from None
             if cur != model:
                 who = cur if isinstance(cur, str) and cur else "nothing"
                 preempted.append(who)
                 raise RouterUnavailable(f"pre-empted: {who} is loaded now"[:ERROR_CHARS])
-            return inner(messages, schema, max_tokens)
+
+        def guarded(messages, schema, max_tokens):
+            check()
+            try:
+                return complete(messages, schema, max_tokens)
+            except ModelNotLoaded:
+                check()                        # names whoever took the GPU
+                preempted.append("nothing")
+                raise RouterUnavailable("pre-empted: nothing is loaded now") from None
+            except RouterUnavailable:
+                raise
+            except LLMError:
+                check()                        # a switch mid-request is not the input's fault
+                raise
+
+        def call(messages, schema, max_tokens=2048):
+            return ask_json(guarded, messages, schema, min(max_tokens, MAX_REPLY_CAP))
         call.model = model
         return call
 
@@ -335,14 +373,17 @@ class Scheduler:
         finally:
             self._set_running(c["id"], None)
             self._last_active = self.clock()   # our own job counts as activity
-            if preempted:
-                self._last_loaded = _UNSEEN
+            self._last_seen = None
 
     def _restore(self, router, prev, want):
         """Put the GPU back as we found it, unless the user loaded another model
         meanwhile. Never raises; problems go to last_error."""
         try:
-            cur = router.loaded_model()
+            listed = router.models()
+            if any(m.get("status") == "loading" and m.get("id") != want for m in listed):
+                return                         # the user is loading something: the GPU is theirs
+            up = next((m for m in listed if m.get("status") in ("loaded", "sleeping", "loading")), None)
+            cur = up.get("id") if up else None
             if not (isinstance(cur, str) and cur):
                 cur = None
             if cur == want or cur is None:     # None: our load evicted prev, then failed
@@ -354,4 +395,4 @@ class Scheduler:
             self._error(f"could not restore {prev or 'the previous state'} after {want}: {_msg(e)}")
         finally:
             self._last_active = self.clock()   # the next swap needs fresh idle minutes
-            self._last_loaded = _UNSEEN
+            self._last_seen = None

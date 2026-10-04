@@ -45,7 +45,9 @@ class FakeRouter:
     def n_ctx(self, model):
         return self.ctx
 
-    def llm(self, model):
+    def llm(self, model, autoload=True):
+        assert autoload is False, "the CLI must never let a request load a model"
+
         def call(messages, schema, max_tokens=2048):
             if self.fail is not None:
                 raise self.fail
@@ -462,6 +464,22 @@ class StubRouterEndToEndTest(CliCase):
         props = [p for p, _ in _StubRouter.seen if p.startswith("/props?model=stub-model")]
         self.assertTrue(props)
         self.assertTrue(all("autoload=false" in p for p in props), props)
+        chats = [p for p, _ in _StubRouter.seen if p.startswith("/v1/chat/completions")]
+        self.assertTrue(chats)
+        self.assertTrue(all(p.endswith("?autoload=false") for p in chats), chats)
+
+    def test_model_not_loaded_is_refused_without_loading(self):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), _StubRouter)
+        self.addCleanup(srv.server_close)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        _StubRouter.seen = []
+        config.update({"router_port": srv.server_address[1], "router_api_key": "", "router_local_key": "k"})
+        self.create()
+        code, out = self.cli("ingest", "morning", "--model", "other", router_cls=llm.Router)
+        self.assertEqual(code, 1)
+        self.assertIn("other is not loaded in the router", self.err)
+        self.assertEqual([p for p, _ in _StubRouter.seen], ["/v1/models"])
 
 
 if __name__ == "__main__":

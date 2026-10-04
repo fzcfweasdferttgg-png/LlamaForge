@@ -7,8 +7,9 @@
   python backend/embers_cli.py tick               # one scheduler pass: what the panel would run now
 
 It uses the router LlamaForge already runs (config router_port and
-router_api_key) and whatever model is loaded, unless --model is given. The
-job commands never load or unload models; `tick` follows the panel's
+router_api_key) and whatever model is loaded; --model (or the ember's pinned
+model) must name the loaded one. The job commands never load or unload
+models, and stop if the user switches models mid-run; `tick` follows the panel's
 scheduler rules (embers/scheduler.py), but a fresh process has seen no idle
 time yet, so it never swaps models.
 
@@ -159,7 +160,11 @@ def _run_steps(a, root, cfg, router_cls, out):
         model = a.model or (pinned if isinstance(pinned, str) else "") or router.loaded_model()
         if not model or not isinstance(model, str):
             raise SystemExit("No model is loaded in the router. Load one in LlamaForge or pass --model.")
-        n_ctx, llm = clamp_n_ctx(router.n_ctx(model)), router.llm(model)
+        if model != router.loaded_model():     # never load one: it would evict the user's model
+            raise _Fail(safe(f"{model} is not loaded in the router. Load it in LlamaForge first "
+                             "(job commands never load or unload models).")[:REASON_CHARS])
+        # autoload=False: if the user switches models mid-run, stop instead of loading ours back.
+        n_ctx, llm = clamp_n_ctx(router.n_ctx(model)), router.llm(model, autoload=False)
         _say(out, f"Using {model} (context {n_ctx})")
         code = 0
         for step in (["ingest", "brief"] if a.cmd == "run" else [a.cmd]):

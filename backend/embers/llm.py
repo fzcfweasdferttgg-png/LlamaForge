@@ -44,6 +44,11 @@ class RouterUnavailable(LLMError):
     should stop and try later rather than count it against the input."""
 
 
+class ModelNotLoaded(RouterUnavailable):
+    """A request sent with autoload=false found its model unloaded: the user
+    (or the router) switched models. Not the input's fault; stop and retry later."""
+
+
 class JSONParseError(LLMError, ValueError):
     """Model text was not usable JSON (is a ValueError for callers that expect one)."""
 
@@ -212,9 +217,21 @@ _COUNTER = re.compile(r"llamacpp:(requests_processing|requests_deferred)(\{[^}]*
                       + r")(?:[ \t]+-?\d+)?")
 # Anything that claims to be one of those samples; if it then fails _COUNTER it is garbage, not skipped.
 _COUNTER_CLAIM = re.compile(r"llamacpp:requests_(?:processing|deferred)(?:[{ \t]|$)")
+# Decode calls the model has made: monotonic, so any change between two looks means it worked.
+_WORK = re.compile(r"llamacpp:n_decode_total(?:\{[^}]*\})?[ \t]+(\S+)(?:[ \t]+-?\d+)?")
 _FAILED = ("fail", "error")
 _SATISFIES = {"loaded": ("loaded", "sleeping")}   # a sleeping child is loaded; a request wakes it
 POLL_SECONDS = 2
+MAX_REPLY_CAP = 4096
+
+
+def _count(text):
+    """A Prometheus counter value as a non-negative int, else None."""
+    try:
+        v = float(text)
+    except ValueError:
+        return None
+    return int(v) if math.isfinite(v) and v >= 0 else None
 
 
 def _valid_port(v):
@@ -247,8 +264,13 @@ class Router:
     def __repr__(self):
         return f"Router({self.base})"
 
+    def loaded_entry(self):
+        """The registry entry of the model that is up ("loaded" or "sleeping"), else None."""
+        return next((m for m in self.models() if m["status"] in ("loaded", "sleeping")), None)
+
     def loaded_model(self):
-        return next((m["id"] for m in self.models() if m["status"] in ("loaded", "sleeping")), None)
+        e = self.loaded_entry()
+        return e["id"] if e else None
 
     def models(self):
         """[{"id", "status", "failed"}] for every well-formed registry entry. status
@@ -268,20 +290,30 @@ class Router:
         return out
 
     def activity(self, model):
-        """In-flight plus queued requests for model, from the router's /metrics.
+        return self.report(model)["busy"]
+
+    def report(self, model):
+        """{"busy", "work"}: busy is in-flight plus queued requests for model, from the router's /metrics.
         Raises LLMError rather than guess 0 when the counters are absent (the
         router runs without --metrics), unparseable or nonsensical.
         autoload=false: without it the router would load model to answer,
-        evicting the user's model under --models-max 1 (unloaded -> 400)."""
+        evicting the user's model under --models-max 1 (unloaded -> 400).
+        work is the n_decode_total counter (None when absent or garbled): busy is
+        a gauge that misses requests between two looks, work never does.
+        Never call this for a sleeping model: /metrics wakes it."""
         text = self.request_text(f"{self.base}/metrics?model={urllib.parse.quote(str(model), safe='')}"
                                  "&autoload=false", key=self._key, timeout=10)
         if not isinstance(text, str):
             raise LLMError("router metrics were not text")
         if len(text) > MAX_RESPONSE_BYTES:
             raise LLMError("router metrics too large")
-        total, processing = 0.0, False
+        total, processing, work = 0.0, False, None
         for line in text.splitlines():
             line = line.strip()
+            w = _WORK.fullmatch(line)
+            if w:
+                work = _count(w.group(1))
+                continue
             m = _COUNTER.fullmatch(line)
             if not m:
                 if _COUNTER_CLAIM.match(line):
@@ -296,7 +328,7 @@ class Router:
             raise LLMError("router metrics are missing request counters")
         if not math.isfinite(total):
             raise LLMError("router metrics request counters overflow")
-        return math.ceil(total)       # 0.6 in flight is busy, never a guessed idle
+        return {"busy": math.ceil(total), "work": work}   # 0.6 in flight is busy, never a guessed idle
 
     def _model_op(self, op, model):
         if not isinstance(model, str) or not model:
@@ -310,19 +342,27 @@ class Router:
     def unload(self, model):
         self._model_op("unload", model)
 
-    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic):
+    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic,
+                    cancelled=None):
         """Poll models() every POLL_SECONDS until model's status is want -> True
-        ("sleeping" satisfies "loaded"). False on timeout or on a failed load
-        (the failed flag, or a status naming fail/error). RouterUnavailable
-        (busy loading, restarting) is tolerated; any other LLMError propagates."""
+        ("sleeping" satisfies "loaded"). False on timeout, on cancelled(), on a
+        failed load (the failed flag, or a status naming fail/error), or, when
+        waiting for a load, once another model is loading (under --models-max 1
+        ours will not come up). RouterUnavailable (busy loading, restarting) is
+        tolerated; any other LLMError propagates."""
         ok = _SATISFIES.get(want, (want,))
         deadline = clock() + timeout
         while True:
+            if cancelled is not None and cancelled():
+                return False
             try:
-                entry = next((m for m in self.models() if m["id"] == model), None)
+                listed = self.models()
             except RouterUnavailable:
-                entry = None
+                listed = []
+            entry = next((m for m in listed if m["id"] == model), None)
             status = entry["status"] if entry else None
+            if want == "loaded" and any(m["id"] != model and m["status"] == "loading" for m in listed):
+                return False
             if entry and entry["failed"] and want != "unloaded":
                 return False
             if status in ok:
@@ -332,6 +372,8 @@ class Router:
             if clock() >= deadline:
                 return False
             sleep(POLL_SECONDS)
+            if cancelled is not None and cancelled():
+                return False
 
     def n_ctx(self, model):
         try:
@@ -342,7 +384,11 @@ class Router:
         except (LLMError, TypeError, ValueError, AttributeError):
             return DEFAULT_N_CTX
 
-    def complete(self, model):
+    def complete(self, model, autoload=True):
+        """complete(messages, schema, max_tokens) -> (text, usage). autoload=False
+        never loads model to answer: an unloaded model raises ModelNotLoaded."""
+        url = self.base + "/v1/chat/completions" + ("" if autoload else "?autoload=false")
+
         def call(messages, schema, max_tokens):
             # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
             # writes the JSON. Chat templates without the variable ignore it.
@@ -350,7 +396,12 @@ class Router:
                     "chat_template_kwargs": {"enable_thinking": False},
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
-            r = self.request(self.base + "/v1/chat/completions", body, key=self._key, timeout=TIMEOUT)
+            try:
+                r = self.request(url, body, key=self._key, timeout=TIMEOUT)
+            except LLMError as e:
+                if not autoload and not isinstance(e, RouterUnavailable) and "not loaded" in str(e):
+                    raise ModelNotLoaded(str(e)) from None
+                raise
             try:
                 text = r["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError):
@@ -361,8 +412,8 @@ class Router:
             return text, usage if isinstance(usage, dict) else {}
         return call
 
-    def llm(self, model, max_tokens_cap=4096):
-        complete = self.complete(model)
+    def llm(self, model, max_tokens_cap=MAX_REPLY_CAP, autoload=True):
+        complete = self.complete(model, autoload=autoload)
 
         def call(messages, schema, max_tokens=2048):
             return ask_json(complete, messages, schema, min(max_tokens, max_tokens_cap))
