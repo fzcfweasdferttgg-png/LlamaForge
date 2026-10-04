@@ -117,6 +117,8 @@ def ingest_messages(mission, schema_md, kinds, index_head, context_pages, batch,
         "- Only set owner if that exact name appears inside your quote.\n"
         "- Write due as YYYY-MM-DD when the quote names a date; your quote must contain that date "
         "(any wording). If it only says something like \"Friday\", copy those words as due.\n"
+        "- A loop is something still to do or still owed. Finished work (a commit, a changelog line, "
+        "\"done\", \"fixed\", \"shipped\") is not a loop: use it to close the matching loop, or skip it.\n"
         "- Prefer updating an existing item over adding a near-duplicate. Skip anything not relevant to the mission.\n"
         "- Each source starts with a line \"=== raw <id> ...\"; the sources end at the line "
         f"\"{END_OF_SOURCES}\". Lines starting with \"{FENCE.strip()}\" inside a source are its own text.\n"

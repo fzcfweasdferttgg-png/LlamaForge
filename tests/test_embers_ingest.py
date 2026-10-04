@@ -732,6 +732,17 @@ class DueDateTest(EmberCase, unittest.TestCase):
         self.assertIn("YYYY-MM-DD", system)
 
 
+class FinishedWorkTest(EmberCase, unittest.TestCase):
+    def test_prompt_says_finished_work_is_not_an_open_loop(self):
+        # small models turned every git commit into an open loop
+        ember = self.make_ember({"acme.md": NOTE})
+        fake = FakeLLM({"ops": []})
+        jobs.ingest(ember, fake, NOW)
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Finished work", system)
+        self.assertIn("is not a loop", system)
+
+
 class ModelScoutTest(EmberCase, unittest.TestCase):
     def test_zero_setup_ember_ingests_releases_and_the_machine(self):
         with open(os.path.join(os.path.dirname(jobs.__file__), "..", "..", "templates", "model-scout.json"),
