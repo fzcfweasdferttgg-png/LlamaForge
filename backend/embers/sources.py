@@ -4,7 +4,7 @@ An item is {"ref", "title", "text"}: ref is a stable human-readable pointer
 (relative path, event UID, feed link, commit sha). Adapters never write
 anywhere and cap what they read, because sources can be large or hostile.
 """
-import datetime as dt, html, http.client, os, re, stat, subprocess, time, urllib.request
+import datetime as dt, hashlib, html, http.client, os, re, stat, subprocess, time, urllib.request
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
@@ -19,6 +19,7 @@ FETCH_TIMEOUT  = 20         # per socket operation
 DOWNLOAD_DEADLINE = 60      # wall-clock limit for a whole download
 CHUNK          = 64 * 1024
 FIRST_RUN_RELEASES = 30
+MAX_MODELS     = 200        # installed models listed in a machine snapshot
 TEXT_EXT = (".md", ".txt")
 UA = "LlamaForge-Embers/1 (+https://github.com/dadwritestech/LlamaForge)"
 ATOM = "{http://www.w3.org/2005/Atom}"
@@ -380,8 +381,79 @@ def fetch_llamacpp(binding, cursor, now, releases=None):
     return items, {"build": max([last] + [r["build"] for r in parsed])}
 
 
+_SPLIT_GGUF = re.compile(r"^(.*)-00001-of-(\d{5})\.gguf$", re.IGNORECASE)
+
+
+def _model_bytes(path):
+    """Size of a model file; a split GGUF (-00001-of-0000N) counts all its parts.
+    None when any part is missing or unreadable."""
+    m = _SPLIT_GGUF.match(os.path.basename(path))
+    parts = [path] if not m else [os.path.join(os.path.dirname(path), f"{m.group(1)}-{i:05d}-of-{m.group(2)}.gguf")
+                                  for i in range(1, int(m.group(2)) + 1)]
+    try:
+        return sum(os.path.getsize(p) for p in parts)
+    except (OSError, ValueError):
+        return None
+
+
+def installed_models(sections, unit=1e9):
+    """models.ini sections -> [{"id", "file", "size_gb"}], sorted by id. Only the
+    file's basename leaves this function: a snapshot never carries a path."""
+    out = []
+    for sid, keys in sorted((sections or {}).items()):
+        path = keys.get("model") if isinstance(keys, dict) else None
+        if sid == "*" or not isinstance(path, str) or not path.strip():
+            continue
+        size = _model_bytes(path.strip())
+        out.append({"id": sid, "file": os.path.basename(path.strip().replace("\\", "/")),
+                    "size_gb": round(size / unit, 1) if size is not None else None})
+        if len(out) >= MAX_MODELS:
+            break
+    return out
+
+
+def _probe_machine():
+    import config, hardware
+    return {"gpus": hardware.detect_gpus(), "ram_gb": hardware.detect_ram_gb(),
+            "models": installed_models(config.read_sections())}
+
+
+def machine_text(snap):
+    """The snapshot as stable text: the same machine always reads the same."""
+    lines = ["This machine (snapshot)"]
+    gpus = sorted(snap["gpus"], key=lambda g: g.get("index", 0))
+    for g in gpus:
+        mib = g.get("vram_mib")
+        vram = f"{round(mib / 1024)} GB VRAM ({mib} MiB)" if isinstance(mib, int) and mib > 0 else "VRAM unknown"
+        lines.append(f"GPU {g.get('index', 0)}: {g.get('name') or 'unknown GPU'}, {vram}")
+    if not gpus:
+        lines.append("GPU: none detected (CPU or Apple Silicon)")
+    ram = snap.get("ram_gb")
+    lines.append(f"System RAM: {round(ram)} GB" if isinstance(ram, (int, float)) and ram > 0 else "System RAM: unknown")
+    models = sorted(snap["models"], key=lambda m: m["id"])[:MAX_MODELS]
+    lines.append(f"Installed models ({len(models)}):")
+    for m in models:
+        size = f"{m['size_gb']} GB" if isinstance(m.get("size_gb"), (int, float)) else "size unknown"
+        lines.append(f"- {m['id']}: {m['file']}, {size}")
+    return "\n".join(lines) + "\n"
+
+
+def fetch_machine(binding, cursor, now, probe=None):
+    """One snapshot of this machine's GPUs, RAM and installed models, only when it
+    changed since the last run. Cursor: {"sha": first 16 hex of its sha256}."""
+    try:
+        snap = (probe or _probe_machine)()
+        text = clip(machine_text(snap)) + "\n"     # clip() strips the final newline
+    except Exception as e:      # nvidia-smi hung, odd models.ini, a probe returning garbage
+        raise SourceError(f"could not read this machine's hardware: {type(e).__name__}: {e}"[:300]) from None
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if _dict(cursor).get("sha") == sha[:16]:
+        return [], cursor
+    return [{"ref": f"machine-{sha[:12]}", "title": "Machine snapshot", "text": text}], {"sha": sha[:16]}
+
+
 def fetch(stype, binding, cursor, now, **kw):
-    """Dispatch to an adapter. kw passes test seams (opener, run, releases)."""
+    """Dispatch to an adapter. kw passes test seams (opener, run, releases, probe)."""
     if stype == "folder":
         return fetch_folder(binding, cursor)
     if stype == "ics":
@@ -392,4 +464,6 @@ def fetch(stype, binding, cursor, now, **kw):
         return fetch_git(binding, cursor, now, kw.get("run", subprocess.run))
     if stype == "llamacpp":
         return fetch_llamacpp(binding, cursor, now, kw.get("releases"))
+    if stype == "machine":
+        return fetch_machine(binding, cursor, now, kw.get("probe"))
     raise SourceError(f"unknown source type {stype!r}")

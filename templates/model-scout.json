@@ -1,0 +1,15 @@
+{
+  "name": "model-scout",
+  "title": "Model Scout",
+  "mission": "Track which models llama.cpp just learned to run and which of them are worth trying on this machine. Each morning, tell me what is new and whether it plausibly fits my hardware.",
+  "schema_md": "# How this wiki is organised\n\n- `families/<slug>`: one page per model family or architecture (for example `families/qwen`, `families/gemma`). Record what llama.cpp added or fixed for it, with the release that did it.\n- `machine/this-pc`: what this machine has: each GPU and its VRAM, system RAM, and the models already installed.\n\nItem kinds: `fact` (something llama.cpp now supports, or something true about this machine), `loop` (a model worth trying here), `event` (a dated release).\n\nA fit judgement must quote the snapshot's VRAM line as its evidence. Never invent a model's size or a VRAM figure: use only sizes a source states, and say \"size unknown\" when none is given. When the machine snapshot changes, update the `machine/this-pc` items instead of adding new ones.",
+  "page_kinds": ["families", "machine"],
+  "slots": [
+    {"id": "releases", "type": "llamacpp", "label": "llama.cpp releases"},
+    {"id": "machine", "type": "machine", "label": "This machine's GPUs and installed models"}
+  ],
+  "jobs": {"ingest": "06:30", "brief": "07:00", "lint": "sun 03:00"},
+  "model_hint": "4B+ instruct model",
+  "stale_days": 7,
+  "about": "Bundled with LlamaForge. Reads the public llama.cpp release list and this machine's hardware; never sends anything."
+}

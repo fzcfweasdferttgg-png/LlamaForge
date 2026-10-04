@@ -704,5 +704,34 @@ class SmallModelTest(EmberCase, unittest.TestCase):
         self.assertEqual((r["status"], r["unverified"]), ("ok", 1))
 
 
+class ModelScoutTest(EmberCase, unittest.TestCase):
+    def test_zero_setup_ember_ingests_releases_and_the_machine(self):
+        with open(os.path.join(os.path.dirname(jobs.__file__), "..", "..", "templates", "model-scout.json"),
+                  encoding="utf-8") as f:
+            scout = templates.parse_template(f.read())
+        ember = self.make_ember({}, scout, {})
+        self.assertEqual(ember.conf["bindings"], {})
+        snap = {"gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 5080", "vram_mib": 16303}], "ram_gb": 64,
+                "models": [{"id": "gemma-4-12b", "file": "gemma-4-12b-Q6.gguf", "size_gb": 9.8}]}
+        rels = [{"tag_name": "b9001", "body": "model : add Foo-3 support (#123)",
+                 "published_at": "2026-10-04T00:00:00Z", "html_url": "https://x/b9001"}]
+
+        def fetch(stype, binding, cursor, now):
+            return sources.fetch(stype, binding, cursor, now, releases=rels, probe=lambda: snap)
+        vram = "GPU 0: NVIDIA GeForce RTX 5080, 16 GB VRAM (16303 MiB)"
+
+        def reply(messages):
+            content = messages[-1]["content"]
+            machine = next(s for s in raw_ids(messages)
+                           if "This machine" in content.split(f"=== raw {s}")[1].split("=== raw")[0])
+            return {"ops": [{"op": "add", "page": "machine/this-pc", "kind": "fact",
+                             "text": "One RTX 5080 with 16 GB VRAM", "evidence": [{"raw": machine, "quote": vram}]}]}
+        fake = FakeLLM(reply)
+        r = jobs.ingest(ember, fake, NOW, fetch=fetch)
+        self.assertEqual((r["status"], r["raws"], r["ops"], r["unverified"]), ("ok", 2, 1, 0))
+        self.assertIn("Foo-3", fake.calls[0][-1]["content"])
+        self.assertIn(vram, self.read(ember, "pages", "machine", "this-pc.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

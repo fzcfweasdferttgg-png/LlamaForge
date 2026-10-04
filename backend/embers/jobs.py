@@ -90,7 +90,7 @@ def create_ember(embers_dir, template, ember_id, bindings, now):
         if s["type"] == "rss" and s.get("default") and s["id"] not in clean:
             clean[s["id"]] = s["default"]
     missing = [s["id"] for s in template["slots"]
-               if s["required"] and s["type"] != "llamacpp" and s["id"] not in clean]
+               if s["required"] and s["type"] not in templates.AUTO_SLOTS and s["id"] not in clean]
     if missing:
         raise ValueError(f"required slot(s) not bound: {', '.join(missing)}")
     os.makedirs(root, exist_ok=True)
@@ -105,7 +105,7 @@ def create_ember(embers_dir, template, ember_id, bindings, now):
 def _bound(ember):
     for s in ember.template["slots"]:
         b = ember.conf["bindings"].get(s["id"], "")
-        if b or s["type"] == "llamacpp":
+        if b or s["type"] in templates.AUTO_SLOTS:
             yield s, b
 
 
