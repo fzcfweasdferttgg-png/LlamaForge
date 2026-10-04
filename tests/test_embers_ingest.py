@@ -3,7 +3,7 @@ import datetime as dt, json, math, os, shutil, unicodedata, unittest
 from unittest import mock
 
 from embers import jobs, prompts, sources, templates, verify, wikifs
-from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable
+from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable, ThinkingOverflow
 from embers_testkit import NOW, TEMPLATE, EmberCase, FakeLLM, item_ids, raw_ids
 
 NOTE = "Call with Sam.\nSam: I'll send the signed SOW by Friday."
@@ -608,6 +608,16 @@ class SmallModelTest(EmberCase, unittest.TestCase):
         self.assertEqual([len(raw_ids(m)) for m in fake.calls], [4, 2, 2])
         self.assertEqual((r["status"], r["batches"], r["failed"], r["split"]), ("ok", 2, 0, 1))
         self.assertEqual(ember.store.pending_raws(), [])
+        self.assertEqual(ember.store.get_meta(jobs.ATTEMPTS_KEY, {}), {})
+
+    def test_thinking_overflow_stops_the_run_without_splitting(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} about the plan" for i in range(4)})
+        fake = FakeLLM(ThinkingOverflow("model spent its whole reply thinking"), {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual((r["status"], r["failed"], r["split"]), ("failed", 1, 0))
+        self.assertIn("thinking", ember.store.recent_runs()[0]["error"])
+        self.assertEqual(len(ember.store.pending_raws()), 4)                 # not the notes' fault
         self.assertEqual(ember.store.get_meta(jobs.ATTEMPTS_KEY, {}), {})
 
     def test_truncated_reply_of_one_raw_is_a_failure(self):

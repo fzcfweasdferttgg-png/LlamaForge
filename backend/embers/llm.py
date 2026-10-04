@@ -54,6 +54,12 @@ class ReplyTruncated(LLMError):
     with the same cap truncates again; the caller should send less input."""
 
 
+class ThinkingOverflow(LLMError):
+    """The model spent the whole reply thinking and wrote no answer, despite
+    thinking being switched off. Sending less input does not help: the run
+    should stop and say so, rather than split batches down to nothing."""
+
+
 class PromptTooLarge(LLMError):
     """The router refused the prompt as larger than the model's context.
     n_prompt and n_ctx are the router's own token counts when it gave them."""
@@ -157,6 +163,10 @@ def ask_json(complete, messages, schema, max_tokens=2048):
             err = f"not valid JSON ({e})"
         if not err:
             return obj, usage
+        if isinstance(u, dict) and u.get("thinking_only"):
+            raise ThinkingOverflow(f"the model spent its whole {max_tokens}-token reply thinking and wrote no "
+                                   "answer; its chat template ignores the switch that turns thinking off. "
+                                   "Use an instruct model, or a template with enable_thinking")
         if isinstance(u, dict) and u.get("finish_reason") == "length":
             raise ReplyTruncated(f"model reply cut off at {max_tokens} tokens: {err}")
         if attempt == 1:
@@ -414,9 +424,11 @@ class Router:
         def call(messages, schema, max_tokens):
             # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
             # writes the JSON. Chat templates without the variable ignore it; a zero thinking
-            # budget closes the think block of models that ignore it (older routers drop the field).
+            # budget closes the think block of models that ignore it (older routers drop the field;
+            # llama.cpp honours reasoning_budget_tokens, some forks the thinking_ spelling).
             body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
                     "chat_template_kwargs": {"enable_thinking": False}, "thinking_budget_tokens": 0,
+                    "reasoning_budget_tokens": 0,
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
             try:
@@ -435,6 +447,10 @@ class Router:
             finish = r["choices"][0].get("finish_reason") if isinstance(r["choices"][0], dict) else None
             if isinstance(finish, str):
                 usage["finish_reason"] = finish
+            msg = r["choices"][0]["message"]
+            thought = msg.get("reasoning_content") if isinstance(msg, dict) else None
+            if finish == "length" and not text.strip() and isinstance(thought, str) and thought.strip():
+                usage["thinking_only"] = True
             return text, usage
         return call
 

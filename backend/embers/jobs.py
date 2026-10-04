@@ -14,7 +14,7 @@ import collections, datetime as dt, json, math, os, re
 
 import atomicio
 from embers import prompts, reserved_name, sources, templates, verify, wikifs
-from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable
+from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable, ThinkingOverflow
 from embers.store import Store, ts
 
 ID_RE            = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -476,6 +476,10 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
             stats["failed"] += 1
             errors.append(_err(e))
             router_down = True
+            break
+        except ThinkingOverflow as e:      # the model's fault, not the input's: stop, blame no raw
+            stats["failed"] += 1
+            errors.append(_err(e))
             break
         except (ReplyTruncated, PromptTooLarge) as e:
             # The input was too much for this model, not wrong: send less instead of failing.

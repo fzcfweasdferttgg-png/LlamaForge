@@ -132,6 +132,19 @@ class AskJsonTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIsInstance(cm.exception, llm.LLMError)
 
+    def test_a_reply_that_is_all_thinking_is_thinking_overflow(self):
+        # Splitting the input cannot help a model that thinks until max_tokens whatever it is sent.
+        calls = []
+
+        def complete(messages, schema, max_tokens):
+            calls.append(messages)
+            return "", {"finish_reason": "length", "thinking_only": True}
+        with self.assertRaises(llm.ThinkingOverflow) as cm:
+            llm.ask_json(complete, [{"role": "user", "content": "x"}], SCHEMA)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIsInstance(cm.exception, llm.ReplyTruncated)
+        self.assertIn("thinking", str(cm.exception))
+
     def test_truncated_but_valid_reply_is_accepted(self):
         def complete(messages, schema, max_tokens):
             return '{"ops": []}', {"finish_reason": "length"}
@@ -224,7 +237,18 @@ class RouterTest(_NoNetwork):
         self.assertEqual(usage, {"prompt_tokens": 3, "finish_reason": "length"})
         body = self.sent[0][1]
         self.assertEqual(body["thinking_budget_tokens"], 0)      # reasoning models that ignore enable_thinking
+        self.assertEqual(body["reasoning_budget_tokens"], 0)     # the field this llama.cpp actually honours
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+
+    def test_complete_flags_a_reply_that_is_only_reasoning(self):
+        r = self.make({"completions": {"choices": [{"message": {"content": "", "reasoning_content": "hmm " * 50},
+                                                    "finish_reason": "length"}]}})
+        _, usage = r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertTrue(usage["thinking_only"])
+        r = self.make({"completions": {"choices": [{"message": {"content": "{", "reasoning_content": "hmm"},
+                                                    "finish_reason": "length"}]}})
+        _, usage = r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertNotIn("thinking_only", usage)        # it got to the answer: an ordinary truncation
 
     def test_complete_not_loaded_is_model_not_loaded(self):
         err = llm.LLMError('router answered 400: {"error":{"code":400,"message":"model is not loaded"}}')
