@@ -160,9 +160,10 @@ _META_STR_KEYS = {"general.architecture", "general.name", "general.size_label",
 _META_STR_SUFFIX = (".rope.scaling.type",)   # e.g. llama.rope.scaling.type = "yarn"
 
 
-def _read_header_kv(f, n_kv):
+def _read_header_kv(f, n_kv, arrays=()):
     """Collect scalar KVs (all cheap) + a small allowlist of strings into a dict.
-    Arrays and unlisted strings are seeked past, never materialized."""
+    Numeric arrays whose key ends with one of `arrays` (per-layer facts, one entry
+    per block) are kept; every other array and unlisted string is seeked past."""
     kv = {}
     for _ in range(n_kv):
         key = _read_str(f)
@@ -174,6 +175,13 @@ def _read_header_kv(f, n_kv):
                 kv[key] = _read_str(f)
             else:
                 _skip_str(f)
+        elif vt == _ARRAY and arrays and key.endswith(arrays):
+            et, cnt = _u32(f), _u64(f)
+            if et in _SCALAR_SZ and cnt <= 4096:
+                kv[key] = [_read_scalar(f, et) for _ in range(cnt)]
+            else:
+                f.seek(-12, 1)
+                _skip_value(f, vt)
         else:
             _skip_value(f, vt)
     return kv
@@ -215,6 +223,78 @@ def metadata(path):
         "rope_scaling":     a("rope.scaling.type"),
     }
     return {k: v for k, v in out.items() if v is not None}
+
+
+# Per-architecture header facts the memory footprint depends on (see footprint.py).
+_LAYOUT_KEYS = ("block_count", "embedding_length", "context_length", "expert_count",
+                "attention.head_count", "attention.head_count_kv", "attention.key_length",
+                "attention.value_length", "attention.key_length_swa",
+                "attention.value_length_swa", "attention.sliding_window",
+                "attention.sliding_window_pattern", "attention.shared_kv_layers",
+                "full_attention_interval", "nextn_predict_layers")
+_LAYOUT_ARRAYS = (".attention.head_count_kv", ".attention.sliding_window_pattern")
+
+
+def _layout_one(path):
+    """(arch, kv, [(name, type_id, nbytes)]) for one GGUF file. A tensor's size is
+    the gap to the next tensor's offset (the last one runs to the end of the
+    file), so no per-type block-size table is needed and quant types this module
+    has never heard of (ik_llama's IQ*_K) size correctly."""
+    with open(path, "rb") as f:
+        if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+            return None
+        n_t, n_kv = _u64(f), _u64(f)
+        if n_kv > 1_000_000 or n_t > 1_000_000:
+            return None
+        kv = _read_header_kv(f, n_kv, _LAYOUT_ARRAYS)
+        infos = []
+        for _ in range(n_t):
+            name = _read_str(f)
+            n_dims = _u32(f)
+            if n_dims > 8:
+                return None
+            f.seek(8 * n_dims, 1)
+            infos.append((name, _u32(f), _u64(f)))
+        align = kv.get("general.alignment") or 32
+        data = f.tell() + (-f.tell()) % align
+        end = os.fstat(f.fileno()).st_size - data
+    order = sorted(range(len(infos)), key=lambda i: infos[i][2])
+    size = {}
+    for j, i in enumerate(order):
+        nxt = infos[order[j + 1]][2] if j + 1 < len(order) else end
+        size[i] = max(nxt - infos[i][2], 0)
+    return (kv.get("general.architecture"), kv,
+            [(n, t, size[i]) for i, (n, t, _) in enumerate(infos)])
+
+
+def layout(path):
+    """Every tensor (name, type id, bytes) across all shards of a model, plus the
+    header facts the memory footprint depends on (keys without the arch prefix):
+    {"arch", "kv", "tensors"}. None if any shard is unreadable."""
+    try:
+        paths = [path]
+        m = _SHARD.match(os.path.basename(path))
+        if m:
+            stem, n = m.group(1), int(m.group(3))
+            d = os.path.dirname(path)
+            paths = [os.path.join(d, f"{stem}-{i:05d}-of-{n:05d}.gguf")
+                     for i in range(1, n + 1)]
+        arch, kv, tensors = None, {}, []
+        for p in paths:
+            got = _layout_one(p)
+            if got is None:
+                return None
+            arch = arch or got[0]
+            kv = kv or got[1]
+            tensors += got[2]
+    except Exception:
+        return None
+    facts = {}
+    for k in _LAYOUT_KEYS:
+        v = kv.get(f"{arch}.{k}") if arch else None
+        if v is not None:
+            facts[k.split(".")[-1]] = v
+    return {"arch": arch, "kv": facts, "tensors": tensors}
 
 
 def default_ctx(path):

@@ -61,6 +61,12 @@ def _help_text(server_bin):
 def supports_router_mode(server_bin):
     return "--models-preset" in _help_text(server_bin)
 
+def supports_no_autoload(server_bin):
+    """Multi-model mode needs it: with autoload on, any client request for an
+    unloaded model loads it behind the planner's back and the router evicts
+    whatever it likes to make room."""
+    return "--no-models-autoload" in _help_text(server_bin)
+
 def supports_cors_origins(server_bin):
     """Older builds and forks predate --cors-origins and would refuse to start."""
     return "--cors-origins" in _help_text(server_bin)
@@ -131,9 +137,11 @@ def stop(port, timeout=10):
     time.sleep(0.5)
     return _pid_on_port(port) is None
 
-def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
+def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
     """api_key is the user's key and decides policy (LAN needs one the user
-    knows); local_key is LlamaForge's own, used when the user has none."""
+    knows); local_key is LlamaForge's own, used when the user has none.
+    pool: None for one model at a time, or slots.router_pool()'s
+    {"models_max", "autoload"} for multi-model mode."""
     reason = network_policy.start_error(host, api_key)
     if reason:
         return False, reason
@@ -148,8 +156,11 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
         return False, (f"port {port} is already in use by another process - "
                        f"stop it, or change the router port in Setup")
     os.makedirs(logdir, exist_ok=True)
-    args = [server_bin, "--models-preset", models_ini, "--models-max", "1", "--offline",
+    models_max = str(pool["models_max"]) if pool else "1"
+    args = [server_bin, "--models-preset", models_ini, "--models-max", models_max, "--offline",
             "--host", host, "--port", str(port), "--metrics"]
+    if pool and not pool.get("autoload", True):
+        args.append("--no-models-autoload")
     args += network_policy.router_auth_args(host, api_key or local_key,
                                             supports_cors_origins(server_bin))
     out = open(os.path.join(logdir, "router.out.log"), "a", encoding="utf-8", errors="replace")
@@ -168,7 +179,7 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
     procs.write_pid(logdir, "router", proc.pid)   # stop.ps1/.sh stop only this one
     return True, ""
 
-def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
+def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
     reason = network_policy.start_error(host, api_key)
     if reason:
         return False, reason
@@ -178,4 +189,4 @@ def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
         return False, ("can't see which process holds the router port - install "
                        "lsof, or iproute2 (ss), or psmisc (fuser)")
     stop(port)
-    return start(server_bin, models_ini, port, host, api_key, logdir, local_key)
+    return start(server_bin, models_ini, port, host, api_key, logdir, local_key, pool)

@@ -11,9 +11,9 @@ def gpus(*used, total=16 * G):
             for i, u in enumerate(used)]
 
 
-def cand(model="m", need=6 * G, pins=None, measured=None, ram_mib=0):
+def cand(model="m", need=6 * G, pins=None, measured=None, ram_mib=0, first_gpu_mib=0):
     return {"model": model, "need_mib": need, "pins": pins,
-            "measured": measured or {}, "ram_mib": ram_mib}
+            "measured": measured or {}, "ram_mib": ram_mib, "first_gpu_mib": first_gpu_mib}
 
 
 class Pins(unittest.TestCase):
@@ -175,6 +175,79 @@ class Plan(unittest.TestCase):
     def test_no_gpu_information(self):
         v = slots.plan(cand(), [], [], headroom_mib=G, role="worker")
         self.assertFalse(v["ok"])
+
+    def test_free_mib_beats_total_minus_used(self):
+        # nvidia-smi's free already takes out the driver's reservation
+        g = gpus(0, 2 * G)                           # total - used would say GPU0
+        g[0]["free_mib"] = 8 * G
+        g[1]["free_mib"] = 9 * G
+        v = slots.plan(cand(need=7 * G + 600), g, [], headroom_mib=1 * G, role="main")
+        self.assertTrue(v["ok"], v["reason"])
+        self.assertEqual(v["devices"], [1])
+
+    def test_the_projector_is_charged_to_the_first_gpu(self):
+        # mtmd puts the mmproj on the first GPU backend whatever `device` says
+        # (measured: gemma-4-12b pinned to CUDA1 still took 575 MiB on CUDA0)
+        v = slots.plan(cand(need=4 * G, first_gpu_mib=344), gpus(12 * G, 0), [],
+                       headroom_mib=1 * G, role="worker")
+        self.assertEqual(v["devices"], [1])
+        self.assertEqual(v["footprint"], {1: 4 * G, 0: slots.OTHER_GPU0_MIB + 344})
+        v = slots.plan(cand(need=4 * G, first_gpu_mib=344), gpus(0, 12 * G), [],
+                       headroom_mib=1 * G, role="worker")
+        self.assertEqual(v["footprint"], {0: 4 * G + 344})
+
+    def test_the_projector_can_be_what_does_not_fit(self):
+        tight0 = 16 * G - 1 * G - slots.OTHER_GPU0_MIB - 100
+        v = slots.plan(cand(need=4 * G, first_gpu_mib=344), gpus(tight0, 0), [],
+                       headroom_mib=1 * G, role="worker")
+        self.assertFalse(v["ok"])
+
+    def test_cuda_order_that_differs_from_nvidia_smi(self):
+        # CUDA0 is nvidia-smi GPU1 here: the place written must be in CUDA terms,
+        # and the stray context lands on CUDA0, wherever nvidia-smi lists it
+        m = {0: 1, 1: 0}
+        v = slots.plan(cand(need=4 * G), gpus(12 * G, 0), [], headroom_mib=1 * G,
+                       role="worker", cmap=m)
+        self.assertEqual((v["devices"], v["place"]), ([1], "CUDA0"))
+        self.assertEqual(v["footprint"], {1: 4 * G})
+        v = slots.plan(cand(need=4 * G, first_gpu_mib=344), gpus(0, 12 * G), [],
+                       headroom_mib=1 * G, role="worker", cmap=m)
+        self.assertEqual((v["devices"], v["place"]), ([0], "CUDA1"))
+        self.assertEqual(v["footprint"], {0: 4 * G, 1: slots.OTHER_GPU0_MIB + 344})
+
+
+LIST_DEVICES = """Available devices:
+  CUDA0: NVIDIA GeForce RTX 5060 Ti (16283 MiB, 15172 MiB free)
+  CUDA1: NVIDIA GeForce RTX 5080 (16275 MiB, 14985 MiB free)
+"""
+SMI = [{"index": 0, "name": "NVIDIA GeForce RTX 5080", "total_mib": 16303, "used_mib": 0},
+       {"index": 1, "name": "NVIDIA GeForce RTX 5060 Ti", "total_mib": 16311, "used_mib": 0}]
+
+
+class CudaMap(unittest.TestCase):
+    def test_maps_by_name_when_the_orders_differ(self):
+        self.assertEqual(slots.cuda_map(LIST_DEVICES, SMI), {0: 1, 1: 0})
+
+    def test_identical_cards_keep_their_order(self):
+        out = ("  CUDA0: NVIDIA GeForce RTX 3090 (24000 MiB, 1 MiB free)\n"
+               "  CUDA1: NVIDIA GeForce RTX 3090 (24000 MiB, 1 MiB free)\n")
+        smi = [{"index": i, "name": "NVIDIA GeForce RTX 3090"} for i in (0, 1)]
+        self.assertEqual(slots.cuda_map(out, smi), {0: 0, 1: 1})
+
+    def test_unmatched_is_none(self):
+        self.assertIsNone(slots.cuda_map("  CUDA0: Something Else (1 MiB, 1 MiB free)\n", SMI))
+        self.assertIsNone(slots.cuda_map("", SMI))
+
+    def test_pins_and_places_translate(self):
+        m = {0: 1, 1: 0}
+        p = slots.to_smi({"devices": [0], "share": {0: 1.0}}, m)
+        self.assertEqual(p, {"devices": [1], "share": {1: 1.0}})
+        self.assertEqual(slots.to_smi({"devices": [5], "share": {5: 1.0}}, m),
+                         {"devices": None, "share": {}})
+        self.assertIsNone(slots.to_smi(None, m))
+        self.assertEqual(slots.to_smi({"devices": [], "share": {}}, m),
+                         {"devices": [], "share": {}})
+        self.assertEqual(slots.cuda_name(1, m), "CUDA0")
 
 
 if __name__ == "__main__":

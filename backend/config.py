@@ -69,6 +69,12 @@ DEFAULTS = {
     "embers_dir":    "",                        # "" = <ROOT>/embers (ember wikis + embers.db)
     "embers_scheduler":   True,                 # run due ember jobs in the panel process
     "embers_swap_models": True,                 # embers may load their pinned model when the router is idle
+    # Multi-model (slots.py): off = one model at a time, exactly as before.
+    "multi_model":       False,                 # let the router hold several models at once
+    "slot_cap":          3,                     # most models loaded together (2-4)
+    "slot_headroom_mib": 1536,                  # per GPU, kept free beyond every plan
+    "slot_autoload":     False,                 # let client requests load models (bypasses the planner)
+    "slots":             {"main": "", "placed": {}},  # main model id; {model: keys LlamaForge wrote}
 }
 
 def load():

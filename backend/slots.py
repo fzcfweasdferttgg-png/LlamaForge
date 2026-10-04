@@ -13,7 +13,8 @@ previous load of the same configuration beats the prediction; the prediction
 only covers configurations never loaded before.
 
 Measured on this project's dev box (2026-10-04): a process pinned to GPU1 still
-opens a CUDA context on GPU0 (~231 MiB); one on GPU0 costs nothing on GPU1.
+opens a CUDA context on GPU0 (~231 MiB); one on GPU0 costs nothing on GPU1. A
+vision projector lands on CUDA0 too, whatever the model's `device` says.
 
 Pure stdlib, no I/O.
 """
@@ -76,62 +77,139 @@ def pins(settings):
     return None
 
 
+CAP_MIN, CAP_MAX, CAP_DEFAULT = 2, 4, 3
+
+
+def router_pool(cfg, no_autoload_supported):
+    """router_ctl.start's pool for this config: None (one model at a time, as
+    always) unless multi_model is on. A build without --no-models-autoload
+    stays single unless the user opted into autoload anyway: otherwise any
+    client request could load a model the planner never saw."""
+    if not cfg.get("multi_model"):
+        return None
+    autoload = bool(cfg.get("slot_autoload"))
+    if not autoload and not no_autoload_supported:
+        return None
+    try:
+        cap = int(cfg.get("slot_cap", CAP_DEFAULT))
+    except (TypeError, ValueError):
+        cap = CAP_DEFAULT
+    return {"models_max": min(max(cap, CAP_MIN), CAP_MAX), "autoload": autoload}
+
+
+_LIST_DEVICE = re.compile(r"^\s*CUDA(\d+):\s*(.+?)\s*\(", re.M)
+
+
+def cuda_map(list_devices, smi_gpus):
+    """{CUDA index: nvidia-smi index} from `llama-server --list-devices` output.
+
+    CUDA numbers devices fastest-first unless CUDA_DEVICE_ORDER says otherwise;
+    nvidia-smi numbers them by PCI bus. They agree on most boxes, but not on one
+    with the slower card in the first slot, and forcing PCI order on the router
+    would silently re-aim every device / main-gpu the user already pinned. So
+    LlamaForge leaves the order alone and translates. Identical cards keep
+    their relative order (CUDA breaks speed ties by PCI bus). None when the two
+    lists can't be matched one to one."""
+    found = [(int(i), name.strip()) for i, name in _LIST_DEVICE.findall(list_devices or "")]
+    if not found or len(found) != len(smi_gpus):
+        return None
+    left = sorted(smi_gpus, key=lambda g: g["index"])
+    out = {}
+    for ci, name in found:
+        hit = next((g for g in left if g.get("name", "").strip() == name), None)
+        if hit is None:
+            return None
+        left.remove(hit)
+        out[ci] = hit["index"]
+    return out
+
+
+def to_smi(p, cmap):
+    """pins() (CUDA indices) -> the same pins in nvidia-smi indices; a device the
+    map doesn't know makes the pins unmappable, never free to place."""
+    if p is None or not p.get("devices"):
+        return p
+    if any(d not in cmap for d in p["devices"]):
+        return {"devices": None, "share": {}}
+    return {"devices": [cmap[d] for d in p["devices"]],
+            "share": {cmap[d]: s for d, s in p["share"].items()}}
+
+
+def cuda_name(smi_index, cmap):
+    """nvidia-smi index -> the device name llama-server wants ("CUDA0")."""
+    if not cmap:
+        return f"CUDA{smi_index}"
+    back = {v: k for k, v in cmap.items()}
+    return f"CUDA{back[smi_index]}"
+
+
+def _first(cmap):
+    """nvidia-smi index of CUDA0: where every process opens its context and
+    mtmd puts the projector."""
+    return cmap.get(0, 0) if cmap else 0
+
+
 def _gib(mib):
     return f"{mib / MIB_PER_GIB:.1f} GiB"
 
 
-def _predicted(need, devices, share):
+def _predicted(cand, devices, share, first):
     """Per-GPU MiB for a placement: the need (which already holds one process
-    overhead) plus an overhead per extra device, shared like the weights, plus
-    the context a process off GPU0 still opens on GPU0."""
+    overhead) plus an overhead per extra device, shared like the weights; then
+    on CUDA0 (`first`, as nvidia-smi numbers it) the projector, and the context
+    a process placed elsewhere still opens there."""
+    need = cand.get("need_mib") or 0
     extra = OVERHEAD_MIB * max(len(devices) - 1, 0)
     fp = {d: int(round((need + extra) * share[d])) for d in devices}
-    if devices and 0 not in devices:
-        fp[0] = OTHER_GPU0_MIB
+    if devices and first not in devices:
+        fp[first] = OTHER_GPU0_MIB
+    if devices and cand.get("first_gpu_mib"):
+        fp[first] = fp.get(first, 0) + cand["first_gpu_mib"]
     return fp
 
 
-def _footprint(cand, devices, share):
+def _footprint(cand, devices, share, first):
     m = (cand.get("measured") or {}).get(tuple(devices))
     if m:
         return dict(m), "measured"
-    return _predicted(cand.get("need_mib") or 0, devices, share), "predicted"
+    return _predicted(cand, devices, share, first), "predicted"
 
 
 def _fits(fp, free):
     return all(i in free and mib <= free[i] for i, mib in fp.items())
 
 
-def _choose(cand, free, role, allow_span):
+def _choose(cand, free, role, allow_span, cmap):
     """(devices, place, footprint, source) for an unpinned candidate, or None."""
+    first = _first(cmap)
     options = []
     for i in sorted(free):
-        fp, src = _footprint(cand, [i], {i: 1.0})
+        fp, src = _footprint(cand, [i], {i: 1.0}, first)
         if _fits(fp, free):
             options.append((free[i], i, fp, src))
     if options:
         # main: the roomiest GPU; worker: the tightest that fits (keeps the big hole)
         pick = max(options) if role == "main" else min(options)
         _, i, fp, src = pick
-        return [i], f"CUDA{i}", fp, src
+        return [i], cuda_name(i, cmap), fp, src
     if allow_span and len(free) > 1:
         devs = sorted(free)
         room = {d: max(free[d], 0) for d in devs}
         if sum(room.values()) > 0:
             share = {d: room[d] / sum(room.values()) for d in devs}
             devs = [d for d in devs if share[d] > 0]
-            fp, src = _footprint(cand, devs, share)
+            fp, src = _footprint(cand, devs, share, first)
             if _fits(fp, free):
                 return devs, "", fp, src
     return None
 
 
-def _place(cand, free, role):
+def _place(cand, free, role, cmap):
     """(devices, place, footprint, source) or None; place None = pinned, untouched."""
     p = cand.get("pins")
     if p is None:
-        return _choose(cand, free, role, allow_span=(role == "main"))
-    fp, src = _footprint(cand, p["devices"], p["share"])
+        return _choose(cand, free, role, (role == "main"), cmap)
+    fp, src = _footprint(cand, p["devices"], p["share"], _first(cmap))
     return (p["devices"], None, fp, src) if _fits(fp, free) else None
 
 
@@ -142,30 +220,34 @@ def _verdict(ok, reason="", devices=None, place=None, footprint=None, source=Non
             "already": already}
 
 
-def _refusal(cand, free, headroom_mib):
+def _refusal(cand, free, headroom_mib, cmap):
+    first = _first(cmap)
     p = cand.get("pins")
     if p is not None and p["devices"]:
-        fp, src = _footprint(cand, p["devices"], p["share"])
+        fp, src = _footprint(cand, p["devices"], p["share"], first)
         missing = [i for i in fp if i not in free]
         if missing:
             return f"it is pinned to GPU{missing[0]}, which this machine doesn't have"
         need = sum(fp.values())
     else:
-        fp, src = _footprint(cand, [min(free)], {min(free): 1.0})
-        need = fp[min(free)]
+        fp, src = _footprint(cand, [min(free)], {min(free): 1.0}, first)
+        need = sum(fp.values())
     where = ", ".join(f"GPU{i} has {_gib(max(f, 0))}" for i, f in sorted(free.items()))
     return (f"needs ~{_gib(need)} ({src}); {where} free after "
             f"{_gib(headroom_mib)} headroom")
 
 
 def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
-         role="worker", ram_free_mib=None):
+         role="worker", ram_free_mib=None, cmap=None):
     """Verdict for loading `candidate` next to `loaded`.
 
-    candidate: {model, need_mib, pins (from pins()), measured: {(devices,): {gpu: MiB}},
+    candidate: {model, need_mib, first_gpu_mib (the projector, on CUDA0), pins (from
+                pins(), already in nvidia-smi indices), measured: {(devices,): {gpu: MiB}},
                 ram_mib (the part kept in system RAM)}
-    gpus:      [{index, total_mib, used_mib}] - one nvidia-smi snapshot
+    gpus:      [{index, total_mib, used_mib, free_mib}] - one nvidia-smi snapshot
     loaded:    [{model, role, footprint: {gpu: MiB}, last_used}]
+    cmap:      cuda_map(); None means CUDA and nvidia-smi number the GPUs alike.
+    Every index here is nvidia-smi's; only `place` is in CUDA terms.
     Returns {ok, reason, devices, place, footprint, source, evict, already}.
     place: "CUDAn" to write, "" to clear ours (span), None to leave the section alone.
     evict: workers (oldest first) whose unload would let a *main* load fit. Workers
@@ -188,16 +270,17 @@ def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
     if not gpus:
         return _verdict(False, "no GPU memory information (nvidia-smi didn't answer)")
 
-    free = {g["index"]: g["total_mib"] - g["used_mib"] - headroom_mib for g in gpus}
+    free = {g["index"]: (g["free_mib"] if g.get("free_mib") is not None
+                         else g["total_mib"] - g["used_mib"]) - headroom_mib for g in gpus}
     over_cap = len(loaded) >= cap
     if not over_cap:
-        got = _place(candidate, free, role)
+        got = _place(candidate, free, role, cmap)
         if got:
             devs, place, fp, src = got
             return _verdict(True, devices=devs, place=place, footprint=fp, source=src)
 
     reason = (f"{len(loaded)} models are loaded; the limit is {cap}" if over_cap
-              else _refusal(candidate, free, headroom_mib))
+              else _refusal(candidate, free, headroom_mib, cmap))
     if role != "main":
         return _verdict(False, reason)
     workers = sorted((s for s in loaded if s.get("role") != "main"),
@@ -209,7 +292,7 @@ def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
             for i, mib in (s.get("footprint") or {}).items():
                 if i in room:
                     room[i] += mib
-        got = _place(candidate, room, role)
+        got = _place(candidate, room, role, cmap)
         if got:
             names = [s["model"] for s in workers[:k]]
             devs, place, fp, src = got
