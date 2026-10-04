@@ -152,8 +152,13 @@ class LintHardeningTest(EmberCase, unittest.TestCase):
         for i, err in enumerate((RuntimeError("adapter bug"), RouterUnavailable("router down"))):
             r = jobs.lint(self.ember, FakeLLM(err), NOW + dt.timedelta(days=15, minutes=i))
             self.assertEqual(r["status"], "partial", err)
+            self.assertIs(r["router_down"], isinstance(err, RouterUnavailable), err)
             self.assertEqual(sorted(f["kind"] for f in r["flags"]), ["stale", "stale"])
             self.assertIn(str(err), self.last_run()["error"])
+        r = jobs.lint(self.ember, FakeLLM(LLMError("RouterUnavailable: gotcha")), NOW + dt.timedelta(days=16))
+        self.assertIs(r["router_down"], False)                 # error text is not the flag
+        self.assertIs(jobs.lint(self.ember, FakeLLM({"pairs": []}), NOW + dt.timedelta(days=17))["router_down"],
+                      False)
 
     def test_garbage_replies_never_crash(self):
         replies = [["not", "a", "dict"], {"pairs": "x"}, {"pairs": None}, "text", None,

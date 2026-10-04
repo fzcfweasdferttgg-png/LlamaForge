@@ -33,25 +33,43 @@ JOBS = ("ingest", "brief", "lint")
 ROUTER_DOWN = ("The router is not reachable (down, restarting or loading a model). "
                "Please start the router in LlamaForge, then try again.")
 
-# CSI (ESC [ ... final), OSC (ESC ] ... BEL or ST), other two-byte ESC sequences, then any
-# remaining C0/C1 control character, DEL, and the bidi overrides that reorder displayed text.
-_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]")
-_CTRL = re.compile(r"[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+MAX_BIND = 4096
+
+# CSI (ESC [ ... final); OSC, DCS, SOS, PM, APC strings (ESC ] P X ^ _ ... BEL or ST); other
+# ESC sequences (ESC, intermediates, final). Then any remaining C0/C1 control character, DEL,
+# the bidi controls that reorder displayed text, zero-width/invisible format characters, line
+# and paragraph separators, and the tag block (invisible "ASCII smuggling" characters).
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]PX^_][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]")
+_CTRL = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
+                   r"\u2060\u2066-\u2069\ufeff\U000e0000-\U000e007f]")
+_BREAKS = "\t\n\r\x85\u2028\u2029"
 
 
 def safe(text):
     """One printable line: escape sequences removed, other control chars dropped
-    (newlines and tabs become spaces)."""
+    (tabs and line breaks become spaces)."""
     s = _ANSI.sub("", str(text))
-    return _CTRL.sub(lambda m: " " if m.group() in "\t\n\r" else "", s).strip()
+    return _CTRL.sub(lambda m: " " if m.group() in _BREAKS else "", s).strip()
 
 
 class _Fail(Exception):
     """A clean, expected stop: message for stderr, exit status 1."""
 
 
-def _say(stream, text):
-    print(safe(text), file=stream)
+def _say(stream, text, prefix=""):
+    """Print one sanitised line. Characters the stream cannot encode (a redirected
+    stdout on Windows is cp1252/strict) become backslash escapes instead of raising."""
+    line = prefix + safe(text)
+    enc = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        line = line.encode(enc, "backslashreplace").decode(enc)
+    except LookupError:
+        line = line.encode("ascii", "backslashreplace").decode("ascii")
+    print(line, file=stream)
+
+
+def _debug():
+    return os.environ.get("EMBERS_DEBUG") == "1"
 
 
 def _parse_binds(pairs):
@@ -60,6 +78,10 @@ def _parse_binds(pairs):
         if "=" not in p:
             raise SystemExit(safe(f"--bind expects slot=value, got {p!r}"))
         k, v = p.split("=", 1)
+        if _CTRL.search(p):
+            raise SystemExit(safe(f"--bind must not contain control or invisible characters: {p!r}"[:300]))
+        if len(v.strip()) > MAX_BIND:
+            raise SystemExit(f"--bind value for {safe(k)[:40]!r} is longer than {MAX_BIND} characters")
         out[k.strip()] = v.strip()
     return out
 
@@ -160,10 +182,10 @@ def _jobs(a, base, cfg, router_cls, out):
                 _say(out, f"Brief written to {r['path']}")
             error = _run_error(ember, r.get("run")) if status != "ok" else ""
             if error:
-                _say(out, "  reason: " + error[:REASON_CHARS])
-            if status in ("failed", "aborted"):
+                _say(out, error[:REASON_CHARS], prefix="  reason: ")
+            if status not in ("ok", "partial"):    # fail closed on anything unexpected
                 code = 1
-            if status != "ok" and "RouterUnavailable:" in error:
+            if r.get("router_down") is True:       # the job's own flag, never the error text
                 raise _Fail(ROUTER_DOWN)
         return code
 
@@ -199,24 +221,27 @@ def main(argv=None, now=None, router_cls=Router, out=None, err=None):
         _say(err, str(e))
         return 1
     except RouterUnavailable as e:
-        if os.environ.get("EMBERS_DEBUG"):
+        if _debug():
             raise
         _say(err, f"error: {e}")
         _say(err, ROUTER_DOWN)
         return 1
     except LLMError as e:
-        if os.environ.get("EMBERS_DEBUG"):
+        if _debug():
             raise
         _say(err, f"error: {e}")
         return 1
     except Exception as e:                 # jobs close their run row before re-raising
-        if os.environ.get("EMBERS_DEBUG"):
+        if _debug():
             raise
         _say(err, f"error: {type(e).__name__}: {e}")
         return 1
 
 
 if __name__ == "__main__":
+    for _stream in (sys.stdout, sys.stderr):  # covers SystemExit messages printed by Python too
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(errors="backslashreplace")
     try:
         sys.exit(main())
     except KeyboardInterrupt:              # the job already closed its run row

@@ -10,7 +10,8 @@ from embers.llm import LLMError, RouterUnavailable
 from embers_testkit import NOW
 
 TPL = os.path.join(config.ROOT, "templates", "morning-brief.json")
-_CTRL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+_CTRL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
+                   "\u2060\u2066-\u2069\ufeff\U000e0000-\U000e007f]")
 
 
 def scripted(messages, schema):
@@ -219,6 +220,98 @@ class HardeningTest(CliCase):
                 mock.patch.object(jobs, "brief", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 self.cli("brief", "morning")
+
+    def test_debug_needs_exactly_one(self):
+        self.create()
+        for value in ("0", "", "yes", "true", " 1", "11"):
+            with mock.patch.dict(os.environ, {"EMBERS_DEBUG": value}), \
+                    mock.patch.object(jobs, "brief", side_effect=OSError("disk full")):
+                self.assertEqual(self.cli("brief", "morning")[0], 1, repr(value))
+            self.assertIn("error: OSError: disk full", self.err)
+
+    def test_exit_code_fails_closed_on_unknown_status(self):
+        self.create()
+        for status in ("weird", None, "running", "aborted", "failed"):
+            fake = {"run": 0, "status": status, "summary": "s", "flags": [], "router_down": False}
+            with mock.patch.object(jobs, "lint", return_value=fake):
+                self.assertEqual(self.cli("lint", "morning")[0], 1, repr(status))
+        for status in ("ok", "partial"):
+            fake = {"run": 0, "status": status, "summary": "s", "flags": [], "router_down": False}
+            with mock.patch.object(jobs, "lint", return_value=fake):
+                self.assertEqual(self.cli("lint", "morning")[0], 0, repr(status))
+
+    def test_bind_values_and_slot_names_reject_control_chars_and_overlong_values(self):
+        for bind in (f"notes={self.notes}\x00x", "notes=a\x1b[2Jb", "no\x00tes=x", "notes=a\nb",
+                     "notes=a\u202eb", "notes=" + "a" * 4097):
+            with self.assertRaises(SystemExit) as cm:
+                self.cli("create", "morning", "--template", TPL, "--bind", bind)
+            self.assertNotIn("\x00", str(cm.exception))
+            self.assertIsNone(_CTRL.search(str(cm.exception)), repr(bind))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "embers", "morning")))
+        long_ok = os.path.join(self.dir, "x" * 10)
+        self.assertEqual(embers_cli._parse_binds(["notes=" + long_ok]), {"notes": long_ok})
+        self.assertEqual(len(embers_cli._parse_binds(["feed=" + "a" * 4096])["feed"]), 4096)
+        with self.assertRaises(SystemExit):
+            self.cli("brief", "morn\x00ing")
+
+    def test_safe_strips_invisible_and_format_characters(self):
+        cases = ["a\u061cb", "a\u200bb", "a\u200cb", "a\u200db", "a\u200eb", "a\u200fb", "a\ufeffb",
+                 "a\u2060b", "a\U000e0041\U000e0042\U000e007fb", "a\U000e0000b"]
+        for s in cases:
+            self.assertEqual(embers_cli.safe(s), "ab", ascii(s))
+        self.assertEqual(embers_cli.safe("a\u2028b\u2029c"), "a b c")    # line breaks become spaces
+        self.assertEqual(embers_cli.safe("a\x1b]0;t\x1b\\b\x1bPq#0payload\x1b\\c"), "abc")
+        self.assertEqual(embers_cli.safe("a\x1b(0x\x1b(Bb\x1b#8\x1bc"), "axb")
+
+    def test_reason_line_keeps_its_indent(self):
+        self.create()
+        FakeRouter.fail = LLMError("bad reply")
+        out = self.cli("ingest", "morning")[1]
+        self.assertIn("\n  reason: LLMError: bad reply", out)
+
+    def test_non_ascii_output_survives_a_strict_cp1252_stream(self):
+        self.create()
+        FakeRouter.loaded = "qwen-中文"
+        FakeRouter.fail = LLMError("model said ☃ snowman")
+        buf, ebuf = io.BytesIO(), io.BytesIO()
+        out = io.TextIOWrapper(buf, encoding="cp1252", errors="strict")
+        err = io.TextIOWrapper(ebuf, encoding="cp1252", errors="strict")
+        code = embers_cli.main(["ingest", "morning"], now=NOW, router_cls=FakeRouter, out=out, err=err)
+        out.flush()
+        text = buf.getvalue().decode("cp1252")
+        self.assertEqual(code, 1)
+        self.assertIn("Using qwen-\\u4e2d\\u6587 (context 16384)", text)
+        self.assertIn("  reason: LLMError: model said \\u2603 snowman", text)
+        FakeRouter.loaded = LLMError("router answered 500: ☃")
+        code = embers_cli.main(["ingest", "morning"], now=NOW, router_cls=FakeRouter, out=out, err=err)
+        err.flush()
+        self.assertEqual(code, 1)
+        self.assertIn("error: router answered 500: \\u2603", ebuf.getvalue().decode("cp1252"))
+
+    def test_feed_error_text_cannot_fake_router_down(self):
+        class Evil(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_response(500, "RouterUnavailable: gotcha")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Evil)
+        self.addCleanup(srv.server_close)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        port = srv.server_address[1]
+        self.assertNotIn(port, (8080, 8090))
+        code, out = self.cli("create", "morning", "--template", TPL, "--bind", f"notes={self.notes}",
+                             "--bind", f"feed=http://127.0.0.1:{port}/feed.xml")
+        self.assertEqual(code, 0, out + self.err)
+        code, out = self.cli("run", "morning")
+        self.assertIn("RouterUnavailable: gotcha", out)        # the feed's text is shown as a reason
+        self.assertIn("ingest: partial:", out)
+        self.assertIn("brief: ok:", out)                       # ...but does not stop the run
+        self.assertNotIn("start the router", self.err)
+        self.assertEqual(code, 0)
 
     def test_bad_template_is_a_clean_error(self):
         bad = os.path.join(self.dir, "bad.json")

@@ -315,7 +315,8 @@ def _err(e):
 
 def ingest(ember, llm, now, fetch=sources.fetch, n_ctx=8192):
     """Fetch new source items into raws, then fold pending raws into the wiki
-    batch by batch. Returns a stats dict with "status" and "summary".
+    batch by batch. Returns a stats dict with "status", "summary" and "router_down"
+    (True only when a model call raised RouterUnavailable, never from error text).
     The run row is always closed: on an unexpected error it is finished as
     "failed" with the error, then the error propagates."""
     st = ember.store
@@ -535,7 +536,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
     with st.db:
         st.finish_run(run, now, status, "; ".join(errors), stats["tokens_in"], stats["tokens_out"],
                       dict(stats, stale=stale, rejections=rejections))
-    return dict(stats, run=run, status=status, stale=stale, summary=summary)
+    return dict(stats, run=run, status=status, stale=stale, summary=summary, router_down=router_down)
 
 
 def prune_raws(ember, cap=RAW_CAP_BYTES):
@@ -849,7 +850,7 @@ def _brief(ember, llm, now, n_ctx, run, errors):
     titles = {p["page"]: p["title"] for p in st.all_pages()}
     groups = _groups(items, titles)
 
-    status, usage, replaced = "ok", {}, 0
+    status, usage, replaced, router_down = "ok", {}, 0, False
     headline, sections = "Nothing open right now.", []
     if items:
         if n_ctx < MIN_N_CTX:
@@ -868,6 +869,7 @@ def _brief(ember, llm, now, n_ctx, run, errors):
                     reply, usage = llm(msgs, prompts.BRIEF_SCHEMA, reply_tokens)
                 except Exception as e:
                     errors.append(_err(e))
+                    router_down = isinstance(e, RouterUnavailable)
                 else:
                     grounds = {iid: _ground(by_id[iid], evidence[iid], now) for iid in shown}
                     ground_all = " ".join(grounds.values())
@@ -899,7 +901,7 @@ def _brief(ember, llm, now, n_ctx, run, errors):
         st.finish_run(run, now, status, "; ".join(errors), tokens_in, tokens_out,
                       {"bullets": count, "items": len(items), "dropped": dropped, "replaced": replaced})
     return {"run": run, "status": status, "path": path, "headline": headline, "summary": summary,
-            "bullets": count, "dropped": dropped}
+            "bullets": count, "dropped": dropped, "router_down": router_down}
 
 
 STALE_LINT_DAYS     = 14
@@ -1069,7 +1071,7 @@ def _lint(ember, llm, now, n_ctx, run, errors):
     for page in invalid:                   # only possible by editing the db; never rendered or linked
         flags.append(_flag("drift", "", page, "indexed page has an invalid name"))
 
-    status, usage = "ok", {}
+    status, usage, router_down = "ok", {}, False
     pool = _contra_pool(open_items, checked)
     if len(_paired(pool)) > 1:
         if n_ctx < MIN_N_CTX:
@@ -1088,6 +1090,7 @@ def _lint(ember, llm, now, n_ctx, run, errors):
                 except Exception as e:
                     errors.append(_err(e))
                     status = "partial"
+                    router_down = isinstance(e, RouterUnavailable)
                 else:
                     found, bad = _clean_pairs(reply, {i["id"]: i for i in shown})
                     flags += found
@@ -1113,4 +1116,4 @@ def _lint(ember, llm, now, n_ctx, run, errors):
         st.set_meta(LINT_FLAGS_KEY, flags)
         st.finish_run(run, now, status, "; ".join(errors), _tokens(usage, "prompt_tokens"),
                       _tokens(usage, "completion_tokens"), counts)
-    return {"run": run, "status": status, "flags": flags, "summary": summary}
+    return {"run": run, "status": status, "flags": flags, "summary": summary, "router_down": router_down}

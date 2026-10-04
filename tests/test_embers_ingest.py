@@ -466,8 +466,18 @@ class ReviewFixTest(EmberCase, unittest.TestCase):
             fake = FakeLLM(*[RouterUnavailable("router unreachable")] * 3)
             r = jobs.ingest(ember, fake, NOW + dt.timedelta(hours=i), n_ctx=2048)
             self.assertEqual((r["status"], len(fake.calls)), ("failed", 1))     # stops at the first outage
+            self.assertIs(r["router_down"], True)
         self.assertEqual(len(ember.store.pending_raws()), 3)
         self.assertEqual(jobs.raw_failures(ember), {})
+        self.assertIs(jobs.ingest(ember, FakeLLM(*[{"ops": []}] * 3), NOW + dt.timedelta(hours=5),
+                                  n_ctx=2048)["router_down"], False)
+
+    def test_router_down_flag_ignores_error_text(self):
+        """A source or model error that merely says "RouterUnavailable" is not an outage."""
+        ember = self.make_ember({"a.md": "note"})
+        r = jobs.ingest(ember, FakeLLM(LLMError("RouterUnavailable: gotcha")), NOW)
+        self.assertIn("RouterUnavailable: gotcha", ember.store.recent_runs()[0]["error"])
+        self.assertIs(r["router_down"], False)
 
     def test_token_estimate_is_conservative_for_non_ascii(self):
         self.assertEqual(jobs._est("abcdefgh"), 2)

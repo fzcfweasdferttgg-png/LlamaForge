@@ -215,8 +215,11 @@ class BriefHardeningTest(EmberCase, unittest.TestCase):
         for i, reply in enumerate(replies):
             r = jobs.brief(self.ember, FakeLLM(reply), LATER + dt.timedelta(minutes=i))
             self.assertEqual(r["status"], "partial", reply)
+            self.assertIs(r["router_down"], isinstance(reply, RouterUnavailable), reply)
             self.assertIn("Waiting on Sam for the signed SOW", brief_md(self))
         self.assertIn("router down", self.ember.store.recent_runs()[0]["error"])
+        r = jobs.brief(self.ember, FakeLLM(LLMError("RouterUnavailable: gotcha")), LATER + dt.timedelta(hours=2))
+        self.assertIs(r["router_down"], False)                 # error text is not the flag
 
     def test_write_failure_fails_the_run_and_keeps_the_previous_brief(self):
         jobs.brief(self.ember, FakeLLM(LLMError("down")), LATER)
