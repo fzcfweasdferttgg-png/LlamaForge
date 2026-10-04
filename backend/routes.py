@@ -25,7 +25,7 @@ import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, 
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends, prebuilt, version, slots
+import gguf, diag, backends, prebuilt, version, slots, slotctl
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -1075,12 +1075,18 @@ def _backend_for(req):
 
 def post_model_load(req):
     mid, backend = _backend_for(req)
+    if backend.name == "llamacpp" and _slots_on():
+        status, out = _slot_load(req.body, mid)
+        return status, dict(out, error=_slot_error(out), backend=backend.name)
     ok, err = backend.load(mid)
     return (200 if ok else 400), {"ok": ok, "error": err, "backend": backend.name}
 
 
 def post_model_unload(req):
     mid, backend = _backend_for(req)
+    if backend.name == "llamacpp" and _slots_on():
+        status, out = SLOTS.unload(mid)
+        return status, dict(out, error=out.get("error", ""), backend=backend.name)
     ok, err = backend.unload(mid)
     return (200 if ok else 400), {"ok": ok, "error": err, "backend": backend.name}
 
@@ -1143,11 +1149,24 @@ def post_save(req):
 
 
 def post_load(req):
+    if _slots_on():
+        status, out = _slot_load(req.body, req.body.get("model"))
+        # the shape the router answers in, which is what the dashboard reads
+        res = dict(out, success=bool(out.get("ok")))
+        if not out.get("ok"):
+            res["error"] = {"message": _slot_error(out)}
+        return status, res
     code, res = router("/models/load", "POST", {"model": req.body.get("model")})
     return (200 if code == 200 else 400), res
 
 
 def post_unload(req):
+    if _slots_on():
+        status, out = SLOTS.unload(req.body.get("model"))
+        res = dict(out, success=bool(out.get("ok")))
+        if not out.get("ok"):
+            res["error"] = {"message": out.get("error") or "unload failed"}
+        return status, res
     code, res = router("/models/unload", "POST", {"model": req.body.get("model")})
     return (200 if code == 200 else 400), res
 
@@ -1156,10 +1175,67 @@ def post_unload_all(req):
     st, data = router("/models")
     loaded = [m["id"] for m in data.get("data", [])
               if st == 200 and m.get("id") != "default"
-              and m.get("status", {}).get("value") in ("loaded", "loading")]
+              and m.get("status", {}).get("value") in ("loaded", "loading", "sleeping")]
+    slotted = _slots_on()
     for mid in loaded:
-        router("/models/unload", "POST", {"model": mid})
+        if slotted:
+            SLOTS.unload(mid)
+        else:
+            router("/models/unload", "POST", {"model": mid})
     return 200, {"ok": True, "unloaded": loaded}
+
+
+# ---- multi-model slots -------------------------------------------------------
+
+def _slots_on(c=None):
+    """Loads go through the planner only on a router LlamaForge started with a
+    pool. The runner's router (or one started before the setting was turned on)
+    holds one model and evicts by itself; plans for a pool that isn't running
+    would be fiction. ik_llama has no router mode at all."""
+    c = c or cfg()
+    return (bool(c.get("multi_model")) and c.get("active_engine", "llamacpp") == "llamacpp"
+            and router_ctl.running_pool(LOGDIR) is not None)
+
+
+def _slot_role(v):
+    if v in (None, ""):
+        return "main"
+    if v not in ("main", "worker"):
+        raise ApiError(400, "role must be main or worker")
+    return v
+
+
+def _slot_load(body, mid):
+    if not mid:
+        raise ApiError(400, "model is required")
+    return SLOTS.load(mid, _slot_role(body.get("role")), bool(body.get("evict")), wait=True)
+
+
+def _slot_error(out):
+    if out.get("ok"):
+        return ""
+    return out.get("error") or out.get("reason") or "load refused"
+
+
+def get_slots(req):
+    c = cfg()
+    on = _slots_on(c)
+    return 200, {"enabled": on, "multi_model": bool(c.get("multi_model")),
+                 "pool": router_ctl.running_pool(LOGDIR),
+                 "restart_needed": bool(c.get("multi_model")) and not on,
+                 "main": SLOTS._main(), "loaded": SLOTS.loaded() if on else []}
+
+
+def get_slots_plan(req):
+    mid = req.q("model")
+    if not mid:
+        raise ApiError(400, "model is required")
+    return 200, SLOTS.plan(mid, _slot_role(req.q("role") or "worker"))
+
+
+def post_slots_main(req):
+    SLOTS.set_main(req.body.get("model") or "")
+    return 200, {"ok": True, "main": req.body.get("model") or ""}
 
 
 def post_autotune_recommend(req):
@@ -1646,6 +1722,8 @@ def post_config(req):
         with _ROUTER_LIFECYCLE_LOCK:
             restarted, err = _sync_router_pool(c)
         out["router"] = {"restarted": restarted, "error": err or ""}
+    if accepted.get("multi_model") is False:
+        SLOTS.unplace_all()                 # models.ini back the way the user wrote it
     return 200, out
 
 
@@ -1683,8 +1761,10 @@ def reconcile_router_pool(wait_s=20):
     with multi_model on (or just turned off) restart it with the right pool,
     before anything is loaded. True when a restart was attempted."""
     c = cfg()
-    if not c.get("multi_model") and router_ctl.running_pool(LOGDIR) is None:
-        return False                    # single mode, single router: nothing to do
+    if not c.get("multi_model"):
+        SLOTS.unplace_all()             # turned off while LlamaForge was down
+        if router_ctl.running_pool(LOGDIR) is None:
+            return False                # single mode, single router: nothing to do
     deadline = time.monotonic() + wait_s   # the runner's router may still be binding
     while not router_ctl.is_running(c["router_port"]) and time.monotonic() < deadline:
         time.sleep(0.5)
@@ -2108,6 +2188,8 @@ GET_ROUTES = {
     "/api/wiki/preview":      get_wiki_preview,
     "/api/docs":              get_docs,
     "/api/docs/page":         get_docs_page,
+    "/api/slots":             get_slots,
+    "/api/slots/plan":        get_slots_plan,
 }
 
 POST_ROUTES = {
@@ -2175,9 +2257,11 @@ POST_ROUTES = {
     "/api/wiki/profile/delete": post_wiki_profile_delete,
     "/api/wiki/active":         post_wiki_active,
     "/api/wiki/export":         post_wiki_export,
+    "/api/slots/main":          post_slots_main,
 }
 
 
 # Built last: backends.Registry captures this module as its dependency bundle,
 # so every helper it reaches for must already be defined.
 REGISTRY = backends.Registry(sys.modules[__name__])
+SLOTS = slotctl.SlotManager(sys.modules[__name__], os.path.join(ROOT, "footprints.json"))

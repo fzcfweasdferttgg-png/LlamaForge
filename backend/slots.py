@@ -179,18 +179,29 @@ def _fits(fp, free):
     return all(i in free and mib <= free[i] for i, mib in fp.items())
 
 
-def _choose(cand, free, role, allow_span, cmap):
-    """(devices, place, footprint, source) for an unpinned candidate, or None."""
+def _speed_rank(i, cmap):
+    """CUDA numbers devices fastest-first (unless CUDA_DEVICE_ORDER says
+    otherwise), so a GPU's CUDA index is its speed rank."""
+    if not cmap:
+        return i
+    return {v: k for k, v in cmap.items()}.get(i, i)
+
+
+def _choose(cand, free, role, allow_span, cmap, main_devs=()):
+    """(devices, place, footprint, source) for an unpinned candidate, or None.
+    main: the fastest GPU that fits - it's the model someone is waiting on.
+    worker: off the main's GPUs when it can (two models generating on one GPU
+    share its memory bandwidth), and there the tightest fit (keeps the big hole)."""
     first = _first(cmap)
     options = []
     for i in sorted(free):
         fp, src = _footprint(cand, [i], {i: 1.0}, first)
         if _fits(fp, free):
-            options.append((free[i], i, fp, src))
+            rank = ((_speed_rank(i, cmap),) if role == "main"
+                    else (i in main_devs, free[i]))
+            options.append((rank, i, fp, src))
     if options:
-        # main: the roomiest GPU; worker: the tightest that fits (keeps the big hole)
-        pick = max(options) if role == "main" else min(options)
-        _, i, fp, src = pick
+        _, i, fp, src = min(options)
         return [i], cuda_name(i, cmap), fp, src
     if allow_span and len(free) > 1:
         devs = sorted(free)
@@ -204,11 +215,11 @@ def _choose(cand, free, role, allow_span, cmap):
     return None
 
 
-def _place(cand, free, role, cmap):
+def _place(cand, free, role, cmap, main_devs=()):
     """(devices, place, footprint, source) or None; place None = pinned, untouched."""
     p = cand.get("pins")
     if p is None:
-        return _choose(cand, free, role, (role == "main"), cmap)
+        return _choose(cand, free, role, (role == "main"), cmap, main_devs)
     fp, src = _footprint(cand, p["devices"], p["share"], _first(cmap))
     return (p["devices"], None, fp, src) if _fits(fp, free) else None
 
@@ -233,8 +244,15 @@ def _refusal(cand, free, headroom_mib, cmap):
         fp, src = _footprint(cand, [min(free)], {min(free): 1.0}, first)
         need = sum(fp.values())
     where = ", ".join(f"GPU{i} has {_gib(max(f, 0))}" for i, f in sorted(free.items()))
-    return (f"needs ~{_gib(need)} ({src}); {where} free after "
-            f"{_gib(headroom_mib)} headroom")
+    why = (f"needs ~{_gib(need)} ({src}); {where} free after "
+           f"{_gib(headroom_mib)} headroom")
+    if cand.get("ctx_from_model"):
+        # llama-server's ctx-size 0 is the model's own context, and --fit then
+        # grows/shrinks it to fill the GPU - either way nothing fits beside it
+        why += (f". ctx-size isn't set, so llama-server takes the model's full "
+                f"{cand['ctx_from_model']:,}-token context; set a ctx-size to run it "
+                f"beside other models")
+    return why
 
 
 def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
@@ -273,8 +291,9 @@ def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
     free = {g["index"]: (g["free_mib"] if g.get("free_mib") is not None
                          else g["total_mib"] - g["used_mib"]) - headroom_mib for g in gpus}
     over_cap = len(loaded) >= cap
+    main_devs = {d for s in loaded if s.get("role") == "main" for d in s.get("devices") or ()}
     if not over_cap:
-        got = _place(candidate, free, role, cmap)
+        got = _place(candidate, free, role, cmap, main_devs)
         if got:
             devs, place, fp, src = got
             return _verdict(True, devices=devs, place=place, footprint=fp, source=src)

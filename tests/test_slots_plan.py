@@ -55,10 +55,40 @@ class Plan(unittest.TestCase):
         self.assertEqual(v["devices"], [1])          # 7 GiB free beats 13: best fit
         self.assertEqual(v["place"], "CUDA1")
 
-    def test_main_takes_the_most_free(self):
-        v = slots.plan(cand(need=4 * G), gpus(2 * G, 8 * G), [], headroom_mib=1 * G, role="main")
-        self.assertEqual(v["devices"], [0])
-        self.assertEqual(v["place"], "CUDA0")
+    def test_main_takes_the_fastest_gpu_that_fits(self):
+        # CUDA numbers devices fastest-first, so CUDA0 wins even with less free
+        # (live: the main landed on a 5060 Ti on PCIe x4 for 70 MiB more room
+        # while the 5080 sat idle)
+        v = slots.plan(cand(need=4 * G), gpus(8 * G, 2 * G), [], headroom_mib=1 * G, role="main")
+        self.assertEqual((v["devices"], v["place"]), ([0], "CUDA0"))
+        v = slots.plan(cand(need=4 * G), gpus(0, 0), [], headroom_mib=1 * G, role="main",
+                       cmap={0: 1, 1: 0})
+        self.assertEqual((v["devices"], v["place"]), ([1], "CUDA0"))
+        v = slots.plan(cand(need=4 * G), gpus(13 * G, 0), [], headroom_mib=1 * G, role="main")
+        self.assertEqual(v["devices"], [1])           # CUDA0 has no room: the next one
+
+    def test_a_worker_stays_off_the_mains_gpu(self):
+        main = [{"model": "chat", "role": "main", "devices": [0], "footprint": {0: 8 * G}}]
+        v = slots.plan(cand(need=4 * G), gpus(8 * G, 2 * G), main, headroom_mib=1 * G,
+                       role="worker")
+        self.assertEqual(v["devices"], [1])           # GPU0 is the tighter fit, but it's chat's
+        v = slots.plan(cand(need=4 * G), gpus(8 * G, 14 * G), main, headroom_mib=1 * G,
+                       role="worker")
+        self.assertEqual(v["devices"], [0])           # nowhere else fits: share it
+
+    def test_workers_still_pack_away_from_the_main(self):
+        main = [{"model": "chat", "role": "main", "devices": [0], "footprint": {0: 4 * G}}]
+        g = gpus(10 * G, 2 * G, 8 * G)               # free after headroom: 5, 13, 7
+        v = slots.plan(cand(need=4 * G), g, main, headroom_mib=1 * G, role="worker")
+        self.assertEqual(v["devices"], [2])           # tightest of the GPUs chat isn't on
+
+    def test_unset_context_is_named_in_the_refusal(self):
+        c = cand(need=28 * G)
+        c["ctx_from_model"] = 262144
+        v = slots.plan(c, gpus(0, 0), [], headroom_mib=1 * G, role="worker")
+        self.assertFalse(v["ok"])
+        self.assertIn("ctx-size", v["reason"])
+        self.assertIn("262,144", v["reason"])
 
     def test_predicted_off_gpu0_pays_a_context_on_gpu0(self):
         # GPU0 is too full for the model (3 GiB free) but not for a CUDA context

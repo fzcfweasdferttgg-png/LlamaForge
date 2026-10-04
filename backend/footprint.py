@@ -138,6 +138,7 @@ def _projector(s, mmproj_bytes, cpu_only):
 def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0):
     """{need_mib (GPU, incl. one process overhead), first_gpu_mib, ram_mib,
     weights_gpu_mib, weights_ram_mib, kv_gpu_mib, kv_ram_mib, staging_mib, ctx,
+    ctx_from_model (ctx when ctx-size is unset and the file's own was used, else 0),
     confident}.
     settings: the model's effective settings ([*] merged with its section).
     layout: gguf.layout(); None falls back to the file size and a generous KV.
@@ -153,7 +154,7 @@ def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0
         return {"need_mib": _mib(need) + slots.OVERHEAD_MIB, "first_gpu_mib": first_mib,
                 "ram_mib": proj_ram, "weights_gpu_mib": _mib(size_bytes or 0),
                 "weights_ram_mib": 0, "kv_gpu_mib": _mib(kv), "kv_ram_mib": 0,
-                "staging_mib": 0, "ctx": ctx, "confident": False}
+                "staging_mib": 0, "ctx": ctx, "ctx_from_model": 0, "confident": False}
 
     kv = dict(layout.get("kv") or {}, _arch=layout.get("arch") or "")
     n_layer = int(kv.get("block_count") or 0)
@@ -228,7 +229,8 @@ def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0
     return {"need_mib": gpu, "first_gpu_mib": first_mib, "ram_mib": ram,
             "weights_gpu_mib": _mib(w_gpu), "weights_ram_mib": _mib(w_ram),
             "kv_gpu_mib": _mib(kv_gpu), "kv_ram_mib": _mib(kv_ram),
-            "staging_mib": _mib(staging), "ctx": ctx, "confident": confident}
+            "staging_mib": _mib(staging), "ctx": ctx,
+            "ctx_from_model": 0 if _int(s, "ctx-size", 0) else ctx, "confident": confident}
 
 
 _MEM_EXACT = {"c", "ngl", "ot", "np", "ub", "b", "fa", "ctk", "ctv", "md", "ncmoe",

@@ -141,6 +141,9 @@ class Predict(unittest.TestCase):
             p = footprint.predict(s, dense())
             self.assertEqual(p["ctx"], 32768)
             self.assertEqual(p["kv_gpu_mib"], KV_8K * 4)
+            self.assertEqual(p["ctx_from_model"], 32768)   # the planner says why
+        self.assertEqual(footprint.predict({"ctx-size": "8192"}, dense())["ctx_from_model"], 0)
+        self.assertEqual(footprint.predict({"c": "8192"}, dense())["ctx_from_model"], 0)
 
     def test_c_alias(self):
         self.assertEqual(footprint.predict({"c": "8192"}, dense())["ctx"], 8192)

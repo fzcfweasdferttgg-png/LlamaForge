@@ -391,7 +391,10 @@ def _auto_load(model_id):
             known = {m.get("id") for m in data.get("data", [])}
             if model_id not in known and model_id not in config.read_sections():
                 return                          # unknown model id - nothing to load
-            routes.router("/models/load", "POST", {"model": model_id})
+            if routes._slots_on():
+                routes.SLOTS.load(model_id, "main", wait=False)
+            else:
+                routes.router("/models/load", "POST", {"model": model_id})
             return
         time.sleep(1)
 

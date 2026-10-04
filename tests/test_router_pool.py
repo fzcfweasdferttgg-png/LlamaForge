@@ -115,6 +115,7 @@ class RoutesBase(unittest.TestCase):
                                           return_value=None).start()
         self.restart = mock.patch.object(routes.router_ctl, "restart",
                                          return_value=(True, "")).start()
+        self.slots = mock.patch.object(routes, "SLOTS").start()   # never the real models.ini
         self.addCleanup(mock.patch.stopall)
 
 
