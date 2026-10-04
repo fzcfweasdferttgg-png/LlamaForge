@@ -35,8 +35,24 @@ def _neutralise(s):
              .replace("^", "\\^"))
 
 
+# Terminal/display hazards for files the user may `cat` (shared with embers_cli):
+# CSI (ESC [ ... final); OSC, DCS, SOS, PM, APC strings (ESC ] P X ^ _ ... BEL or ST); other
+# ESC sequences (ESC, intermediates, final). Then any remaining C0/C1 control character, DEL,
+# the bidi controls that reorder displayed text, zero-width/invisible format characters, line
+# and paragraph separators, and the tag block (invisible "ASCII smuggling" characters).
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]PX^_][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]")
+CTRL = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
+                  r"\u2060\u2066-\u2069\ufeff\U000e0000-\U000e007f]")
+
+
+def clean(s):
+    """Escape sequences removed; whitespace controls (tab, line breaks, ...)
+    become spaces; every other CTRL character is dropped."""
+    return CTRL.sub(lambda m: " " if m.group().isspace() else "", ANSI.sub("", str(s)))
+
+
 def _one_line(s, cap):
-    return _neutralise(" ".join(str(s or "").split())[:cap])
+    return _neutralise(" ".join(clean(s or "").split())[:cap])
 
 
 _BLOCK_START = re.compile(r"[#>+*=|~:_`-]")      # would open a heading, quote, list, rule, table, fence
@@ -113,7 +129,7 @@ def init_wiki(root, title, schema_md):
     for sub in ("raw", "pages", "briefs"):
         os.makedirs(_safe_path(root, sub), exist_ok=True)
     defaults = {"SCHEMA.md": schema_md.rstrip() + "\n",
-                "index.md": f"# {_one_line(title, 120)}\n\n{_start('index')}\n{_end('index')}\n",
+                "index.md": f"# {inline(title, 120)}\n\n{_start('index')}\n{_end('index')}\n",
                 "log.md": "# Log\n\n"}
     for name, text in defaults.items():
         path = _safe_path(root, name)
@@ -174,8 +190,8 @@ def render_items(items, evidence):
         if not (isinstance(it.get("id"), str) and verify.ITEM_RE.fullmatch(it["id"])):
             raise WikiError(f"bad item id {it.get('id')!r}")
         box = "x" if it["status"] == "closed" else " "
-        meta = ", ".join(v for v in (_one_line(it.get("owner"), 80), _one_line(it.get("due"), 40)) if v)
-        line = f"- [{box}] {_one_line(it['text'], verify.MAX_TEXT)}"
+        meta = ", ".join(v for v in (inline(it.get("owner"), 80), inline(it.get("due"), 40)) if v)
+        line = f"- [{box}] {inline(it['text'], verify.MAX_TEXT)}"
         if meta:
             line += f" — {meta}"
         if not it.get("verified"):
@@ -223,8 +239,8 @@ def write_page(root, page, title, summary, items_md):
     else:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         path = page_path(root, page)            # re-check after creating dirs
-        head = f"# {_one_line(title, 120) or page}\n\n"
-        summary = _one_line(summary, verify.MAX_TEXT)
+        head = f"# {inline(title, 120) or page}\n\n"
+        summary = inline(summary, verify.MAX_TEXT)
         text = head + (f"{summary}\n\n" if summary else "")
     _write(path, replace_region(text, "items", items_md))
     return path
@@ -268,9 +284,9 @@ def write_index(root, pages, lint_md=None):
     for kind in sorted(by_kind):
         out.append(f"## {kind}")
         for p in sorted(by_kind[kind], key=lambda p: p["page"]):
-            line = f"- [{_one_line(p.get('title'), 120) or p['page']}](pages/{p['page']}.md)"
+            line = f"- [{inline(p.get('title'), 120) or p['page']}](pages/{p['page']}.md)"
             if p.get("summary"):
-                line += f": {_one_line(p['summary'], 200)}"
+                line += f": {inline(p['summary'], 200)}"
             if p.get("open"):
                 line += f" ({int(p['open'])} open)"
             out.append(line)

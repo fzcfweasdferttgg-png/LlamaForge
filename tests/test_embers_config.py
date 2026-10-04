@@ -29,6 +29,11 @@ class EmbersConfigTest(unittest.TestCase):
         self.assertEqual(os.path.normpath(embers.embers_dir({"embers_dir": "data/embers"})),
                          os.path.normpath(os.path.join(config.ROOT, "data/embers")))
 
+    def test_non_string_setting_falls_back_to_the_default(self):
+        default = os.path.normpath(os.path.join(config.ROOT, "embers"))
+        for bad in (5, ["x"], {"a": 1}, True, None, "   "):
+            self.assertEqual(os.path.normpath(embers.embers_dir({"embers_dir": bad})), default, bad)
+
     def test_gitignore_ignores_data_but_not_the_package(self):
         with open(os.path.join(config.ROOT, ".gitignore"), encoding="utf-8") as f:
             lines = [ln.strip() for ln in f]

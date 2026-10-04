@@ -22,4 +22,7 @@ def reserved_name(s):
 def embers_dir(cfg=None):
     """Where ember data lives: config "embers_dir", default <ROOT>/embers."""
     cfg = cfg if cfg is not None else config.load()
-    return config._abs(cfg.get("embers_dir") or os.path.join(config.ROOT, "embers"))
+    v = cfg.get("embers_dir") if isinstance(cfg, dict) else None
+    if not (isinstance(v, str) and v.strip()):      # unset, or not a path at all: the default
+        v = os.path.join(config.ROOT, "embers")
+    return config._abs(v)

@@ -24,7 +24,7 @@ import argparse, datetime as dt, os, re, sys
 
 import config
 import embers
-from embers import jobs, templates
+from embers import jobs, templates, wikifs
 from embers.llm import DEFAULT_N_CTX, LLMError, Router, RouterUnavailable
 
 MAX_N_CTX = 1 << 20          # a larger "context" from /props is not believable; clamp it
@@ -35,13 +35,7 @@ ROUTER_DOWN = ("The router is not reachable (down, restarting or loading a model
 
 MAX_BIND = 4096
 
-# CSI (ESC [ ... final); OSC, DCS, SOS, PM, APC strings (ESC ] P X ^ _ ... BEL or ST); other
-# ESC sequences (ESC, intermediates, final). Then any remaining C0/C1 control character, DEL,
-# the bidi controls that reorder displayed text, zero-width/invisible format characters, line
-# and paragraph separators, and the tag block (invisible "ASCII smuggling" characters).
-_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]PX^_][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]")
-_CTRL = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
-                   r"\u2060\u2066-\u2069\ufeff\U000e0000-\U000e007f]")
+_ANSI, _CTRL = wikifs.ANSI, wikifs.CTRL      # one definition, shared with the wiki writer
 _BREAKS = "\t\n\r\x85\u2028\u2029"
 
 
