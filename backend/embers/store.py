@@ -5,7 +5,7 @@ Items live here; the markdown pages are rendered from this table, so the
 database is the source of truth and the files are the readable view.
 No method commits: wrap writes in `with store.db:` (commit or roll back).
 """
-import hashlib, json, re, sqlite3
+import datetime, hashlib, json, re, sqlite3
 
 from .verify import ITEM_RE, PAGE_RE, RAW_RE
 
@@ -44,6 +44,19 @@ def _like(term):
 
 def ts(now):
     return now.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+_TS_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}")
+
+
+def parse_ts(s):
+    """Naive datetime for a string made by ts(); None for anything else. Never raises."""
+    if not (isinstance(s, str) and len(s) <= 40 and _TS_RE.fullmatch(s)):
+        return None
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
 
 
 def _check(rx, value, what):
@@ -116,6 +129,20 @@ class Store:
             args.append(ts(before))
         r = self.db.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
         return dict(r) if r else None
+
+    def last_attempt(self, job):
+        """Latest run of `job` of any status (running, skipped and aborted too),
+        by start time; a tie on `started` goes to the newer row."""
+        r = self.db.execute("SELECT * FROM runs WHERE job=? ORDER BY started DESC, id DESC LIMIT 1",
+                            (job,)).fetchone()
+        return dict(r) if r else None
+
+    def record_skip(self, job, now, reason):
+        """A closed 'skipped' row: the slot counts as attempted and the reason is visible."""
+        reason = reason if isinstance(reason, str) else str(reason)
+        return self.db.execute("INSERT INTO runs(job, started, finished, status, error) "
+                               "VALUES(?,?,?,'skipped',?)",
+                               (job, ts(now), ts(now), reason[:2000])).lastrowid
 
     def recent_runs(self, limit=20):
         return _rows(self.db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)))

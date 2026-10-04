@@ -39,12 +39,27 @@ class BriefTest(EmberCase, unittest.TestCase):
         self.assertIn("](../raw/", md)
         self.assertIn("] brief |", self.read(self.ember, "log.md"))
 
+    def test_decorated_item_id_is_recovered(self):
+        # Small models echo the listing's "[it-xxxxxxxx]" or add the page; the id inside still counts.
+        fake = FakeLLM({"headline": "h", "sections": [{"title": "Waiting", "bullets": [
+            {"item": f"[{self.verified}] projects/acme", "text": "Sam owes you the signed SOW."}]}]})
+        r = jobs.brief(self.ember, fake, LATER)
+        self.assertEqual((r["status"], r["bullets"]), ("ok", 1))
+        self.assertGreaterEqual(fake.max_tokens[0], min(jobs.BRIEF_REPLY_TOKENS, 3000))
+
     def test_unverified_items_never_reach_the_model(self):
         fake = FakeLLM({"headline": "h", "sections": []})
         jobs.brief(self.ember, fake, LATER)
         prompt = fake.calls[0][-1]["content"]
         self.assertIn("Waiting on Sam", prompt)
         self.assertNotIn("Budget will triple", prompt)
+
+    def test_prompt_keeps_undated_items_out_of_today(self):
+        fake = FakeLLM({"headline": "h", "sections": []})
+        jobs.brief(self.ember, fake, LATER)
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Only put an item under Today if its due date is today", system)
+        self.assertIn("summarises the day", system)
 
     def test_new_and_stale_tags(self):
         fake = FakeLLM({"headline": "h", "sections": []})

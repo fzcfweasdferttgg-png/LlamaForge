@@ -120,6 +120,16 @@ class BundledTemplatesTest(unittest.TestCase):
         self.assertEqual(t["dropped"], [])
         self.assertEqual({s["type"] for s in t["slots"]}, {"folder", "ics", "git", "rss"})
 
+    def test_model_scout_is_valid_and_needs_no_binding(self):
+        path = os.path.join(config.ROOT, "templates", "model-scout.json")
+        with open(path, encoding="utf-8") as f:
+            t = templates.parse_template(f.read())
+        self.assertEqual((t["name"], t["dropped"]), ("model-scout", []))
+        self.assertEqual([s["type"] for s in t["slots"]], ["llamacpp", "machine"])
+        self.assertTrue(all(s["type"] in templates.AUTO_SLOTS for s in t["slots"]))
+        self.assertEqual(t["page_kinds"], ["families", "machine"])
+        self.assertIn("VRAM", t["schema_md"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,15 +8,33 @@ Everything here treats the router's reply and the model's text as untrusted:
 every failure surfaces as LLMError with a short message (never the API key,
 never a KeyError/TypeError), reads are size-capped and time-limited.
 """
-import http.client, json, re, urllib.error, urllib.parse, urllib.request
+import http.client, json, math, re, time, urllib.error, urllib.parse, urllib.request
 
 TIMEOUT = 600            # a long batch on a 16 GB card can take minutes
 DEFAULT_N_CTX = 8192
+THINK_BUDGET = 512       # reasoning tokens for a model that cannot switch thinking off
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_JSON_CHARS = 2 * 1024 * 1024
+THINK_TAILS = 8          # closing tags tried from the end: each try is a full parse
+PREFILL = "<think>\n\n</think>\n\n"   # an already-finished think block, for templates that force one
 MAX_DEPTH = 64
 _TYPES = {"object": dict, "array": list, "string": str, "integer": int,
           "number": (int, float), "boolean": bool}
+
+
+MAX_N_CTX = 1 << 20     # a larger "context" from /props is not believable; clamp it
+
+
+def clamp_n_ctx(value):
+    """The router's context size as an int in [1, MAX_N_CTX], else DEFAULT_N_CTX.
+    Values below jobs.MIN_N_CTX pass through: the jobs record why they cannot run."""
+    if isinstance(value, bool):
+        return DEFAULT_N_CTX
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        value = int(value.strip())
+    if not isinstance(value, int) or value <= 0:
+        return DEFAULT_N_CTX
+    return min(value, MAX_N_CTX)
 
 
 class LLMError(Exception):
@@ -27,6 +45,30 @@ class RouterUnavailable(LLMError):
     """The router refused the connection or answered 503 (down, restarting,
     loading a model): nothing about the request was at fault, so callers
     should stop and try later rather than count it against the input."""
+
+
+class ModelNotLoaded(RouterUnavailable):
+    """A request sent with autoload=false found its model unloaded: the user
+    (or the router) switched models. Not the input's fault; stop and retry later."""
+
+
+class ReplyTruncated(LLMError):
+    """The reply hit max_tokens before the JSON was complete. Asking again
+    with the same cap truncates again; the caller should send less input."""
+
+
+class ThinkingOverflow(LLMError):
+    """The model spent the whole reply thinking and wrote no answer, despite
+    thinking being switched off. Sending less input does not help: the run
+    should stop and say so, rather than split batches down to nothing."""
+
+
+class PromptTooLarge(LLMError):
+    """The router refused the prompt as larger than the model's context.
+    n_prompt and n_ctx are the router's own token counts when it gave them."""
+    def __init__(self, msg, n_prompt=None, n_ctx=None):
+        super().__init__(msg)
+        self.n_prompt, self.n_ctx = n_prompt, n_ctx
 
 
 class JSONParseError(LLMError, ValueError):
@@ -71,7 +113,7 @@ _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 def parse_json(text):
     """Model text -> JSON value. Handles a leading <think>...</think> block
     (reasoning models), ```json fences, and prose around one object.
-    Linear-time string ops only; raises JSONParseError on anything else."""
+    A bounded number of linear-time parses; raises JSONParseError on anything else."""
     if not isinstance(text, str):
         raise JSONParseError("empty reply")
     if len(text) > MAX_JSON_CHARS:
@@ -79,11 +121,49 @@ def parse_json(text):
     t = text.lstrip("﻿").strip().lstrip("﻿")
     # Reasoning models: the answer follows the LAST </think> (case-insensitive).
     # Some templates put <think> in the prompt, so only the closing tag appears.
+    # But a quote inside the JSON can contain "</think>" too: a reply that is JSON
+    # as a whole wins, then the text after each closing tag from last to first,
+    # parsed strictly before any prose is skipped. Skipping prose, an object that
+    # leaves a stray } or ] behind was cut out of the middle of the real answer.
     closes = list(_THINK_CLOSE.finditer(t))
-    if closes:
-        t = t[closes[-1].end():].strip()
-    elif _THINK_OPEN.match(t):
+    whole = [] if _THINK_OPEN.match(t) else [_unfence(t)]
+    if not closes and not whole:
         raise JSONParseError("reply ended inside a <think> block")
+    tails = [_unfence(t[m.end():].strip()) for m in reversed(closes[-THINK_TAILS:])]
+    for s in whole + tails:
+        try:
+            return json.loads(s)
+        except (ValueError, RecursionError):
+            pass
+    found = []
+    for s in tails + whole:
+        starts = [i for i in (s.find("{"), s.find("[")) if i >= 0]
+        if starts:
+            try:
+                obj, end = json.JSONDecoder().raw_decode(s, min(starts))
+            except (ValueError, RecursionError):
+                continue
+            if not any(c in s[end:] for c in "}]"):
+                return obj
+            found.append(obj)
+    if found:
+        return found[0]
+    raise JSONParseError("reply is not valid JSON")
+
+
+def forced_think(template):
+    """True when a chat template opens a <think> block in every reply and has no
+    enable_thinking switch to skip it (the distill templates do this). Thinking
+    then ends only when the model chooses: the one lever left is to write the
+    closed block ourselves as the start of the reply."""
+    if not isinstance(template, str) or "enable_thinking" in template:
+        return False
+    i = template.rfind("add_generation_prompt")
+    tail = template[i:] if i >= 0 else ""
+    return "<think>" in tail and "</think>" not in tail
+
+
+def _unfence(t):
     if t.startswith("```"):
         t = t[3:]
         if t[:4].lower() == "json":
@@ -91,22 +171,13 @@ def parse_json(text):
         t = t.strip()
         if t.endswith("```"):
             t = t[:-3].strip()
-    try:
-        return json.loads(t)
-    except (ValueError, RecursionError):
-        pass
-    starts = [i for i in (t.find("{"), t.find("[")) if i >= 0]
-    if starts:
-        try:
-            return json.JSONDecoder().raw_decode(t, min(starts))[0]
-        except (ValueError, RecursionError):
-            pass
-    raise JSONParseError("reply is not valid JSON")
+    return t
 
 
 def ask_json(complete, messages, schema, max_tokens=2048):
     """complete(messages, schema, max_tokens) -> (text, usage). Parses and
-    shape-checks the reply; on failure retries once with the error as a hint."""
+    shape-checks the reply; on failure retries once with the error as a hint.
+    A reply cut off at max_tokens raises ReplyTruncated instead of retrying."""
     usage = {"prompt_tokens": 0, "completion_tokens": 0}
     msgs, err = list(messages), ""
     for attempt in (1, 2):
@@ -123,11 +194,18 @@ def ask_json(complete, messages, schema, max_tokens=2048):
             err = f"not valid JSON ({e})"
         if not err:
             return obj, usage
+        if isinstance(u, dict) and u.get("thinking_only"):
+            raise ThinkingOverflow(f"the model spent its whole {max_tokens}-token reply thinking and wrote no "
+                                   "answer; its chat template ignores the switch that turns thinking off. "
+                                   "Use an instruct model, or a template with enable_thinking")
+        if isinstance(u, dict) and u.get("finish_reason") == "length":
+            raise ReplyTruncated(f"model reply cut off at {max_tokens} tokens: {err}")
         if attempt == 1:
             msgs = msgs + [{"role": "assistant", "content": (text or "")[:2000]},
                            {"role": "user", "content": f"That reply was rejected: {err}. "
                                                        "Reply again with only JSON matching the schema."}]
-    raise LLMError(f"model reply rejected twice: {err}")
+    head = " ".join(str(text or "").split())[:120]
+    raise LLMError(f"model reply rejected twice: {err[:200]}; reply began: '{head}'")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -143,7 +221,9 @@ def _open(req, timeout):
     return _opener.open(req, timeout=timeout)
 
 
-def _request(url, body=None, key="", timeout=TIMEOUT):
+def _fetch(url, body, key, timeout):
+    """The single HTTP path: raw reply bytes, size-capped. Every failure is an
+    LLMError (RouterUnavailable for refused/503) with the key scrubbed."""
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
@@ -158,14 +238,19 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
             raw = r.read(MAX_RESPONSE_BYTES + 1)
         if len(raw) > MAX_RESPONSE_BYTES:
             raise LLMError("router reply too large")
-        return json.loads(raw.decode("utf-8", errors="replace"))
+        return raw
     except LLMError:
         raise
     except urllib.error.HTTPError as e:
         try:
-            detail = e.read(300).decode("utf-8", "replace")
+            detail = e.read(1000).decode("utf-8", "replace")
         except Exception:
             detail = ""
+        if e.code == 400 and "exceed_context_size" in detail:
+            nums = [re.search(r'"' + k + r'"\s*:\s*(\d{1,9})\b', detail) for k in ("n_prompt_tokens", "n_ctx")]
+            raise PromptTooLarge(clean(f"router answered 400: {detail}")[:400],
+                                 *[int(m.group(1)) if m else None for m in nums]) from None
+        detail = detail[:300]
         cls = RouterUnavailable if e.code == 503 else LLMError
         raise cls(clean(f"router answered {e.code}: {detail}")[:400]) from None
     except (OSError, ValueError, RecursionError, http.client.HTTPException) as e:
@@ -173,6 +258,43 @@ def _request(url, body=None, key="", timeout=TIMEOUT):
             isinstance(e, urllib.error.URLError) and isinstance(e.reason, ConnectionRefusedError))
         cls = RouterUnavailable if refused else LLMError     # a timeout may be the input's fault
         raise cls(clean(f"router unreachable or unreadable: {type(e).__name__}: {e}")[:400]) from None
+
+
+def _request(url, body=None, key="", timeout=TIMEOUT):
+    raw = _fetch(url, body, key, timeout)
+    try:
+        return json.loads(raw.decode("utf-8", errors="replace"))
+    except (ValueError, RecursionError) as e:
+        msg = f"router reply unreadable: {type(e).__name__}: {e}"
+        raise LLMError((msg.replace(key, "***") if key else msg)[:400]) from None
+
+
+def _request_text(url, body=None, key="", timeout=TIMEOUT):
+    return _fetch(url, body, key, timeout).decode("utf-8", errors="replace")
+
+
+# One Prometheus sample of a request counter: name, optional {labels}, value, optional timestamp.
+# fullmatch, so llamacpp:requests_processing_total and friends never count.
+_NUM = r"[+-]?(?:\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|[Nn]a[Nn]|[Ii]nf(?:inity)?)"
+_COUNTER = re.compile(r"llamacpp:(requests_processing|requests_deferred)(\{[^}]*\})?[ \t]+(" + _NUM
+                      + r")(?:[ \t]+-?\d+)?")
+# Anything that claims to be one of those samples; if it then fails _COUNTER it is garbage, not skipped.
+_COUNTER_CLAIM = re.compile(r"llamacpp:requests_(?:processing|deferred)(?:[{ \t]|$)")
+# Decode calls the model has made: monotonic, so any change between two looks means it worked.
+_WORK = re.compile(r"llamacpp:n_decode_total(?:\{[^}]*\})?[ \t]+(\S+)(?:[ \t]+-?\d+)?")
+_FAILED = ("fail", "error")
+_SATISFIES = {"loaded": ("loaded", "sleeping")}   # a sleeping child is loaded; a request wakes it
+POLL_SECONDS = 2
+MAX_REPLY_CAP = 4096
+
+
+def _count(text):
+    """A Prometheus counter value as a non-negative int, else None."""
+    try:
+        v = float(text)
+    except ValueError:
+        return None
+    return int(v) if math.isfinite(v) and v >= 0 else None
 
 
 def _valid_port(v):
@@ -192,7 +314,7 @@ class Router:
     port is read from config. The key (router_api_key, else router_local_key,
     as the panel's own proxy does) is never part of repr or error text."""
 
-    def __init__(self, cfg, request=_request):
+    def __init__(self, cfg, request=_request, request_text=_request_text):
         port = _valid_port(cfg.get("router_port"))
         if port is None:
             raise LLMError("router_port must be an integer between 1 and 65535")
@@ -200,47 +322,203 @@ class Router:
         key = cfg.get("router_api_key") or cfg.get("router_local_key") or ""
         self._key = key if isinstance(key, str) else ""
         self.request = request
+        self.request_text = request_text
 
     def __repr__(self):
         return f"Router({self.base})"
 
+    def loaded_entry(self):
+        """The registry entry of the model that is up ("loaded" or "sleeping"), else None."""
+        return next((m for m in self.models() if m["status"] in ("loaded", "sleeping")), None)
+
     def loaded_model(self):
+        e = self.loaded_entry()
+        return e["id"] if e else None
+
+    def models(self):
+        """[{"id", "status", "failed"}] for every well-formed registry entry. status
+        is the router's value as a str ("" when absent); failed mirrors the
+        status dict's flag (a failed load reports value "unloaded" + failed).
+        Junk entries are skipped."""
         r = self.request(self.base + "/v1/models", key=self._key, timeout=10)
         data = r.get("data") if isinstance(r, dict) else None
+        out = []
         for m in data if isinstance(data, list) else []:
-            if not isinstance(m, dict):
+            if not isinstance(m, dict) or not isinstance(m.get("id"), str):
                 continue
-            st = m.get("status")
-            if (st.get("value") if isinstance(st, dict) else st) == "loaded":
-                return m.get("id")
-        return None
+            st, failed = m.get("status"), False
+            if isinstance(st, dict):
+                st, failed = st.get("value"), bool(st.get("failed"))
+            out.append({"id": m["id"], "status": "" if st is None else str(st)[:100], "failed": failed})
+        return out
+
+    def activity(self, model):
+        return self.report(model)["busy"]
+
+    def report(self, model):
+        """{"busy", "work"}: busy is in-flight plus queued requests for model, from the router's /metrics.
+        Raises LLMError rather than guess 0 when the counters are absent (the
+        router runs without --metrics), unparseable or nonsensical.
+        autoload=false: without it the router would load model to answer,
+        evicting the user's model under --models-max 1 (unloaded -> 400).
+        work is the n_decode_total counter (None when absent or garbled): busy is
+        a gauge that misses requests between two looks, work never does.
+        Never call this for a sleeping model: /metrics wakes it."""
+        text = self.request_text(f"{self.base}/metrics?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
+        if not isinstance(text, str):
+            raise LLMError("router metrics were not text")
+        if len(text) > MAX_RESPONSE_BYTES:
+            raise LLMError("router metrics too large")
+        total, processing, work = 0.0, False, None
+        for line in text.splitlines():
+            line = line.strip()
+            w = _WORK.fullmatch(line)
+            if w:
+                work = _count(w.group(1))
+                continue
+            m = _COUNTER.fullmatch(line)
+            if not m:
+                if _COUNTER_CLAIM.match(line):
+                    raise LLMError("router metrics has an unparseable request counter line")
+                continue
+            v = float(m.group(3))
+            if not math.isfinite(v) or v < 0:
+                raise LLMError(f"router metrics has a bad {m.group(1)} value")
+            total += v
+            processing = processing or m.group(1) == "requests_processing"
+        if not processing:
+            raise LLMError("router metrics are missing request counters")
+        if not math.isfinite(total):
+            raise LLMError("router metrics request counters overflow")
+        return {"busy": math.ceil(total), "work": work}   # 0.6 in flight is busy, never a guessed idle
+
+    def _model_op(self, op, model):
+        if not isinstance(model, str) or not model:
+            raise LLMError("model must be a non-empty string")
+        self.request(f"{self.base}/models/{op}", {"model": model}, key=self._key, timeout=30)
+
+    def load(self, model):
+        """Ask the router to load model. Any 2xx is success; failures raise."""
+        self._model_op("load", model)
+
+    def unload(self, model):
+        self._model_op("unload", model)
+
+    def wait_status(self, model, want, timeout=600, sleep=time.sleep, clock=time.monotonic,
+                    cancelled=None):
+        """Poll models() every POLL_SECONDS until model's status is want -> True
+        ("sleeping" satisfies "loaded"). False on timeout, on cancelled(), on a
+        failed load (the failed flag, or a status naming fail/error), or, when
+        waiting for a load, once another model is loading (under --models-max 1
+        ours will not come up). RouterUnavailable (busy loading, restarting) is
+        tolerated; any other LLMError propagates."""
+        ok = _SATISFIES.get(want, (want,))
+        deadline = clock() + timeout
+        while True:
+            if cancelled is not None and cancelled():
+                return False
+            try:
+                listed = self.models()
+            except RouterUnavailable:
+                listed = []
+            entry = next((m for m in listed if m["id"] == model), None)
+            status = entry["status"] if entry else None
+            if want == "loaded" and any(m["id"] != model and m["status"] == "loading" for m in listed):
+                return False
+            if entry and entry["failed"] and want != "unloaded":
+                return False
+            if status in ok:
+                return True
+            if status and any(w in status.lower() for w in _FAILED):
+                return False
+            if clock() >= deadline:
+                return False
+            sleep(POLL_SECONDS)
+            if cancelled is not None and cancelled():
+                return False
 
     def n_ctx(self, model):
         try:
-            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}",
-                                 key=self._key, timeout=10)
+            # autoload=false: never load (and so evict for) a model just to read its props.
+            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
             return int(props.get("default_generation_settings", {}).get("n_ctx") or DEFAULT_N_CTX)
         except (LLMError, TypeError, ValueError, AttributeError):
             return DEFAULT_N_CTX
 
-    def complete(self, model):
+    def _forced_think(self, model):
+        try:
+            props = self.request(f"{self.base}/props?model={urllib.parse.quote(str(model), safe='')}"
+                                 "&autoload=false", key=self._key, timeout=10)
+            return forced_think(props.get("chat_template"))
+        except Exception:        # a template we cannot read is left to the thinking budget
+            return False
+
+    def complete(self, model, autoload=True):
+        """complete(messages, schema, max_tokens) -> (text, usage). autoload=False
+        never loads model to answer: an unloaded model raises ModelNotLoaded.
+        A model that thinks although asked not to has its template read once: if the
+        template forces thinking, this call and every later one prefill a closed block."""
+        url = self.base + "/v1/chat/completions" + ("" if autoload else "?autoload=false")
+        state = {"prefill": None}           # None until a reply shows whether it is needed
+
         def call(messages, schema, max_tokens):
+            text, usage, thought = send(messages, schema, max_tokens, state["prefill"])
+            if state["prefill"] is None and thought:
+                state["prefill"] = self._forced_think(model)
+                if state["prefill"]:
+                    text, usage, _ = send(messages, schema, max_tokens, True)
+            return text, usage
+
+        def send(messages, schema, max_tokens, prefill):
+            # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
+            # writes the JSON. Chat templates without the variable ignore it, so a thinking
+            # budget bounds the models that always think (older routers drop the fields). Some
+            # builds read the thinking_ spelling; llama.cpp reads reasoning_budget_tokens, where 0
+            # means unlimited, so it gets a small positive budget.
             body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
+                    "chat_template_kwargs": {"enable_thinking": False}, "thinking_budget_tokens": 0,
+                    "reasoning_budget_tokens": THINK_BUDGET,
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
-            r = self.request(self.base + "/v1/chat/completions", body, key=self._key, timeout=TIMEOUT)
+            if prefill:          # llama.cpp runs the grammar over the prefill too and refuses it,
+                del body["response_format"]           # so the schema moves into the prompt
+                msgs = list(messages)
+                hint = "Reply with only a JSON object matching this JSON Schema:\n" + json.dumps(schema)
+                if msgs and msgs[-1].get("role") == "user" and isinstance(msgs[-1].get("content"), str):
+                    msgs[-1] = dict(msgs[-1], content=msgs[-1]["content"] + "\n\n" + hint)
+                else:
+                    msgs.append({"role": "user", "content": hint})
+                body["messages"] = msgs + [{"role": "assistant", "content": PREFILL}]
+            try:
+                r = self.request(url, body, key=self._key, timeout=TIMEOUT)
+            except LLMError as e:
+                if not autoload and not isinstance(e, RouterUnavailable) and "not loaded" in str(e):
+                    raise ModelNotLoaded(str(e)) from None
+                raise
             try:
                 text = r["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError):
                 raise LLMError("router reply had no message") from None
             if not isinstance(text, str):
                 raise LLMError("router reply had no text content")
-            usage = r.get("usage")
-            return text, usage if isinstance(usage, dict) else {}
+            usage = dict(r["usage"]) if isinstance(r.get("usage"), dict) else {}
+            finish = r["choices"][0].get("finish_reason") if isinstance(r["choices"][0], dict) else None
+            if isinstance(finish, str):
+                usage["finish_reason"] = finish
+            msg = r["choices"][0]["message"]
+            thought = msg.get("reasoning_content") if isinstance(msg, dict) else None
+            thought = isinstance(thought, str) and bool(thought.strip())
+            if finish == "length" and not text.strip() and thought:
+                usage["thinking_only"] = True
+            if prefill and text.startswith(PREFILL):        # the router echoes the prefill
+                text = text[len(PREFILL):]
+            return text, usage, thought
         return call
 
-    def llm(self, model, max_tokens_cap=4096):
-        complete = self.complete(model)
+    def llm(self, model, max_tokens_cap=MAX_REPLY_CAP, autoload=True):
+        complete = self.complete(model, autoload=autoload)
 
         def call(messages, schema, max_tokens=2048):
             return ask_json(complete, messages, schema, min(max_tokens, max_tokens_cap))

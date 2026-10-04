@@ -123,6 +123,28 @@ class IcsTest(unittest.TestCase):
         self.assertIn("Where: Room 4", text)
         self.assertIn("Bring the signed SOW.\nAsk Sam about the budget.", text)
         self.assertEqual(cursor, {"evt-1@example": "20261001T120000Z"})
+        self.assertTrue(text.startswith("Event: Acme kickoff, round 2\n"
+                                        "Start: 2026-10-06 09:00 Europe/London (Tuesday 06 October 2026)\n"
+                                        "End: 2026-10-06 10:00 Europe/London (Tuesday 06 October 2026)\n"), text)
+
+    def test_times_are_readable_and_iso(self):
+        def one(start, end=None):
+            ev = f"BEGIN:VEVENT\nUID:u\nSUMMARY:S\nDTSTART{start}\n" + (f"DTEND{end}\n" if end else "") + "END:VEVENT\n"
+            items, _ = sources.fetch_ics("https://x", {}, NOW,
+                                         opener=opener_for(("BEGIN:VCALENDAR\n" + ev + "END:VCALENDAR\n").encode()))
+            return items[0]["text"].split("\n")[1:]
+        self.assertEqual(one(":20261005T150000Z", ":20261005T153000Z"),
+                         ["Start: 2026-10-05 15:00 UTC (Monday 05 October 2026)",
+                          "End: 2026-10-05 15:30 UTC (Monday 05 October 2026)"])
+        self.assertEqual(one(";VALUE=DATE:20261008", ";VALUE=DATE:20261009"),
+                         ["Date: 2026-10-08 (Thursday 08 October 2026)"])
+        self.assertEqual(one(";VALUE=DATE:20261008", ";VALUE=DATE:20261011"),
+                         ["Date: 2026-10-08 (Thursday 08 October 2026)",
+                          "Until: 2026-10-10 (Saturday 10 October 2026)"])
+        self.assertEqual(one(':20261005T150000', ':garbage'),
+                         ["Start: 2026-10-05 15:00 (Monday 05 October 2026)", "End: garbage"])
+        self.assertEqual(one(';TZID="Evil\\nZone <b>":20261005T150000'),
+                         ["Start: 2026-10-05 15:00 EvilnZoneb (Monday 05 October 2026)"])
 
     def test_cursor_skips_unmodified(self):
         _, cursor = sources.fetch("ics", self.path, {}, NOW)
@@ -191,6 +213,7 @@ class GitTest(unittest.TestCase):
         items, cursor2 = sources.fetch("git", self.repo, cursor, now)
         self.assertEqual([i["title"] for i in items], ["second: fix bug"])
         self.assertIn("Longer body.", items[0]["text"])
+        self.assertIn("already done", items[0]["text"].splitlines()[0])   # small models made commits open loops
         self.assertNotEqual(cursor2["last"], cursor["last"])
 
     def test_not_a_repo(self):
@@ -210,6 +233,76 @@ class LlamacppTest(unittest.TestCase):
         newer = [{"tag_name": "b7040", "body": "model : add Bar support (#1)", "published_at": "", "html_url": ""}]
         items, cursor = sources.fetch_llamacpp("", cursor, NOW, releases=newer + self.RELS)
         self.assertEqual([i["ref"] for i in items], ["b7040"])
+
+
+class MachineTest(unittest.TestCase):
+    SNAP = {"gpus": [{"index": 1, "name": "NVIDIA GeForce RTX 5060 Ti", "vram_mib": 16311},
+                     {"index": 0, "name": "NVIDIA GeForce RTX 5080", "vram_mib": 16303}],
+            "ram_gb": 68.6,
+            "models": [{"id": "qwen", "file": "Qwen-Q4_K_M.gguf", "size_gb": 5.1},
+                       {"id": "gemma", "file": "gemma-Q6.gguf", "size_gb": None}]}
+
+    def test_snapshot_text_is_deterministic(self):
+        items, cursor = sources.fetch_machine("", {}, NOW, probe=lambda: self.SNAP)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["text"], (
+            "This machine (snapshot)\n"
+            "GPU 0: NVIDIA GeForce RTX 5080, 16 GB VRAM (16303 MiB)\n"
+            "GPU 1: NVIDIA GeForce RTX 5060 Ti, 16 GB VRAM (16311 MiB)\n"
+            "System RAM: 69 GB\n"
+            "Installed models (2):\n"
+            "- gemma: gemma-Q6.gguf, size unknown\n"
+            "- qwen: Qwen-Q4_K_M.gguf, 5.1 GB\n"))
+        self.assertEqual(items[0]["title"], "Machine snapshot")
+        self.assertRegex(items[0]["ref"], r"^machine-[0-9a-f]{12}$")
+        self.assertRegex(cursor["sha"], r"^[0-9a-f]{16}$")
+
+    def test_unchanged_machine_gives_nothing(self):
+        _, cursor = sources.fetch_machine("", {}, NOW, probe=lambda: self.SNAP)
+        self.assertEqual(sources.fetch_machine("", cursor, NOW, probe=lambda: self.SNAP), ([], cursor))
+        changed = dict(self.SNAP, ram_gb=128)
+        self.assertEqual(len(sources.fetch_machine("", cursor, NOW, probe=lambda: changed)[0]), 1)
+
+    def test_no_gpu_and_unknown_ram(self):
+        items, _ = sources.fetch_machine("", {}, NOW, probe=lambda: {"gpus": [], "ram_gb": 0, "models": []})
+        self.assertIn("GPU: none detected (CPU or Apple Silicon)\n", items[0]["text"])
+        self.assertIn("System RAM: unknown\n", items[0]["text"])
+        self.assertIn("Installed models (0):\n", items[0]["text"])
+
+    def test_probe_failure_is_a_source_error(self):
+        def boom():
+            raise OSError("nvidia-smi hung")
+        with self.assertRaises(sources.SourceError) as cm:
+            sources.fetch_machine("", {}, NOW, probe=boom)
+        self.assertIn("could not read this machine's hardware", str(cm.exception))
+        with self.assertRaises(sources.SourceError):
+            sources.fetch_machine("", {}, NOW, probe=lambda: "garbage")
+
+    def test_installed_models_are_basenames_with_sizes(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        one = os.path.join(tmp, "secret-dir", "a-Q4.gguf")
+        os.makedirs(os.path.dirname(one))
+        with open(one, "wb") as f:
+            f.write(b"x" * 1500)
+        parts = [os.path.join(tmp, f"big-0000{i}-of-00002.gguf") for i in (1, 2)]
+        for p in parts:
+            with open(p, "wb") as f:
+                f.write(b"x" * 1000)
+        sections = {"*": {"ctx-size": "8192"}, "a": {"model": one}, "big": {"model": parts[0]},
+                    "gone": {"model": os.path.join(tmp, "missing.gguf")}, "nomodel": {"ctx-size": "1"}}
+        models = sources.installed_models(sections, unit=1000)
+        self.assertEqual(models, [{"id": "a", "file": "a-Q4.gguf", "size_gb": 1.5},
+                                  {"id": "big", "file": "big-00001-of-00002.gguf", "size_gb": 2.0},
+                                  {"id": "gone", "file": "missing.gguf", "size_gb": None}])
+        text = sources.fetch_machine("", {}, NOW, probe=lambda: {"gpus": [], "ram_gb": 8, "models": models})[0][0]["text"]
+        self.assertNotIn(tmp, text)
+        self.assertNotIn("secret-dir", text)
+        self.assertNotIn(":\\", text)
+
+    def test_dispatch_passes_the_probe(self):
+        items, _ = sources.fetch("machine", "", {}, NOW, probe=lambda: self.SNAP)
+        self.assertEqual(items[0]["title"], "Machine snapshot")
 
 
 class DispatchTest(unittest.TestCase):
@@ -531,7 +624,7 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertIn("Outer", items[0]["text"])
         self.assertNotIn("ALARM LEAK", items[0]["text"])
-        self.assertIn("20261006", items[0]["text"])
+        self.assertIn("Start: 2026-10-06 09:00 (Tuesday 06 October 2026)", items[0]["text"])
 
     # 8
     def test_cdata_doctype_rejected_by_design(self):

@@ -10,17 +10,22 @@ verified ops, its raws' "done" mark and the list of pages to re-render
 page leaves the dirty list only once its file is written. A crash between the
 commit and the render is repaired at the start of the next run.
 """
-import datetime as dt, json, os, re
+import collections, datetime as dt, json, math, os, re
 
 import atomicio
 from embers import prompts, reserved_name, sources, templates, verify, wikifs
-from embers.llm import LLMError, RouterUnavailable
+from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable, ThinkingOverflow
 from embers.store import Store, ts
 
 ID_RE            = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 BUDGET_SHARE     = 0.45      # of the model's n_ctx, for raw text in one batch
 PROMPT_SHARE     = 0.75      # of n_ctx, for the whole prompt; the rest is left for the reply
 CHARS_PER_TOKEN  = 4
+MAX_BATCH_TOKENS = 6000      # raw text per batch even when n_ctx is huge: the reply must fit MAX_REPLY_TOKENS
+MAX_BATCH_RAWS   = 12        # raws per batch: small models lose track of ids in long lists
+OVERFLOW_RETRIES = 2         # extra tries for one raw the router says does not fit
+TOKEN_MARGIN     = 1.1       # on top of the router's own count when the estimate proved low
+FLAG_MIN_OPS     = 3         # proposed changes before "none of them quoted the sources" is a warning
 MIN_REPLY_TOKENS = 256
 MAX_REPLY_TOKENS = 4096
 CONTEXT_PAGES    = 3
@@ -85,7 +90,7 @@ def create_ember(embers_dir, template, ember_id, bindings, now):
         if s["type"] == "rss" and s.get("default") and s["id"] not in clean:
             clean[s["id"]] = s["default"]
     missing = [s["id"] for s in template["slots"]
-               if s["required"] and s["type"] != "llamacpp" and s["id"] not in clean]
+               if s["required"] and s["type"] not in templates.AUTO_SLOTS and s["id"] not in clean]
     if missing:
         raise ValueError(f"required slot(s) not bound: {', '.join(missing)}")
     os.makedirs(root, exist_ok=True)
@@ -100,7 +105,7 @@ def create_ember(embers_dir, template, ember_id, bindings, now):
 def _bound(ember):
     for s in ember.template["slots"]:
         b = ember.conf["bindings"].get(s["id"], "")
-        if b or s["type"] == "llamacpp":
+        if b or s["type"] in templates.AUTO_SLOTS:
             yield s, b
 
 
@@ -135,13 +140,13 @@ def _cut(text, tokens):
 
 
 def _batches(raws, budget):
-    """Group raws into batches of at most `budget` estimated tokens; a raw over
-    the budget is cut to fit and goes alone."""
+    """Group raws into batches of at most `budget` estimated tokens and
+    MAX_BATCH_RAWS raws; a raw over the budget is cut to fit and goes alone."""
     batch, size = [], 0
     for r in raws:
         text = _cut(r["text"], budget)
         n = _est(text)
-        if batch and size + n > budget:
+        if batch and (size + n > budget or len(batch) >= MAX_BATCH_RAWS):
             yield batch
             batch, size = [], 0
         batch.append(dict(r, text=text))
@@ -158,14 +163,14 @@ def _schema_text(ember):
         return ember.template["schema_md"]
 
 
-def _prompt(tpl, schema, index_head, context, batch, cap):
+def _prompt(tpl, schema, index_head, context, batch, cap, today=None):
     """Build the ingest prompt and shrink it until it fits `cap` estimated
     tokens: first the matched pages, then the index excerpt, the schema, and
     last the raw text. Returns (messages, size_in_tokens, batch_as_shown)."""
     context = [dict(p, items=list(p["items"])) for p in context]
     batch = [dict(r) for r in batch]
     while True:
-        msgs = prompts.ingest_messages(tpl["mission"], schema, tpl["page_kinds"], index_head, context, batch)
+        msgs = prompts.ingest_messages(tpl["mission"], schema, tpl["page_kinds"], index_head, context, batch, today)
         size = sum(_est(m["content"]) for m in msgs)
         over = size - cap
         if over <= 0:
@@ -337,7 +342,8 @@ def _close_failed(st, run, now, error):
     bare UPDATE in its own statement; if even that fails the row stays
     'running' and the next run of the job aborts it (Store.abort_running).
     Note abort_running would also abort a live concurrent run of the same job:
-    the M2 scheduler must hold a per-ember lock around runs."""
+    callers must hold embers.lock.held(root) around runs (the CLI does; the M2
+    scheduler will)."""
     try:
         st.db.rollback()
     except Exception:
@@ -419,9 +425,11 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         else:
             pending.append(dict(r, text=text))
     full_text = {r["sha"]: r["text"] for r in pending}
+    slot_type = {sl["id"]: sl["type"] for sl in tpl["slots"]}
+    done = {r["sha"] for r in pending if slot_type.get(r["source"]) in sources.DONE_TYPES}
 
     stats = {"raws": len(pending), "deferred": max(0, len(queued) - MAX_RAWS_PER_RUN), "batches": 0,
-             "failed": 0, "failed_raws": 0, "truncated": 0, "ops": 0, "unverified": 0, "rejected": 0,
+             "failed": 0, "failed_raws": 0, "truncated": 0, "split": 0, "ops": 0, "unverified": 0, "rejected": 0, "finished": 0,
              "tokens_in": 0, "tokens_out": 0}
     rejections = []
     too_small = n_ctx < MIN_N_CTX
@@ -429,16 +437,26 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         errors.append(f"model context n_ctx={n_ctx} is below the minimum of {MIN_N_CTX} tokens; "
                       "load the model with a larger context")
         pending = []
-    budget = int(n_ctx * BUDGET_SHARE)
-    cap = int(n_ctx * PROMPT_SHARE)
+    scale = 1.0                            # router tokens per estimated token; raised by an overflow
+
+    def budget():
+        return max(1, int(min(n_ctx * BUDGET_SHARE, MAX_BATCH_TOKENS) / scale))
     schema = _schema_text(ember)
     att = _attempts(st)
-    grouped = [r for r in pending if att.get(r["sha"], {}).get("attempts", 0) < SOLO_AFTER]
+    first = {}                             # one source's raws share words and pages: batch them together
+    for r in pending:
+        first.setdefault(r["source"], len(first))
+    # Finished work goes last: a model with a small thinking budget spends it on the
+    # first raws of a batch, and those should be the ones that can still be open.
+    grouped = sorted((r for r in pending if att.get(r["sha"], {}).get("attempts", 0) < SOLO_AFTER),
+                     key=lambda r: (r["sha"] in done, first[r["source"]]))
     alone = [r for r in pending if att.get(r["sha"], {}).get("attempts", 0) >= SOLO_AFTER]
-    batches = list(_batches(grouped, budget)) + [b for r in alone for b in _batches([r], budget)]
+    queue = collections.deque((b, 0) for b in list(_batches(grouped, budget()))
+                              + [b for r in alone for b in _batches([r], budget())])
     index_error = False
     router_down = False
-    for batch in batches:
+    while queue:
+        batch, tries = queue.popleft()
         stats["batches"] += 1
         context = []
         for page in st.search(_terms(" ".join(r["text"] for r in batch)), CONTEXT_PAGES):
@@ -452,10 +470,10 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
             if not index_error:
                 errors.append(f"index head: {_err(e)}")
                 index_error = True
-        msgs, size, shown = _prompt(tpl, schema, index_head, context, batch, cap)
-        stats["truncated"] += sum(1 for r in shown if len(r["text"]) < len(full_text[r["sha"]]))
+        msgs, size, shown = _prompt(tpl, schema, index_head, context, batch, int(n_ctx * PROMPT_SHARE / scale),
+                                    now.date())
         shown_shas = [r["sha"] for r in shown if r["text"]]   # a raw cut to nothing was not seen
-        reply_tokens = max(MIN_REPLY_TOKENS, min(MAX_REPLY_TOKENS, n_ctx - size))
+        reply_tokens = max(MIN_REPLY_TOKENS, min(MAX_REPLY_TOKENS, n_ctx - math.ceil(size * scale)))
         try:                               # the model call runs outside any transaction
             update, usage = llm(msgs, prompts.UPDATE_SCHEMA, reply_tokens)
         except RouterUnavailable as e:     # not the input's fault: stop, count nothing
@@ -463,11 +481,38 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
             errors.append(_err(e))
             router_down = True
             break
+        except ThinkingOverflow as e:      # the model's fault, not the input's: stop, blame no raw
+            stats["failed"] += 1
+            errors.append(_err(e))
+            break
+        except (ReplyTruncated, PromptTooLarge) as e:
+            # The input was too much for this model, not wrong: send less instead of failing.
+            if isinstance(e, PromptTooLarge):
+                if e.n_ctx and e.n_ctx < n_ctx:            # e.g. a router slot smaller than /props said
+                    n_ctx = e.n_ctx
+                seen = e.n_prompt / size if e.n_prompt and size else 0
+                scale = max(scale * TOKEN_MARGIN, seen * TOKEN_MARGIN)
+            if len(batch) > 1:
+                half = len(batch) // 2
+                queue.extendleft([(batch[half:], tries), (batch[:half], tries)])
+                stats["split"] += 1
+            elif isinstance(e, PromptTooLarge) and tries < OVERFLOW_RETRIES:
+                queue.appendleft((batch, tries + 1))     # the smaller cap cuts the raw to fit
+            else:
+                stats["failed"] += 1
+                errors.append(_err(e))
+                _settle_failure(st, shown_shas, _err(e), stats)
+                continue
+            stats["batches"] -= 1
+            if isinstance(e, PromptTooLarge):          # what is still queued was sized with the old estimate
+                queue = collections.deque((b, t) for old, t in queue for b in _batches(old, budget()))
+            continue
         except Exception as e:
             stats["failed"] += 1
             errors.append(_err(e))
             _settle_failure(st, shown_shas, _err(e), stats)
             continue
+        stats["truncated"] += sum(1 for r in shown if len(r["text"]) < len(full_text[r["sha"]]))
         usage = usage if isinstance(usage, dict) else {}
         for k in ("prompt_tokens", "completion_tokens"):
             try:
@@ -477,15 +522,14 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         # Quotes are checked against the full raw, but only raws shown in this batch count.
         raws = {sha: full_text[sha] for sha in shown_shas}
         try:
-            ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids())
+            ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids(),
+                                                           now.date(), done)
             kept = []
-            for op in ops:                 # an update/close must name the page its item lives on
+            for op in ops:                 # an update/close acts on the page its item lives on
                 old = st.get_item(op["item"]) if op["op"] != "add" else None
                 if old is not None and old["page"] != op["page"]:
-                    rejected.append((-1, f"{op['op']} {op['item']}: page {op['page']} "
-                                         f"is not the item's page {old['page']}"))
-                else:
-                    kept.append(op)
+                    op = dict(op, page=old["page"])    # the item id was checked; a small model's page guess was not
+                kept.append(op)
             ops = kept
             with st.db:                    # ops, raw status and the render list commit together
                 touched = _apply(ember, ops, new_pages, now)
@@ -502,6 +546,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         stats["ops"] += len(ops)
         stats["unverified"] += sum(1 for o in ops if not o["verified"])
         stats["rejected"] += len(rejected)
+        stats["finished"] += sum(1 for _, why in rejected if why == verify.DONE_WORK)
         rejections += [str(why) for _, why in rejected][:MAX_REJECTIONS - len(rejections)]
         errors += _flush_dirty(ember)
 
@@ -515,14 +560,19 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
     except (OSError, ValueError) as e:
         errors.append(f"prune: {_err(e)}")
     render_failed = bool(_dirty(st))
+    proposed = stats["ops"] + stats["rejected"] - stats["finished"]    # commits as loops quoted fine
+    never_quoted = proposed >= FLAG_MIN_OPS and stats["ops"] == stats["unverified"]
+    if never_quoted:
+        errors.append(f"none of the model's {proposed} proposed changes quoted the sources exactly; "
+                      "this model may be too small or too heavily quantized for Embers")
     if too_small or (stats["batches"] and stats["failed"] == stats["batches"]):
         status = "failed"
     else:
-        status = ("partial" if stats["failed"] or stale or render_failed or read_errors or router_down
+        status = ("partial" if stats["failed"] or stale or render_failed or read_errors or router_down or never_quoted
                   else "ok")
     summary = (f"{stats['raws']} new, {stats['ops']} ops ({stats['unverified']} unverified, "
                f"{stats['rejected']} rejected), {stats['failed']}/{stats['batches']} batches failed")
-    for key, label in (("deferred", "deferred"), ("truncated", "truncated"), ("failed_raws", "raws given up")):
+    for key, label in (("deferred", "deferred"), ("truncated", "truncated"), ("split", "batches split"), ("failed_raws", "raws given up")):
         if stats[key]:
             summary += f", {stats[key]} {label}"
     if stale:
@@ -589,7 +639,7 @@ MAX_BRIEF_SECTIONS = 6
 MAX_BRIEF_BULLETS  = 12
 MAX_BRIEF_ITEMS    = 60      # open items offered to the model before the n_ctx cut
 MAX_BRIEF_FLAGS    = 20      # lint flags shown with them
-BRIEF_REPLY_TOKENS = 1500
+BRIEF_REPLY_TOKENS = 3000
 BRIEF_FOOTNOTES    = 2       # evidence footnotes per bullet
 LINT_FLAGS_KEY     = "lint_flags"
 _one_line = prompts.one_line            # shared with lint
@@ -749,6 +799,8 @@ def _clean_brief(reply, shown, by_id, grounds, ground_all):
         bullets = []
         for b in (raw_bullets if isinstance(raw_bullets, list) else [])[:MAX_BRIEF_BULLETS]:
             iid = b.get("item") if isinstance(b, dict) else None
+            if isinstance(iid, str) and iid not in shown:    # "[it-xxxxxxxx] page": the id inside counts
+                iid = next((m for m in verify.ITEM_RE.findall(iid[:200]) if m in shown), iid)
             if not isinstance(iid, str) or iid not in shown or iid in used:
                 continue
             used.add(iid)

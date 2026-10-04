@@ -3,7 +3,7 @@ import datetime as dt, json, math, os, shutil, unicodedata, unittest
 from unittest import mock
 
 from embers import jobs, prompts, sources, templates, verify, wikifs
-from embers.llm import LLMError, RouterUnavailable
+from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable, ThinkingOverflow
 from embers_testkit import NOW, TEMPLATE, EmberCase, FakeLLM, item_ids, raw_ids
 
 NOTE = "Call with Sam.\nSam: I'll send the signed SOW by Friday."
@@ -189,8 +189,9 @@ class HardeningTest(EmberCase, unittest.TestCase):
                              "evidence": [{"raw": "0123456789ab",
                                            "quote": "I'll pay the invoice tomorrow morning"}]}]}
         r = jobs.ingest(ember, FakeLLM(reply), NOW)
-        self.assertEqual((r["ops"], r["unverified"]), (1, 1))      # the forged raw id never counts
-        self.assertEqual(ember.store.referenced_raws(), set())
+        # The forged id never counts: the quote is credited to the raw it really occurs in.
+        self.assertEqual((r["ops"], r["unverified"]), (1, 0))
+        self.assertEqual(ember.store.referenced_raws(), {ember.store.all_raws()[0]["sha"]})
 
     def test_terms_are_unicode_words(self):
         terms = jobs._terms("Zürich Zürich café straße and the SOW für")
@@ -204,7 +205,7 @@ class HardeningTest(EmberCase, unittest.TestCase):
         ember = self.make_ember({"acme.md": NOTE})
         jobs.ingest(ember, FakeLLM(add_sow()), NOW)
         old_raw = ember.store.all_raws()[0]["sha"]
-        self.write_note("acme.md", NOTE + "\nUpdate: Sam sent the signed SOW today.")
+        self.write_note("acme.md", "Update: Sam sent the signed SOW today.")   # the old quote is gone
 
         def reply(messages):
             iid = item_ids(messages)[0]
@@ -552,7 +553,7 @@ class ReviewFixTest(EmberCase, unittest.TestCase):
         self.assertTrue(os.path.exists(outside))
 
     # 10
-    def test_update_or_close_naming_another_page_is_rejected(self):
+    def test_update_or_close_naming_another_page_acts_on_the_items_page(self):
         ember = self.make_ember({"acme.md": NOTE})
         jobs.ingest(ember, FakeLLM(add_sow()), NOW)
         iid = next(iter(ember.store.known_item_ids()))
@@ -566,12 +567,12 @@ class ReviewFixTest(EmberCase, unittest.TestCase):
                             {"op": "update", "page": "events/x", "kind": "loop", "item": iid, "text": "new",
                              "evidence": ev}]}
         r = jobs.ingest(ember, FakeLLM(reply), NOW + dt.timedelta(days=1))
-        self.assertEqual((r["ops"], r["rejected"]), (0, 2))
+        self.assertEqual((r["ops"], r["rejected"]), (2, 0))
         it = ember.store.get_item(iid)
-        self.assertEqual((it["status"], it["text"]), ("open", "Waiting on Sam for the signed SOW"))
+        self.assertEqual(it["page"], "projects/acme")
+        self.assertNotEqual(it["status"], "open")
         self.assertIsNone(ember.store.get_page("people/bob"))
-        detail = json.loads(ember.store.recent_runs()[0]["detail"])
-        self.assertTrue(any("page" in why for why in detail["rejections"]))
+        self.assertIsNone(ember.store.get_page("events/x"))
 
 
 class PruneTest(EmberCase, unittest.TestCase):
@@ -584,6 +585,258 @@ class PruneTest(EmberCase, unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(ember.root, "raw", raws["other.md"] + ".txt")))
         self.assertEqual(ember.store.raw_status(raws["other.md"]), "pruned")
         self.assertEqual(jobs.prune_raws(ember), 0)
+
+
+def _raise(exc):
+    def reply(messages):
+        raise exc
+    return reply
+
+
+def _prompt_size(messages):
+    return sum(jobs._est(m["content"]) for m in messages)
+
+
+class SmallModelTest(EmberCase, unittest.TestCase):
+    """Small and heavily quantized models: long replies, garbled ids, tokenizers
+    that count more tokens than the estimate."""
+
+    def test_truncated_reply_splits_the_batch_without_counting_a_failure(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} about the plan" for i in range(4)})
+        fake = FakeLLM(ReplyTruncated("cut off"), {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [4, 2, 2])
+        self.assertEqual((r["status"], r["batches"], r["failed"], r["split"]), ("ok", 2, 0, 1))
+        self.assertEqual(ember.store.pending_raws(), [])
+        self.assertEqual(ember.store.get_meta(jobs.ATTEMPTS_KEY, {}), {})
+
+    def test_thinking_overflow_stops_the_run_without_splitting(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} about the plan" for i in range(4)})
+        fake = FakeLLM(ThinkingOverflow("model spent its whole reply thinking"), {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual((r["status"], r["failed"], r["split"]), ("failed", 1, 0))
+        self.assertIn("thinking", ember.store.recent_runs()[0]["error"])
+        self.assertEqual(len(ember.store.pending_raws()), 4)                 # not the notes' fault
+        self.assertEqual(ember.store.get_meta(jobs.ATTEMPTS_KEY, {}), {})
+
+    def test_truncated_reply_of_one_raw_is_a_failure(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        r = jobs.ingest(ember, FakeLLM(ReplyTruncated("cut off")), NOW)
+        self.assertEqual((r["status"], r["failed"]), ("failed", 1))
+        self.assertEqual(len(ember.store.pending_raws()), 1)
+
+    def test_prompt_too_large_splits_and_rescales_the_estimate(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} " + "word " * 500 for i in range(2)})
+        seen = []
+
+        def overflow(messages):
+            seen.append(_prompt_size(messages))
+            raise PromptTooLarge("too big", n_prompt=seen[0] * 2, n_ctx=4096)
+        fake = FakeLLM(overflow, {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW, n_ctx=4096)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [2, 1, 1])
+        self.assertEqual((r["status"], r["failed"]), ("ok", 0))
+        scale = 2 * 1.1                    # router tokens per estimated token, with a margin
+        for m, cap in zip(fake.calls[1:], fake.max_tokens[1:]):
+            self.assertLessEqual(_prompt_size(m) * scale, 4096 * jobs.PROMPT_SHARE + 1)
+            self.assertLessEqual(cap, 4096 - int(_prompt_size(m) * scale))
+
+    def test_prompt_too_large_adopts_the_routers_context(self):
+        ember = self.make_ember({"acme.md": NOTE + " " + "word " * 2000})
+
+        def overflow(messages):            # the estimate was right, the context is smaller
+            raise PromptTooLarge("too big", n_prompt=_prompt_size(messages), n_ctx=2048)
+        fake = FakeLLM(overflow, add_sow())
+        r = jobs.ingest(ember, fake, NOW, n_ctx=8192)       # /props said 8192, a slot has 2048
+        self.assertEqual((r["status"], r["ops"], r["truncated"]), ("ok", 1, 1))
+        self.assertLessEqual(_prompt_size(fake.calls[1]) * 1.1, 2048 * jobs.PROMPT_SHARE + 1)
+        self.assertLessEqual(fake.max_tokens[1], 2048)
+
+    def test_one_raw_keeps_overflowing_then_fails(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        fake = FakeLLM(*[_raise(PromptTooLarge("too big")) for _ in range(6)])
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual((r["status"], r["failed"]), ("failed", 1))
+        self.assertLessEqual(len(fake.calls), 3)
+        self.assertEqual(len(ember.store.pending_raws()), 1)
+
+    def test_batches_are_capped_by_raw_count_and_tokens(self):
+        ember = self.make_ember({f"n{i:02}.md": f"note {i}" for i in range(jobs.MAX_BATCH_RAWS + 3)})
+        fake = FakeLLM({"ops": []}, {"ops": []})
+        jobs.ingest(ember, fake, NOW, n_ctx=131072)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [jobs.MAX_BATCH_RAWS, 3])
+        big = self.make_ember({f"b{i}.md": f"note {i} " + "word " * 3000 for i in range(3)})
+        fake = FakeLLM({"ops": []}, {"ops": []}, {"ops": []})
+        jobs.ingest(big, fake, NOW, n_ctx=131072)           # 3 x ~3.75k tokens over a 6k batch cap
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [1, 1, 1])
+
+    def test_batches_hold_one_source_where_possible(self):
+        ember = self.make_ember({}, TWO_SLOTS, {"work": ".", "home": "."})
+        tmp = os.path.dirname(self.notes)
+        for sid in ("work", "home"):
+            os.makedirs(os.path.join(tmp, sid))
+            for i in range(3):
+                with open(os.path.join(tmp, sid, f"{sid}{i}.md"), "w", encoding="utf-8") as f:
+                    f.write(f"{sid} note {i}")
+            ember.conf["bindings"][sid] = os.path.join(tmp, sid)
+        fake = FakeLLM({"ops": []}, {"ops": []})
+        with mock.patch.object(jobs, "MAX_BATCH_RAWS", 3):
+            jobs.ingest(ember, fake, NOW)
+        source = {r["sha"]: r["source"] for r in ember.store.all_raws()}
+        self.assertEqual(sorted(sorted({source[s] for s in raw_ids(m)}) for m in fake.calls), [["home"], ["work"]])
+
+    def test_update_naming_the_wrong_page_lands_on_the_items_page(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        jobs.ingest(ember, FakeLLM(add_sow()), NOW)
+        self.write_note("acme.md", NOTE + "\nUpdate: Sam sent the signed SOW today.")
+
+        def close(messages):
+            return {"ops": [{"op": "close", "page": "people/sam", "kind": "loop", "item": item_ids(messages)[0],
+                             "text": "", "evidence": [{"raw": raw_ids(messages)[0],
+                                                       "quote": "Sam sent the signed SOW today"}]}]}
+        r = jobs.ingest(ember, FakeLLM(close), NOW + dt.timedelta(days=1))
+        self.assertEqual((r["ops"], r["rejected"]), (1, 0))
+        self.assertIn("- [x] Waiting on Sam", self.read(ember, "pages", "projects", "acme.md"))
+        self.assertFalse(os.path.exists(os.path.join(ember.root, "pages", "people", "sam.md")))
+
+    def test_a_model_that_never_quotes_is_flagged(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        ops = [{"op": "add", "page": "projects/acme", "kind": "fact", "text": f"thing {i}",
+                "evidence": [{"raw": "0", "quote": "0"}]} for i in range(3)]
+        r = jobs.ingest(ember, FakeLLM({"ops": ops}), NOW)
+        self.assertEqual((r["status"], r["ops"], r["unverified"]), ("partial", 3, 3))
+        self.assertIn("too small or too heavily quantized", ember.store.recent_runs()[0]["error"])
+
+    def test_one_unverified_op_is_not_flagged(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        r = jobs.ingest(ember, FakeLLM(add_sow("Sam promised the contract")), NOW)
+        self.assertEqual((r["status"], r["unverified"]), ("ok", 1))
+
+
+class DueDateTest(EmberCase, unittest.TestCase):
+    def test_iso_due_is_kept_when_the_quote_words_the_date(self):
+        # the run's date, not the wall clock, places "May 5" in a year
+        ember = self.make_ember({"acme.md": "Call with Sam.\nSam: I'll send the signed SOW by May 5."})
+
+        def reply(messages):
+            return {"ops": [{"op": "add", "page": "projects/acme", "kind": "loop", "owner": "Sam",
+                             "text": "Waiting on Sam for the signed SOW", "due": "2027-05-05",
+                             "evidence": [{"raw": raw_ids(messages)[0],
+                                           "quote": "I'll send the signed SOW by May 5"}]}]}
+        fake = FakeLLM(reply)
+        jobs.ingest(ember, fake, dt.datetime(2027, 4, 20, 2, 0))
+        self.assertIn("signed SOW — 2027-05-05 ", self.read(ember, "pages", "projects", "acme.md"))
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Today is Tuesday 20 April 2027.", system)
+        self.assertIn("YYYY-MM-DD", system)
+
+
+class FinishedWorkTest(EmberCase, unittest.TestCase):
+    def test_prompt_says_finished_work_is_not_an_open_loop(self):
+        # small models turned every git commit into an open loop
+        ember = self.make_ember({"acme.md": NOTE})
+        fake = FakeLLM({"ops": []})
+        jobs.ingest(ember, fake, NOW)
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Finished work", system)
+        self.assertIn("is not a loop", system)
+
+    def test_a_commit_alone_cannot_open_a_loop(self):
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({"acme.md": NOTE}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"           # fetch is faked for git
+        commit = "Commit 0123456789ab by Me on 2026-10-04 (work already done)\n\nfeat: export the pricing sheet"
+
+        def fetch(stype, binding, cursor, now):
+            if stype == "git":
+                return ([{"ref": "0123456789ab", "title": "feat: export the pricing sheet", "text": commit}]
+                        if not cursor else []), {"last": "x"}
+            return sources.fetch(stype, binding, cursor, now)
+
+        def reply(messages):
+            content = messages[-1]["content"]
+            sha = {s: content.split(f"=== raw {s}")[1].split("=== raw")[0] for s in raw_ids(messages)}
+            git = next(s for s, t in sha.items() if "export the pricing" in t)
+            note = next(s for s, t in sha.items() if s != git)
+            return {"ops": [
+                {"op": "add", "page": "projects/acme", "kind": "loop", "text": "Export the pricing sheet",
+                 "evidence": [{"raw": git, "quote": "feat: export the pricing sheet"}]},
+                {"op": "add", "page": "projects/acme", "kind": "loop", "text": "Waiting on Sam for the SOW",
+                 "evidence": [{"raw": note, "quote": "I'll send the signed SOW by Friday"}]}]}
+        r = jobs.ingest(ember, FakeLLM(reply), NOW, fetch=fetch)
+        self.assertEqual((r["ops"], r["rejected"]), (1, 1))
+        page = self.read(ember, "pages", "projects", "acme.md")
+        self.assertIn("SOW", page)
+        self.assertNotIn("Export the pricing sheet", page)
+
+    def test_commits_come_after_what_is_still_open(self):
+        # a small thinking budget runs out on the first raws of a batch: put open work first
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({"acme.md": NOTE}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"
+        commits = [{"ref": f"{i:012x}", "title": f"feat: part {i}",
+                    "text": f"Commit {i:012x} (work already done)\n\nfeat: part {i}"} for i in range(6)]
+
+        def fetch(stype, binding, cursor, now):
+            if stype == "git":
+                return (commits if not cursor else []), {"last": "x"}
+            return sources.fetch(stype, binding, cursor, now)
+        fake = FakeLLM({"ops": []})
+        jobs.ingest(ember, fake, NOW, fetch=fetch)
+        content = fake.calls[0][-1]["content"]
+        first = content.split("=== raw ")[1]
+        self.assertIn("signed SOW", first)
+
+    def test_commit_loops_are_not_blamed_on_quoting(self):
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"
+        commits = [{"ref": f"{i:012x}", "title": f"feat: part {i} of the export",
+                    "text": f"Commit {i:012x} (work already done)\n\nfeat: part {i} of the export"} for i in range(4)]
+
+        def fetch(stype, binding, cursor, now):
+            return (commits if stype == "git" and not cursor else []), {"last": "x"}
+
+        def reply(messages):
+            return {"ops": [{"op": "add", "page": "projects/x", "kind": "loop", "text": f"Part {i}",
+                             "evidence": [{"raw": s, "quote": f"feat: part {i} of the export"}]}
+                            for s, i in zip(raw_ids(messages), range(4))]}
+        r = jobs.ingest(ember, FakeLLM(reply), NOW, fetch=fetch)
+        self.assertEqual((r["status"], r["rejected"], r["finished"]), ("ok", 4, 4))
+        self.assertNotIn("quoted the sources", ember.store.recent_runs()[0]["error"] or "")
+
+
+class ModelScoutTest(EmberCase, unittest.TestCase):
+    def test_zero_setup_ember_ingests_releases_and_the_machine(self):
+        with open(os.path.join(os.path.dirname(jobs.__file__), "..", "..", "templates", "model-scout.json"),
+                  encoding="utf-8") as f:
+            scout = templates.parse_template(f.read())
+        ember = self.make_ember({}, scout, {})
+        self.assertEqual(ember.conf["bindings"], {})
+        snap = {"gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 5080", "vram_mib": 16303}], "ram_gb": 64,
+                "models": [{"id": "gemma-4-12b", "file": "gemma-4-12b-Q6.gguf", "size_gb": 9.8}]}
+        rels = [{"tag_name": "b9001", "body": "model : add Foo-3 support (#123)",
+                 "published_at": "2026-10-04T00:00:00Z", "html_url": "https://x/b9001"}]
+
+        def fetch(stype, binding, cursor, now):
+            return sources.fetch(stype, binding, cursor, now, releases=rels, probe=lambda: snap)
+        vram = "GPU 0: NVIDIA GeForce RTX 5080, 16 GB VRAM (16303 MiB)"
+
+        def reply(messages):
+            content = messages[-1]["content"]
+            machine = next(s for s in raw_ids(messages)
+                           if "This machine" in content.split(f"=== raw {s}")[1].split("=== raw")[0])
+            return {"ops": [{"op": "add", "page": "machine/this-pc", "kind": "fact",
+                             "text": "One RTX 5080 with 16 GB VRAM", "evidence": [{"raw": machine, "quote": vram}]}]}
+        fake = FakeLLM(reply)
+        r = jobs.ingest(ember, fake, NOW, fetch=fetch)
+        self.assertEqual((r["status"], r["raws"], r["ops"], r["unverified"]), ("ok", 2, 1, 0))
+        self.assertIn("Foo-3", fake.calls[0][-1]["content"])
+        self.assertIn(vram, self.read(ember, "pages", "machine", "this-pc.md"))
 
 
 if __name__ == "__main__":

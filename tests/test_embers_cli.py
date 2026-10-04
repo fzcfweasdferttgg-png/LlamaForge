@@ -5,9 +5,9 @@ from unittest import mock
 
 import config
 import embers_cli
-from embers import jobs, llm
+from embers import jobs, llm, lock
 from embers.llm import LLMError, RouterUnavailable
-from embers_testkit import NOW
+from embers_testkit import NOW, LockHolder
 
 TPL = os.path.join(config.ROOT, "templates", "morning-brief.json")
 _CTRL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e"
@@ -45,7 +45,9 @@ class FakeRouter:
     def n_ctx(self, model):
         return self.ctx
 
-    def llm(self, model):
+    def llm(self, model, autoload=True):
+        assert autoload is False, "the CLI must never let a request load a model"
+
         def call(messages, schema, max_tokens=2048):
             if self.fail is not None:
                 raise self.fail
@@ -148,6 +150,29 @@ class HardeningTest(CliCase):
         self.assertNotEqual(code, 0)
         self.assertIn("ingest: failed:", out)
         self.assertIn("below the minimum", out)
+
+    def test_locked_ember_is_refused(self):
+        self.create()
+        root = os.path.join(self.dir, "embers", "morning")
+        holder = LockHolder(root)                 # a real second process holds the lock
+        self.addCleanup(holder.kill)
+        with mock.patch.object(jobs, "ingest", wraps=jobs.ingest) as m:
+            code, out = self.cli("run", "morning")
+        self.assertEqual(code, 1)
+        self.assertIn(f"morning is already running in another process (pid {holder.pid}; lock: "
+                      f"{os.path.join(root, lock.LOCK_NAME)})", self.err)
+        m.assert_not_called()
+        holder.release()
+        self.assertEqual(self.cli("run", "morning")[0], 0)
+        self.assertTrue(os.path.isfile(os.path.join(root, lock.LOCK_NAME)))
+
+    def test_busy_raised_inside_a_job_is_not_reported_as_locked(self):
+        self.create()
+        with mock.patch.object(jobs, "ingest", side_effect=lock.Busy(4242, "", "elsewhere")):
+            code, out = self.cli("ingest", "morning")
+        self.assertEqual(code, 1)
+        self.assertNotIn("already running", self.err)
+        self.assertIn("error: Busy", self.err)
 
     def test_bad_ember_names_are_refused(self):
         for bad in ("../escape", "..", "Morning", "con", "COM1", "lpt9", "a/b", "a\\b", "", "_x",
@@ -360,6 +385,14 @@ class HardeningTest(CliCase):
         self.assertIn("ingest failed", line)
         self.assertIn("lint aborted", line)
 
+    def test_list_shows_skipped(self):
+        self.create()
+        with jobs.Ember(os.path.join(self.dir, "embers", "morning")) as e, e.store.db:
+            e.store.record_skip("brief", NOW, "router never came up")
+        code, out = self.cli("list")
+        self.assertEqual(code, 0)
+        self.assertIn(f"brief skipped ({NOW.strftime('%Y-%m-%dT%H:%M')})", out)
+
     def test_list_skips_odd_folders_and_survives_a_broken_ember(self):
         self.create()
         base = os.path.join(self.dir, "embers")
@@ -428,7 +461,25 @@ class StubRouterEndToEndTest(CliCase):
         self.assertIn("lint: ok:", self.cli("lint", "morning", router_cls=llm.Router)[1])
         self.assertTrue(_StubRouter.seen)
         self.assertEqual({auth for _, auth in _StubRouter.seen}, {"Bearer stub-key"})
-        self.assertIn("/props?model=stub-model", [p for p, _ in _StubRouter.seen])
+        props = [p for p, _ in _StubRouter.seen if p.startswith("/props?model=stub-model")]
+        self.assertTrue(props)
+        self.assertTrue(all("autoload=false" in p for p in props), props)
+        chats = [p for p, _ in _StubRouter.seen if p.startswith("/v1/chat/completions")]
+        self.assertTrue(chats)
+        self.assertTrue(all(p.endswith("?autoload=false") for p in chats), chats)
+
+    def test_model_not_loaded_is_refused_without_loading(self):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), _StubRouter)
+        self.addCleanup(srv.server_close)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        _StubRouter.seen = []
+        config.update({"router_port": srv.server_address[1], "router_api_key": "", "router_local_key": "k"})
+        self.create()
+        code, out = self.cli("ingest", "morning", "--model", "other", router_cls=llm.Router)
+        self.assertEqual(code, 1)
+        self.assertIn("other is not loaded in the router", self.err)
+        self.assertEqual([p for p, _ in _StubRouter.seen], ["/v1/models"])
 
 
 if __name__ == "__main__":

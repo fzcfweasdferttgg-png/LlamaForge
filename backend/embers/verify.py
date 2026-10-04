@@ -5,7 +5,7 @@ as verified only if it carries a verbatim quote that really occurs in an
 immutable raw snapshot. Owners and due dates must appear inside such a quote,
 so the model cannot invent who owes what or by when.
 """
-import re, unicodedata
+import datetime as dt, re, unicodedata
 
 from . import reserved_name
 
@@ -18,6 +18,7 @@ ITEM_KINDS   = ("loop", "fact", "person", "event")
 PAGE_RE = re.compile(r"[a-z0-9-]{1,40}/[a-z0-9-]{1,60}")   # <kind>/<slug>
 ITEM_RE = re.compile(r"it-[0-9a-f]{8}")                     # also a valid Obsidian block id
 RAW_RE  = re.compile(r"[0-9a-f]{12}")
+DONE_WORK = "a loop opened on finished work alone"
 
 _QUOTES = dict.fromkeys(map(ord, "'\"`\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u00ab\u00bb"), None)
 _DASHES = dict.fromkeys(map(ord, "-\u2010\u2012\u2013\u2014\u2015"), " ")
@@ -64,8 +65,114 @@ def _grounded(value, quotes):
     return len(v) >= 2 and any(_contains(normalise(q), v) for q in quotes)
 
 
-def verify_op(op, raws, kinds, known_items=()):
-    """Check one proposed op against raws ({sha12: text}).
+_MONTHS = {m: i for i, names in enumerate((
+    ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"), ("may",),
+    ("june", "jun"), ("july", "jul"), ("august", "aug"), ("september", "sept", "sep"),
+    ("october", "oct"), ("november", "nov"), ("december", "dec")), 1) for m in names}
+_MON  = r"(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\b\.?"
+_DAY  = r"(\d{1,2})(?:st|nd|rd|th)?(?!\w)"
+_YEAR = r"(?:,?\s+(\d{4})(?!\w))?"
+_D    = "[-‐‑‒–−]"
+_DATE_RES = (
+    ("ymd", re.compile(r"(?<!\w)(\d{4})" + _D + r"(\d{2})" + _D + r"(\d{2})(?=t\d|\W|$)")),  # 2026-10-09
+    ("ymd", re.compile(r"(?<!\w)(\d{4})(\d{2})(\d{2})(?=t\d|\W|$)")),          # ICS 20261009T150000Z
+    ("mdy", re.compile(r"(?<!\w)" + _MON + r"\s+" + _DAY + _YEAR)),            # Oct 9th, 2026
+    ("dmy", re.compile(r"(?<!\w)" + _DAY + r"\s+(?:of\s+)?" + _MON + _YEAR)),  # 9 October 2026
+)
+
+
+def _near_year(month, day, ref):
+    """A month/day without a year: the occurrence nearest the reference date."""
+    best = None
+    for y in (ref.year - 1, ref.year, ref.year + 1):
+        try:
+            d = dt.date(y, month, day)
+        except ValueError:
+            continue
+        if best is None or abs((d - ref).days) < abs((best - ref).days):
+            best = d
+    return best
+
+
+def _dates(text, ref):
+    """Date mentions in text, in order. Numeric slash dates (10/09) are
+    ambiguous between countries, so they never count."""
+    s = unicodedata.normalize("NFKC", text or "")[:2000].lower()
+    found = []
+    for form, rx in _DATE_RES:
+        for m in rx.finditer(s):
+            try:
+                if form == "ymd":
+                    d = dt.date(int(m[1]), int(m[2]), int(m[3]))
+                else:
+                    mon, day = (m[1], m[2]) if form == "mdy" else (m[2], m[1])
+                    d = (dt.date(int(m[3]), _MONTHS[mon], int(day)) if m[3]
+                         else _near_year(_MONTHS[mon], int(day), ref))
+            except ValueError:
+                continue
+            if d is not None and 1900 <= d.year <= 2200:
+                found.append((m.start(), d))
+    return [d for _, d in sorted(found, key=lambda t: t[0])]
+
+
+def due_dates(text, ref_date):
+    return set(_dates(text, ref_date))
+
+
+def ground_due(due, quotes, ref_date):
+    """A due date the evidence supports, else "". A date in any wording
+    (2026-10-09, Oct 9th, 9 October) that a passing quote also names, in any
+    wording, comes back as YYYY-MM-DD; a non-date ("Friday") must appear in a
+    quote word for word and is kept as written."""
+    if not isinstance(due, str):
+        return ""
+    ref_date = ref_date or dt.date.today()
+    named = set().union(*(due_dates(q, ref_date) for q in quotes)) if quotes else set()
+    for d in _dates(due, ref_date):
+        if d in named:
+            return d.isoformat()
+    return _one_line(due, 40) if _grounded(due, quotes) else ""
+
+
+def cited_raw(sha, quote, raws):
+    """The raw id a quote verifiably comes from, else None. Small models garble
+    the id (the whole "=== raw <id> (...) ===" header, a source's first line),
+    so: the cited id, else an id found inside the cited text, else any raw of
+    the batch that contains the quote. The quote itself must always be verbatim."""
+    if not isinstance(quote, str):
+        return None
+    tried = []
+    if isinstance(sha, str):
+        tried = [sha] + [s for s in RAW_RE.findall(sha[:400]) if s != sha]
+    for s in tried + [s for s in raws if s not in tried]:
+        if s in raws and check_quote(quote, raws[s]):
+            return s
+    return None
+
+
+def _from_done_work(evidence, evs, text, raws, done_raws):
+    """True when finished work is all a new loop rests on. With passing quotes,
+    every quoted raw is done work. Without them (a small model garbles every
+    quote), every raw the op names is done work, or it names none and its text
+    is lifted from a done raw."""
+    if not done_raws:
+        return False
+    if evidence:
+        return all(e["raw"] in done_raws for e in evidence)
+    named = set()
+    for ev in evs[:MAX_EVIDENCE]:
+        sha = ev.get("raw") if isinstance(ev, dict) else None
+        if isinstance(sha, str):
+            named.update(s for s in [sha] + RAW_RE.findall(sha[:400]) if s in raws)
+    if named:
+        return named <= set(done_raws)
+    return bool(text) and any(s in raws and check_quote(text, raws[s]) for s in done_raws)
+
+
+def verify_op(op, raws, kinds, known_items=(), ref_date=None, done_raws=()):
+    """Check one proposed op against raws ({sha12: text}). ref_date (the run's
+    date) places a month/day without a year. done_raws are raws that record
+    finished work (commits): they can close a loop but never open one alone.
     Returns (clean_op, None) or (None, reason)."""
     if not isinstance(op, dict):
         return None, "not an object"
@@ -76,14 +183,17 @@ def verify_op(op, raws, kinds, known_items=()):
     if not page_ok(page, kinds):
         return None, f"bad page {page!r}"
     item = op.get("item")
+    text = _one_line(op.get("text"), MAX_TEXT)
+    known = isinstance(item, str) and ITEM_RE.fullmatch(item) and item in known_items
+    if action == "update" and not known and text and not (isinstance(item, str) and ITEM_RE.search(item)):
+        action = "add"                  # no item id at all (a page path, empty): the item is new
     if action == "add":
         item = None                     # code assigns ids; the model never does
-    elif not (isinstance(item, str) and ITEM_RE.fullmatch(item) and item in known_items):
+    elif not known:
         return None, f"unknown item {item!r}"
     kind = op.get("kind") or "loop"
     if kind not in ITEM_KINDS:
         return None, f"bad kind {kind!r}"
-    text = _one_line(op.get("text"), MAX_TEXT)
     if action == "add" and not text:
         return None, "add without text"
     evs = op.get("evidence") if isinstance(op.get("evidence"), list) else []
@@ -91,20 +201,23 @@ def verify_op(op, raws, kinds, known_items=()):
     for ev in evs[:MAX_EVIDENCE]:
         if not isinstance(ev, dict):
             continue
-        sha, quote = ev.get("raw"), ev.get("quote")
-        if isinstance(sha, str) and sha in raws and isinstance(quote, str) and check_quote(quote, raws[sha]):
+        quote = ev.get("quote")
+        sha = cited_raw(ev.get("raw"), quote, raws)
+        if sha is not None:
             evidence.append({"raw": sha, "quote": _one_line(quote, MAX_TEXT)})
     if action == "close" and not evidence:
         return None, "close without passing evidence"
+    if action == "add" and kind == "loop" and _from_done_work(evidence, evs, text, raws, done_raws):
+        return None, DONE_WORK
     quotes = [e["quote"] for e in evidence]
     owner, due = op.get("owner"), op.get("due")
     return {"op": action, "page": page, "kind": kind, "item": item, "text": text,
             "owner": _one_line(owner, 80) if isinstance(owner, str) and _grounded(owner, quotes) else "",
-            "due": _one_line(due, 40) if isinstance(due, str) and _grounded(due, quotes) else "",
+            "due": ground_due(due, quotes, ref_date),
             "evidence": evidence, "verified": bool(evidence)}, None
 
 
-def verify_batch(update, raws, kinds, known_items=()):
+def verify_batch(update, raws, kinds, known_items=(), ref_date=None, done_raws=()):
     """Check a whole model reply. Returns (ops, new_pages, rejected), where
     rejected is [(op_index, reason)]."""
     if not isinstance(update, dict):
@@ -115,7 +228,7 @@ def verify_batch(update, raws, kinds, known_items=()):
         if i >= MAX_OPS:
             rejected.append((i, "over the op cap"))
             continue
-        clean, why = verify_op(op, raws, kinds, known_items)
+        clean, why = verify_op(op, raws, kinds, known_items, ref_date, done_raws)
         if clean:
             ops.append(clean)
         else:

@@ -40,6 +40,7 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_PROXY_JSON_BODY_BYTES = 64 * 1024 * 1024
 _BODY_ERROR = object()
+EMBERS_SCHED = None        # the panel's ember scheduler, started by main() only
 
 
 def _post_body_limit(path):
@@ -375,6 +376,7 @@ def _router_startup(model_id):
 
 
 def main():
+    global EMBERS_SCHED
     import stats
     config.migrate()
     c = routes.cfg()
@@ -404,6 +406,12 @@ def main():
             tray.start(port, _tray_counts)
     except Exception:
         pass
+    try:                    # embers: run due jobs in the background (config embers_scheduler)
+        from embers.scheduler import Scheduler
+        EMBERS_SCHED = Scheduler(routes.cfg)
+        EMBERS_SCHED.start()
+    except Exception as e:
+        print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")
     import threading
     threading.Thread(target=_router_startup, args=(c.get("auto_load_model"),),
                      daemon=True, name="router-startup").start()

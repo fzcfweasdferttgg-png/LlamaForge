@@ -4,10 +4,14 @@
   python backend/embers_cli.py run morning        # ingest, then brief
   python backend/embers_cli.py ingest|brief|lint morning [--model ID]
   python backend/embers_cli.py list               # embers and the last run of each job
+  python backend/embers_cli.py tick               # one scheduler pass: what the panel would run now
 
 It uses the router LlamaForge already runs (config router_port and
-router_api_key) and whatever model is loaded, unless --model is given. It
-never loads or unloads models itself (that is M2's router gating).
+router_api_key) and whatever model is loaded; --model (or the ember's pinned
+model) must name the loaded one. The job commands never load or unload
+models, and stop if the user switches models mid-run; `tick` follows the panel's
+scheduler rules (embers/scheduler.py), but a fresh process has seen no idle
+time yet, so it never swaps models.
 
 Exit status: 0 when every step ended ok or partial; 1 when a step failed or
 was aborted, the router is down, or an error stopped the command. Errors print
@@ -20,14 +24,13 @@ model, a source file or the router.
 Lives in backend/ rather than as `python -m embers` because from the repo root
 `embers` would resolve to the data folder <ROOT>/embers, not this package.
 """
-import argparse, datetime as dt, os, re, sys
+import argparse, contextlib, datetime as dt, os, re, sys
 
 import config
 import embers
-from embers import jobs, templates, wikifs
-from embers.llm import DEFAULT_N_CTX, LLMError, Router, RouterUnavailable
+from embers import jobs, lock, scheduler, templates, wikifs
+from embers.llm import MAX_N_CTX, LLMError, Router, RouterUnavailable, clamp_n_ctx  # noqa: F401 (MAX_N_CTX re-exported)
 
-MAX_N_CTX = 1 << 20          # a larger "context" from /props is not believable; clamp it
 REASON_CHARS = 300
 JOBS = ("ingest", "brief", "lint")
 ROUTER_DOWN = ("The router is not reachable (down, restarting or loading a model). "
@@ -96,18 +99,6 @@ def _ember_root(base, name):
     return root
 
 
-def _n_ctx(value):
-    """The router's context size as an int in [1, MAX_N_CTX], else DEFAULT_N_CTX.
-    Values below jobs.MIN_N_CTX pass through: the jobs record why they cannot run."""
-    if isinstance(value, bool):
-        return DEFAULT_N_CTX
-    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
-        value = int(value.strip())
-    if not isinstance(value, int) or value <= 0:
-        return DEFAULT_N_CTX
-    return min(value, MAX_N_CTX)
-
-
 def _run_error(ember, run):
     try:
         row = ember.store.db.execute("SELECT error FROM runs WHERE id=?", (run,)).fetchone()
@@ -120,20 +111,14 @@ def _last_runs(root):
     with jobs.Ember(root) as e:
         found = []
         for job in JOBS:
-            r = e.store.last_run(job, ("ok", "partial", "failed", "aborted", "running"))
+            r = e.store.last_run(job, ("ok", "partial", "failed", "aborted", "running", "skipped"))
             if r:
                 found.append(f"{job} {r['status']} ({str(r['started'] or '')[:16]})")
     return ", ".join(found)
 
 
 def _list(base, out):
-    if not os.path.isdir(base):
-        return 0
-    for name in sorted(os.listdir(base)):
-        root = os.path.join(base, name)
-        if not (jobs.ID_RE.fullmatch(name) and not embers.reserved_name(name)
-                and os.path.isfile(os.path.join(root, "ember.json"))):
-            continue
+    for name, root in scheduler.list_embers(base):
         try:
             last = _last_runs(root)
         except Exception as e:             # one broken ember must not hide the others
@@ -159,13 +144,27 @@ def _jobs(a, base, cfg, router_cls, out):
     root = _ember_root(base, a.id)
     if not os.path.isfile(os.path.join(root, "ember.json")):
         raise SystemExit(safe(f"No ember named {a.id!r} in {base}"))
+    with contextlib.ExitStack() as stack:
+        try:                               # the panel's scheduler may be running this ember
+            stack.enter_context(lock.held(root))
+        except lock.Busy as e:             # only the acquire maps to this message
+            pid = e.pid if e.pid is not None else "unknown"
+            raise _Fail(f"{a.id} is already running in another process (pid {pid}; lock: {e.path})")
+        return _run_steps(a, root, cfg, router_cls, out)
+
+
+def _run_steps(a, root, cfg, router_cls, out):
     with jobs.Ember(root) as ember:
         router = router_cls(cfg)
         pinned = ember.conf.get("model")
         model = a.model or (pinned if isinstance(pinned, str) else "") or router.loaded_model()
         if not model or not isinstance(model, str):
             raise SystemExit("No model is loaded in the router. Load one in LlamaForge or pass --model.")
-        n_ctx, llm = _n_ctx(router.n_ctx(model)), router.llm(model)
+        if model != router.loaded_model():     # never load one: it would evict the user's model
+            raise _Fail(safe(f"{model} is not loaded in the router. Load it in LlamaForge first "
+                             "(job commands never load or unload models).")[:REASON_CHARS])
+        # autoload=False: if the user switches models mid-run, stop instead of loading ours back.
+        n_ctx, llm = clamp_n_ctx(router.n_ctx(model)), router.llm(model, autoload=False)
         _say(out, f"Using {model} (context {n_ctx})")
         code = 0
         for step in (["ingest", "brief"] if a.cmd == "run" else [a.cmd]):
@@ -184,6 +183,34 @@ def _jobs(a, base, cfg, router_cls, out):
         return code
 
 
+def _tick(a, router_cls, out, err):
+    """One scheduler pass in the foreground: what the panel would do right now."""
+    s = scheduler.Scheduler(config.load, router_cls=router_cls, now=lambda: a.now,
+                            runners=scheduler.RUNNERS)
+    r = s.tick()
+    if r["ran"]:
+        eid, job, status = r["ran"]
+        _say(out, f"ran {eid} {job}: {status}")
+    for eid, waits in sorted(r["waiting"].items()):
+        for job, reason in waits.items():
+            _say(out, f"{eid} {job}: waiting: {reason}")
+    for eid, job, reason in r["skipped"]:
+        _say(out, f"{eid} {job}: skipped: {reason}")
+    if not (r["ran"] or r["waiting"] or r["skipped"] or r["error"]):
+        _say(out, "nothing due")
+        st = s.status()
+        for eid, info in sorted((k, v) for k, v in st.items() if k != "last_error"):
+            if not info.get("enabled"):
+                _say(out, f"{eid}  disabled")
+                continue
+            nxt = ", ".join(f"{job} {when}" for job, when in info.get("next", {}).items())
+            _say(out, f"{eid}  next: {nxt}" if nxt else f"{eid}  no scheduled jobs")
+    if r["error"]:
+        _say(err, f"error: {r['error']}")
+        return 1
+    return 0
+
+
 def main(argv=None, now=None, router_cls=Router, out=None, err=None):
     out = out or sys.stdout
     err = err or sys.stderr
@@ -198,6 +225,7 @@ def main(argv=None, now=None, router_cls=Router, out=None, err=None):
         s.add_argument("id")
         s.add_argument("--model", default="")
     sub.add_parser("list", help="list embers and the last run of each job")
+    sub.add_parser("tick", help="one scheduler pass now: run, wait or skip what is due")
     a = ap.parse_args(argv)
     a.now = now or dt.datetime.now()
 
@@ -210,6 +238,8 @@ def main(argv=None, now=None, router_cls=Router, out=None, err=None):
             return _list(base, out)
         if a.cmd == "create":
             return _create(a, base, out)
+        if a.cmd == "tick":
+            return _tick(a, router_cls, out, err)
         return _jobs(a, base, cfg, router_cls, out)
     except _Fail as e:
         _say(err, str(e))
