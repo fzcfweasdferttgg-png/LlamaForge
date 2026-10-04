@@ -24,7 +24,7 @@ import argparse, datetime as dt, os, re, sys
 
 import config
 import embers
-from embers import jobs, templates, wikifs
+from embers import jobs, lock, templates, wikifs
 from embers.llm import DEFAULT_N_CTX, LLMError, Router, RouterUnavailable
 
 MAX_N_CTX = 1 << 20          # a larger "context" from /props is not believable; clamp it
@@ -159,6 +159,15 @@ def _jobs(a, base, cfg, router_cls, out):
     root = _ember_root(base, a.id)
     if not os.path.isfile(os.path.join(root, "ember.json")):
         raise SystemExit(safe(f"No ember named {a.id!r} in {base}"))
+    try:
+        with lock.held(root):              # the panel's scheduler may be running this ember
+            return _run_steps(a, root, cfg, router_cls, out)
+    except lock.Busy as e:
+        pid = e.pid if e.pid is not None else "unknown"
+        raise _Fail(f"{a.id} is already running in another process (pid {pid})")
+
+
+def _run_steps(a, root, cfg, router_cls, out):
     with jobs.Ember(root) as ember:
         router = router_cls(cfg)
         pinned = ember.conf.get("model")

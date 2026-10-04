@@ -1,5 +1,5 @@
 import conftest_paths  # noqa: F401
-import io, json, os, re, shutil, tempfile, threading, unittest
+import datetime as dt, io, json, os, re, shutil, tempfile, threading, unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -148,6 +148,19 @@ class HardeningTest(CliCase):
         self.assertNotEqual(code, 0)
         self.assertIn("ingest: failed:", out)
         self.assertIn("below the minimum", out)
+
+    def test_locked_ember_is_refused(self):
+        self.create()
+        lockfile = os.path.join(self.dir, "embers", "morning", ".ember.lock")
+        # A live pid that is not ours, and a fresh 'since' so the age check keeps the lock.
+        with open(lockfile, "w", encoding="utf-8") as f:
+            json.dump({"pid": os.getppid(), "since": dt.datetime.now().isoformat()}, f)
+        with mock.patch.object(jobs, "ingest", wraps=jobs.ingest) as m:
+            code, out = self.cli("run", "morning")
+        self.assertEqual(code, 1)
+        self.assertIn(f"morning is already running in another process (pid {os.getppid()})", self.err)
+        m.assert_not_called()
+        self.assertTrue(os.path.isfile(lockfile))
 
     def test_bad_ember_names_are_refused(self):
         for bad in ("../escape", "..", "Morning", "con", "COM1", "lpt9", "a/b", "a\\b", "", "_x",

@@ -337,7 +337,8 @@ def _close_failed(st, run, now, error):
     bare UPDATE in its own statement; if even that fails the row stays
     'running' and the next run of the job aborts it (Store.abort_running).
     Note abort_running would also abort a live concurrent run of the same job:
-    the M2 scheduler must hold a per-ember lock around runs."""
+    callers must hold embers.lock.held(root) around runs (the CLI does; the M2
+    scheduler will)."""
     try:
         st.db.rollback()
     except Exception:
