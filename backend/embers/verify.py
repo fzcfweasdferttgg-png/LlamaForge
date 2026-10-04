@@ -149,9 +149,10 @@ def cited_raw(sha, quote, raws):
     return None
 
 
-def verify_op(op, raws, kinds, known_items=(), ref_date=None):
+def verify_op(op, raws, kinds, known_items=(), ref_date=None, done_raws=()):
     """Check one proposed op against raws ({sha12: text}). ref_date (the run's
-    date) places a month/day without a year.
+    date) places a month/day without a year. done_raws are raws that record
+    finished work (commits): they can close a loop but never open one alone.
     Returns (clean_op, None) or (None, reason)."""
     if not isinstance(op, dict):
         return None, "not an object"
@@ -186,6 +187,8 @@ def verify_op(op, raws, kinds, known_items=(), ref_date=None):
             evidence.append({"raw": sha, "quote": _one_line(quote, MAX_TEXT)})
     if action == "close" and not evidence:
         return None, "close without passing evidence"
+    if action == "add" and kind == "loop" and evidence and all(e["raw"] in done_raws for e in evidence):
+        return None, "a loop opened on finished work alone"
     quotes = [e["quote"] for e in evidence]
     owner, due = op.get("owner"), op.get("due")
     return {"op": action, "page": page, "kind": kind, "item": item, "text": text,
@@ -194,7 +197,7 @@ def verify_op(op, raws, kinds, known_items=(), ref_date=None):
             "evidence": evidence, "verified": bool(evidence)}, None
 
 
-def verify_batch(update, raws, kinds, known_items=(), ref_date=None):
+def verify_batch(update, raws, kinds, known_items=(), ref_date=None, done_raws=()):
     """Check a whole model reply. Returns (ops, new_pages, rejected), where
     rejected is [(op_index, reason)]."""
     if not isinstance(update, dict):
@@ -205,7 +208,7 @@ def verify_batch(update, raws, kinds, known_items=(), ref_date=None):
         if i >= MAX_OPS:
             rejected.append((i, "over the op cap"))
             continue
-        clean, why = verify_op(op, raws, kinds, known_items, ref_date)
+        clean, why = verify_op(op, raws, kinds, known_items, ref_date, done_raws)
         if clean:
             ops.append(clean)
         else:

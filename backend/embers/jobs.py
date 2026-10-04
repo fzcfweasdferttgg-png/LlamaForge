@@ -425,6 +425,8 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         else:
             pending.append(dict(r, text=text))
     full_text = {r["sha"]: r["text"] for r in pending}
+    slot_type = {sl["id"]: sl["type"] for sl in tpl["slots"]}
+    done = {r["sha"] for r in pending if slot_type.get(r["source"]) in sources.DONE_TYPES}
 
     stats = {"raws": len(pending), "deferred": max(0, len(queued) - MAX_RAWS_PER_RUN), "batches": 0,
              "failed": 0, "failed_raws": 0, "truncated": 0, "split": 0, "ops": 0, "unverified": 0, "rejected": 0,
@@ -519,7 +521,7 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         raws = {sha: full_text[sha] for sha in shown_shas}
         try:
             ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids(),
-                                                           now.date())
+                                                           now.date(), done)
             kept = []
             for op in ops:                 # an update/close acts on the page its item lives on
                 old = st.get_item(op["item"]) if op["op"] != "add" else None

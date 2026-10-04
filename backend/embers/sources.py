@@ -20,6 +20,7 @@ DOWNLOAD_DEADLINE = 60      # wall-clock limit for a whole download
 CHUNK          = 64 * 1024
 FIRST_RUN_RELEASES = 30
 MAX_MODELS     = 200        # installed models listed in a machine snapshot
+DONE_TYPES     = ("git",)   # every item is finished work: evidence to close a loop, never to open one
 TEXT_EXT = (".md", ".txt")
 UA = "LlamaForge-Embers/1 (+https://github.com/dadwritestech/LlamaForge)"
 ATOM = "{http://www.w3.org/2005/Atom}"

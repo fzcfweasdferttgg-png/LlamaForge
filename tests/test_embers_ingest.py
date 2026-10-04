@@ -742,6 +742,35 @@ class FinishedWorkTest(EmberCase, unittest.TestCase):
         self.assertIn("Finished work", system)
         self.assertIn("is not a loop", system)
 
+    def test_a_commit_alone_cannot_open_a_loop(self):
+        tpl = templates.parse_template(dict(TEMPLATE, slots=TEMPLATE["slots"] + [
+            {"id": "repo", "type": "git", "label": "Repo"}]))
+        ember = self.make_ember({"acme.md": NOTE}, tpl)
+        ember.conf["bindings"]["repo"] = "repo"           # fetch is faked for git
+        commit = "Commit 0123456789ab by Me on 2026-10-04 (work already done)\n\nfeat: export the pricing sheet"
+
+        def fetch(stype, binding, cursor, now):
+            if stype == "git":
+                return ([{"ref": "0123456789ab", "title": "feat: export the pricing sheet", "text": commit}]
+                        if not cursor else []), {"last": "x"}
+            return sources.fetch(stype, binding, cursor, now)
+
+        def reply(messages):
+            content = messages[-1]["content"]
+            sha = {s: content.split(f"=== raw {s}")[1].split("=== raw")[0] for s in raw_ids(messages)}
+            git = next(s for s, t in sha.items() if "export the pricing" in t)
+            note = next(s for s, t in sha.items() if s != git)
+            return {"ops": [
+                {"op": "add", "page": "projects/acme", "kind": "loop", "text": "Export the pricing sheet",
+                 "evidence": [{"raw": git, "quote": "feat: export the pricing sheet"}]},
+                {"op": "add", "page": "projects/acme", "kind": "loop", "text": "Waiting on Sam for the SOW",
+                 "evidence": [{"raw": note, "quote": "I'll send the signed SOW by Friday"}]}]}
+        r = jobs.ingest(ember, FakeLLM(reply), NOW, fetch=fetch)
+        self.assertEqual((r["ops"], r["rejected"]), (1, 1))
+        page = self.read(ember, "pages", "projects", "acme.md")
+        self.assertIn("SOW", page)
+        self.assertNotIn("Export the pricing sheet", page)
+
 
 class ModelScoutTest(EmberCase, unittest.TestCase):
     def test_zero_setup_ember_ingests_releases_and_the_machine(self):

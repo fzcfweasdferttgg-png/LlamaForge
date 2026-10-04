@@ -107,6 +107,18 @@ class VerifyOpTest(unittest.TestCase):
         clean, _ = verify.verify_op(op(item=ITEM), RAWS, KINDS)
         self.assertIsNone(clean["item"])
 
+    def test_finished_work_cannot_open_a_loop(self):
+        done = {"0123456789ab"}
+        ev = [{"raw": "0123456789ab", "quote": "budget approved by Priya on Monday"}]
+        clean, why = verify.verify_op(op(evidence=ev), RAWS, KINDS, done_raws=done)
+        self.assertIsNone(clean)
+        self.assertIn("finished work", why)
+        self.assertTrue(verify.verify_op(op(evidence=ev, kind="fact"), RAWS, KINDS, done_raws=done)[0])
+        both = ev + op()["evidence"]                       # an open promise elsewhere backs it
+        self.assertTrue(verify.verify_op(op(evidence=both), RAWS, KINDS, done_raws=done)[0])
+        closed, _ = verify.verify_op(op(op="close", item=ITEM, evidence=ev), RAWS, KINDS, {ITEM}, done_raws=done)
+        self.assertEqual(closed["op"], "close")             # finished work is what closes a loop
+
     def test_close_needs_passing_evidence(self):
         clean, why = verify.verify_op(op(op="close", item=ITEM, evidence=[]), RAWS, KINDS, {ITEM})
         self.assertIsNone(clean)
