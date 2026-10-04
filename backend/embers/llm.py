@@ -49,6 +49,19 @@ class ModelNotLoaded(RouterUnavailable):
     (or the router) switched models. Not the input's fault; stop and retry later."""
 
 
+class ReplyTruncated(LLMError):
+    """The reply hit max_tokens before the JSON was complete. Asking again
+    with the same cap truncates again; the caller should send less input."""
+
+
+class PromptTooLarge(LLMError):
+    """The router refused the prompt as larger than the model's context.
+    n_prompt and n_ctx are the router's own token counts when it gave them."""
+    def __init__(self, msg, n_prompt=None, n_ctx=None):
+        super().__init__(msg)
+        self.n_prompt, self.n_ctx = n_prompt, n_ctx
+
+
 class JSONParseError(LLMError, ValueError):
     """Model text was not usable JSON (is a ValueError for callers that expect one)."""
 
@@ -126,7 +139,8 @@ def parse_json(text):
 
 def ask_json(complete, messages, schema, max_tokens=2048):
     """complete(messages, schema, max_tokens) -> (text, usage). Parses and
-    shape-checks the reply; on failure retries once with the error as a hint."""
+    shape-checks the reply; on failure retries once with the error as a hint.
+    A reply cut off at max_tokens raises ReplyTruncated instead of retrying."""
     usage = {"prompt_tokens": 0, "completion_tokens": 0}
     msgs, err = list(messages), ""
     for attempt in (1, 2):
@@ -143,6 +157,8 @@ def ask_json(complete, messages, schema, max_tokens=2048):
             err = f"not valid JSON ({e})"
         if not err:
             return obj, usage
+        if isinstance(u, dict) and u.get("finish_reason") == "length":
+            raise ReplyTruncated(f"model reply cut off at {max_tokens} tokens: {err}")
         if attempt == 1:
             msgs = msgs + [{"role": "assistant", "content": (text or "")[:2000]},
                            {"role": "user", "content": f"That reply was rejected: {err}. "
@@ -185,9 +201,14 @@ def _fetch(url, body, key, timeout):
         raise
     except urllib.error.HTTPError as e:
         try:
-            detail = e.read(300).decode("utf-8", "replace")
+            detail = e.read(1000).decode("utf-8", "replace")
         except Exception:
             detail = ""
+        if e.code == 400 and "exceed_context_size" in detail:
+            nums = [re.search(r'"' + k + r'"\s*:\s*(\d{1,9})\b', detail) for k in ("n_prompt_tokens", "n_ctx")]
+            raise PromptTooLarge(clean(f"router answered 400: {detail}")[:400],
+                                 *[int(m.group(1)) if m else None for m in nums]) from None
+        detail = detail[:300]
         cls = RouterUnavailable if e.code == 503 else LLMError
         raise cls(clean(f"router answered {e.code}: {detail}")[:400]) from None
     except (OSError, ValueError, RecursionError, http.client.HTTPException) as e:
@@ -391,9 +412,10 @@ class Router:
 
         def call(messages, schema, max_tokens):
             # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
-            # writes the JSON. Chat templates without the variable ignore it.
+            # writes the JSON. Chat templates without the variable ignore it; a zero thinking
+            # budget closes the think block of models that ignore it (older routers drop the field).
             body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    "chat_template_kwargs": {"enable_thinking": False}, "thinking_budget_tokens": 0,
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
             try:
@@ -408,8 +430,11 @@ class Router:
                 raise LLMError("router reply had no message") from None
             if not isinstance(text, str):
                 raise LLMError("router reply had no text content")
-            usage = r.get("usage")
-            return text, usage if isinstance(usage, dict) else {}
+            usage = dict(r["usage"]) if isinstance(r.get("usage"), dict) else {}
+            finish = r["choices"][0].get("finish_reason") if isinstance(r["choices"][0], dict) else None
+            if isinstance(finish, str):
+                usage["finish_reason"] = finish
+            return text, usage
         return call
 
     def llm(self, model, max_tokens_cap=MAX_REPLY_CAP, autoload=True):

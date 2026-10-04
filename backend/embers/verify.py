@@ -64,6 +64,22 @@ def _grounded(value, quotes):
     return len(v) >= 2 and any(_contains(normalise(q), v) for q in quotes)
 
 
+def cited_raw(sha, quote, raws):
+    """The raw id a quote verifiably comes from, else None. Small models garble
+    the id (the whole "=== raw <id> (...) ===" header, a source's first line),
+    so: the cited id, else an id found inside the cited text, else any raw of
+    the batch that contains the quote. The quote itself must always be verbatim."""
+    if not isinstance(quote, str):
+        return None
+    tried = []
+    if isinstance(sha, str):
+        tried = [sha] + [s for s in RAW_RE.findall(sha[:400]) if s != sha]
+    for s in tried + [s for s in raws if s not in tried]:
+        if s in raws and check_quote(quote, raws[s]):
+            return s
+    return None
+
+
 def verify_op(op, raws, kinds, known_items=()):
     """Check one proposed op against raws ({sha12: text}).
     Returns (clean_op, None) or (None, reason)."""
@@ -76,14 +92,17 @@ def verify_op(op, raws, kinds, known_items=()):
     if not page_ok(page, kinds):
         return None, f"bad page {page!r}"
     item = op.get("item")
+    text = _one_line(op.get("text"), MAX_TEXT)
+    known = isinstance(item, str) and ITEM_RE.fullmatch(item) and item in known_items
+    if action == "update" and not known and text and not (isinstance(item, str) and ITEM_RE.search(item)):
+        action = "add"                  # no item id at all (a page path, empty): the item is new
     if action == "add":
         item = None                     # code assigns ids; the model never does
-    elif not (isinstance(item, str) and ITEM_RE.fullmatch(item) and item in known_items):
+    elif not known:
         return None, f"unknown item {item!r}"
     kind = op.get("kind") or "loop"
     if kind not in ITEM_KINDS:
         return None, f"bad kind {kind!r}"
-    text = _one_line(op.get("text"), MAX_TEXT)
     if action == "add" and not text:
         return None, "add without text"
     evs = op.get("evidence") if isinstance(op.get("evidence"), list) else []
@@ -91,8 +110,9 @@ def verify_op(op, raws, kinds, known_items=()):
     for ev in evs[:MAX_EVIDENCE]:
         if not isinstance(ev, dict):
             continue
-        sha, quote = ev.get("raw"), ev.get("quote")
-        if isinstance(sha, str) and sha in raws and isinstance(quote, str) and check_quote(quote, raws[sha]):
+        quote = ev.get("quote")
+        sha = cited_raw(ev.get("raw"), quote, raws)
+        if sha is not None:
             evidence.append({"raw": sha, "quote": _one_line(quote, MAX_TEXT)})
     if action == "close" and not evidence:
         return None, "close without passing evidence"

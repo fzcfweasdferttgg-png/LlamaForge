@@ -117,6 +117,23 @@ class AskJsonTest(unittest.TestCase):
         self.assertEqual(obj, {"ops": []})
         self.assertEqual(len(calls), 1)
 
+    def test_truncated_reply_is_reply_truncated_without_a_retry(self):
+        # Asking again with the same token cap only truncates again: the caller must shrink the input.
+        calls = []
+
+        def complete(messages, schema, max_tokens):
+            calls.append(messages)
+            return '{"ops": [{"op": "add", "te', {"prompt_tokens": 7, "finish_reason": "length"}
+        with self.assertRaises(llm.ReplyTruncated) as cm:
+            llm.ask_json(complete, [{"role": "user", "content": "x"}], SCHEMA)
+        self.assertEqual(len(calls), 1)
+        self.assertIsInstance(cm.exception, llm.LLMError)
+
+    def test_truncated_but_valid_reply_is_accepted(self):
+        def complete(messages, schema, max_tokens):
+            return '{"ops": []}', {"finish_reason": "length"}
+        self.assertEqual(llm.ask_json(complete, [{"role": "user", "content": "x"}], SCHEMA)[0], {"ops": []})
+
 
 def _no_network(req, timeout):
     raise AssertionError(f"network: test tried to reach {req.full_url}")
@@ -196,6 +213,15 @@ class RouterTest(_NoNetwork):
         self.assertTrue(self.sent[0][0].endswith("/v1/chat/completions?autoload=false"))
         r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
         self.assertTrue(self.sent[1][0].endswith("/v1/chat/completions"))
+
+    def test_complete_caps_thinking_and_reports_finish_reason(self):
+        r = self.make({"completions": {"choices": [{"message": {"content": "{}"}, "finish_reason": "length"}],
+                                       "usage": {"prompt_tokens": 3}}})
+        _, usage = r.complete("b")([{"role": "user", "content": "x"}], SCHEMA, 10)
+        self.assertEqual(usage, {"prompt_tokens": 3, "finish_reason": "length"})
+        body = self.sent[0][1]
+        self.assertEqual(body["thinking_budget_tokens"], 0)      # reasoning models that ignore enable_thinking
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
 
     def test_complete_not_loaded_is_model_not_loaded(self):
         err = llm.LLMError('router answered 400: {"error":{"code":400,"message":"model is not loaded"}}')
@@ -319,6 +345,25 @@ class RequestTest(unittest.TestCase):
             self.run_with(fake, key="SECRETKEY123")
         self.assertIn("401", str(cm.exception))
         self.assertNotIn("SECRETKEY123", str(cm.exception))
+
+    def test_context_overflow_is_prompt_too_large(self):
+        body = (b'{"error":{"code":400,"message":"request (9120 tokens) exceeds the available context size '
+                b'(8192 tokens), try increasing it","type":"exceed_context_size_error",'
+                b'"n_prompt_tokens":9120,"n_ctx":8192}}')
+
+        def fake(req, timeout):
+            raise urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(body))
+        with self.assertRaises(llm.PromptTooLarge) as cm:
+            self.run_with(fake)
+        self.assertEqual((cm.exception.n_prompt, cm.exception.n_ctx), (9120, 8192))
+        self.assertNotIsInstance(cm.exception, llm.RouterUnavailable)
+
+    def test_context_overflow_without_numbers(self):
+        def fake(req, timeout):
+            raise urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(b'{"error":{"type":"exceed_context_size_error"}}'))
+        with self.assertRaises(llm.PromptTooLarge) as cm:
+            self.run_with(fake)
+        self.assertEqual((cm.exception.n_prompt, cm.exception.n_ctx), (None, None))
 
     def test_connection_error_redacts_key(self):
         def fake(req, timeout):

@@ -39,6 +39,14 @@ class BriefTest(EmberCase, unittest.TestCase):
         self.assertIn("](../raw/", md)
         self.assertIn("] brief |", self.read(self.ember, "log.md"))
 
+    def test_decorated_item_id_is_recovered(self):
+        # Small models echo the listing's "[it-xxxxxxxx]" or add the page; the id inside still counts.
+        fake = FakeLLM({"headline": "h", "sections": [{"title": "Waiting", "bullets": [
+            {"item": f"[{self.verified}] projects/acme", "text": "Sam owes you the signed SOW."}]}]})
+        r = jobs.brief(self.ember, fake, LATER)
+        self.assertEqual((r["status"], r["bullets"]), ("ok", 1))
+        self.assertGreaterEqual(fake.max_tokens[0], min(jobs.BRIEF_REPLY_TOKENS, 3000))
+
     def test_unverified_items_never_reach_the_model(self):
         fake = FakeLLM({"headline": "h", "sections": []})
         jobs.brief(self.ember, fake, LATER)

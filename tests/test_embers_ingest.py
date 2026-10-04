@@ -3,7 +3,7 @@ import datetime as dt, json, math, os, shutil, unicodedata, unittest
 from unittest import mock
 
 from embers import jobs, prompts, sources, templates, verify, wikifs
-from embers.llm import LLMError, RouterUnavailable
+from embers.llm import LLMError, PromptTooLarge, ReplyTruncated, RouterUnavailable
 from embers_testkit import NOW, TEMPLATE, EmberCase, FakeLLM, item_ids, raw_ids
 
 NOTE = "Call with Sam.\nSam: I'll send the signed SOW by Friday."
@@ -189,8 +189,9 @@ class HardeningTest(EmberCase, unittest.TestCase):
                              "evidence": [{"raw": "0123456789ab",
                                            "quote": "I'll pay the invoice tomorrow morning"}]}]}
         r = jobs.ingest(ember, FakeLLM(reply), NOW)
-        self.assertEqual((r["ops"], r["unverified"]), (1, 1))      # the forged raw id never counts
-        self.assertEqual(ember.store.referenced_raws(), set())
+        # The forged id never counts: the quote is credited to the raw it really occurs in.
+        self.assertEqual((r["ops"], r["unverified"]), (1, 0))
+        self.assertEqual(ember.store.referenced_raws(), {ember.store.all_raws()[0]["sha"]})
 
     def test_terms_are_unicode_words(self):
         terms = jobs._terms("Zürich Zürich café straße and the SOW für")
@@ -204,7 +205,7 @@ class HardeningTest(EmberCase, unittest.TestCase):
         ember = self.make_ember({"acme.md": NOTE})
         jobs.ingest(ember, FakeLLM(add_sow()), NOW)
         old_raw = ember.store.all_raws()[0]["sha"]
-        self.write_note("acme.md", NOTE + "\nUpdate: Sam sent the signed SOW today.")
+        self.write_note("acme.md", "Update: Sam sent the signed SOW today.")   # the old quote is gone
 
         def reply(messages):
             iid = item_ids(messages)[0]
@@ -552,7 +553,7 @@ class ReviewFixTest(EmberCase, unittest.TestCase):
         self.assertTrue(os.path.exists(outside))
 
     # 10
-    def test_update_or_close_naming_another_page_is_rejected(self):
+    def test_update_or_close_naming_another_page_acts_on_the_items_page(self):
         ember = self.make_ember({"acme.md": NOTE})
         jobs.ingest(ember, FakeLLM(add_sow()), NOW)
         iid = next(iter(ember.store.known_item_ids()))
@@ -566,12 +567,12 @@ class ReviewFixTest(EmberCase, unittest.TestCase):
                             {"op": "update", "page": "events/x", "kind": "loop", "item": iid, "text": "new",
                              "evidence": ev}]}
         r = jobs.ingest(ember, FakeLLM(reply), NOW + dt.timedelta(days=1))
-        self.assertEqual((r["ops"], r["rejected"]), (0, 2))
+        self.assertEqual((r["ops"], r["rejected"]), (2, 0))
         it = ember.store.get_item(iid)
-        self.assertEqual((it["status"], it["text"]), ("open", "Waiting on Sam for the signed SOW"))
+        self.assertEqual(it["page"], "projects/acme")
+        self.assertNotEqual(it["status"], "open")
         self.assertIsNone(ember.store.get_page("people/bob"))
-        detail = json.loads(ember.store.recent_runs()[0]["detail"])
-        self.assertTrue(any("page" in why for why in detail["rejections"]))
+        self.assertIsNone(ember.store.get_page("events/x"))
 
 
 class PruneTest(EmberCase, unittest.TestCase):
@@ -584,6 +585,123 @@ class PruneTest(EmberCase, unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(ember.root, "raw", raws["other.md"] + ".txt")))
         self.assertEqual(ember.store.raw_status(raws["other.md"]), "pruned")
         self.assertEqual(jobs.prune_raws(ember), 0)
+
+
+def _raise(exc):
+    def reply(messages):
+        raise exc
+    return reply
+
+
+def _prompt_size(messages):
+    return sum(jobs._est(m["content"]) for m in messages)
+
+
+class SmallModelTest(EmberCase, unittest.TestCase):
+    """Small and heavily quantized models: long replies, garbled ids, tokenizers
+    that count more tokens than the estimate."""
+
+    def test_truncated_reply_splits_the_batch_without_counting_a_failure(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} about the plan" for i in range(4)})
+        fake = FakeLLM(ReplyTruncated("cut off"), {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [4, 2, 2])
+        self.assertEqual((r["status"], r["batches"], r["failed"], r["split"]), ("ok", 2, 0, 1))
+        self.assertEqual(ember.store.pending_raws(), [])
+        self.assertEqual(ember.store.get_meta(jobs.ATTEMPTS_KEY, {}), {})
+
+    def test_truncated_reply_of_one_raw_is_a_failure(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        r = jobs.ingest(ember, FakeLLM(ReplyTruncated("cut off")), NOW)
+        self.assertEqual((r["status"], r["failed"]), ("failed", 1))
+        self.assertEqual(len(ember.store.pending_raws()), 1)
+
+    def test_prompt_too_large_splits_and_rescales_the_estimate(self):
+        ember = self.make_ember({f"n{i}.md": f"note {i} " + "word " * 500 for i in range(2)})
+        seen = []
+
+        def overflow(messages):
+            seen.append(_prompt_size(messages))
+            raise PromptTooLarge("too big", n_prompt=seen[0] * 2, n_ctx=4096)
+        fake = FakeLLM(overflow, {"ops": []}, {"ops": []})
+        r = jobs.ingest(ember, fake, NOW, n_ctx=4096)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [2, 1, 1])
+        self.assertEqual((r["status"], r["failed"]), ("ok", 0))
+        scale = 2 * 1.1                    # router tokens per estimated token, with a margin
+        for m, cap in zip(fake.calls[1:], fake.max_tokens[1:]):
+            self.assertLessEqual(_prompt_size(m) * scale, 4096 * jobs.PROMPT_SHARE + 1)
+            self.assertLessEqual(cap, 4096 - int(_prompt_size(m) * scale))
+
+    def test_prompt_too_large_adopts_the_routers_context(self):
+        ember = self.make_ember({"acme.md": NOTE + " " + "word " * 2000})
+
+        def overflow(messages):            # the estimate was right, the context is smaller
+            raise PromptTooLarge("too big", n_prompt=_prompt_size(messages), n_ctx=2048)
+        fake = FakeLLM(overflow, add_sow())
+        r = jobs.ingest(ember, fake, NOW, n_ctx=8192)       # /props said 8192, a slot has 2048
+        self.assertEqual((r["status"], r["ops"], r["truncated"]), ("ok", 1, 1))
+        self.assertLessEqual(_prompt_size(fake.calls[1]) * 1.1, 2048 * jobs.PROMPT_SHARE + 1)
+        self.assertLessEqual(fake.max_tokens[1], 2048)
+
+    def test_one_raw_keeps_overflowing_then_fails(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        fake = FakeLLM(*[_raise(PromptTooLarge("too big")) for _ in range(6)])
+        r = jobs.ingest(ember, fake, NOW)
+        self.assertEqual((r["status"], r["failed"]), ("failed", 1))
+        self.assertLessEqual(len(fake.calls), 3)
+        self.assertEqual(len(ember.store.pending_raws()), 1)
+
+    def test_batches_are_capped_by_raw_count_and_tokens(self):
+        ember = self.make_ember({f"n{i:02}.md": f"note {i}" for i in range(jobs.MAX_BATCH_RAWS + 3)})
+        fake = FakeLLM({"ops": []}, {"ops": []})
+        jobs.ingest(ember, fake, NOW, n_ctx=131072)
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [jobs.MAX_BATCH_RAWS, 3])
+        big = self.make_ember({f"b{i}.md": f"note {i} " + "word " * 3000 for i in range(3)})
+        fake = FakeLLM({"ops": []}, {"ops": []}, {"ops": []})
+        jobs.ingest(big, fake, NOW, n_ctx=131072)           # 3 x ~3.75k tokens over a 6k batch cap
+        self.assertEqual([len(raw_ids(m)) for m in fake.calls], [1, 1, 1])
+
+    def test_batches_hold_one_source_where_possible(self):
+        ember = self.make_ember({}, TWO_SLOTS, {"work": ".", "home": "."})
+        tmp = os.path.dirname(self.notes)
+        for sid in ("work", "home"):
+            os.makedirs(os.path.join(tmp, sid))
+            for i in range(3):
+                with open(os.path.join(tmp, sid, f"{sid}{i}.md"), "w", encoding="utf-8") as f:
+                    f.write(f"{sid} note {i}")
+            ember.conf["bindings"][sid] = os.path.join(tmp, sid)
+        fake = FakeLLM({"ops": []}, {"ops": []})
+        with mock.patch.object(jobs, "MAX_BATCH_RAWS", 3):
+            jobs.ingest(ember, fake, NOW)
+        source = {r["sha"]: r["source"] for r in ember.store.all_raws()}
+        self.assertEqual(sorted(sorted({source[s] for s in raw_ids(m)}) for m in fake.calls), [["home"], ["work"]])
+
+    def test_update_naming_the_wrong_page_lands_on_the_items_page(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        jobs.ingest(ember, FakeLLM(add_sow()), NOW)
+        self.write_note("acme.md", NOTE + "\nUpdate: Sam sent the signed SOW today.")
+
+        def close(messages):
+            return {"ops": [{"op": "close", "page": "people/sam", "kind": "loop", "item": item_ids(messages)[0],
+                             "text": "", "evidence": [{"raw": raw_ids(messages)[0],
+                                                       "quote": "Sam sent the signed SOW today"}]}]}
+        r = jobs.ingest(ember, FakeLLM(close), NOW + dt.timedelta(days=1))
+        self.assertEqual((r["ops"], r["rejected"]), (1, 0))
+        self.assertIn("- [x] Waiting on Sam", self.read(ember, "pages", "projects", "acme.md"))
+        self.assertFalse(os.path.exists(os.path.join(ember.root, "pages", "people", "sam.md")))
+
+    def test_a_model_that_never_quotes_is_flagged(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        ops = [{"op": "add", "page": "projects/acme", "kind": "fact", "text": f"thing {i}",
+                "evidence": [{"raw": "0", "quote": "0"}]} for i in range(3)]
+        r = jobs.ingest(ember, FakeLLM({"ops": ops}), NOW)
+        self.assertEqual((r["status"], r["ops"], r["unverified"]), ("partial", 3, 3))
+        self.assertIn("too small or too heavily quantized", ember.store.recent_runs()[0]["error"])
+
+    def test_one_unverified_op_is_not_flagged(self):
+        ember = self.make_ember({"acme.md": NOTE})
+        r = jobs.ingest(ember, FakeLLM(add_sow("Sam promised the contract")), NOW)
+        self.assertEqual((r["status"], r["unverified"]), ("ok", 1))
 
 
 if __name__ == "__main__":

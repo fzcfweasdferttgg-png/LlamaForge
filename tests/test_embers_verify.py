@@ -63,10 +63,28 @@ class VerifyOpTest(unittest.TestCase):
         self.assertFalse(clean["verified"])
         self.assertEqual((clean["owner"], clean["due"]), ("", ""))
 
-    def test_unknown_raw_id_does_not_verify(self):
+    def test_quote_in_no_shown_raw_does_not_verify(self):
         clean, _ = verify.verify_op(op(evidence=[{"raw": "ffffffffffff",
-                                                  "quote": "I'll send the signed SOW by Friday"}]), RAWS, KINDS)
+                                                  "quote": "Sam will mail the contract tomorrow"}]), RAWS, KINDS)
         self.assertFalse(clean["verified"])
+
+    def test_garbled_raw_id_is_recovered_from_the_quote(self):
+        # Small models cite the whole header, a source's first line, or an unknown id;
+        # a verbatim quote still pins down the raw it came from.
+        for raw in ("ffffffffffff", "=== raw a1b2c3d4e5f6 (source: notes, ref: acme.md) ===",
+                    "File: acme.md", "", None, 7):
+            with self.subTest(raw=raw):
+                clean, _ = verify.verify_op(op(evidence=[{"raw": raw,
+                                            "quote": "I'll send the signed SOW by Friday"}]), RAWS, KINDS)
+                self.assertTrue(clean["verified"])
+                self.assertEqual(clean["evidence"][0]["raw"], "a1b2c3d4e5f6")
+
+    def test_update_of_a_non_id_is_an_add(self):
+        clean, why = verify.verify_op(op(op="update", item="people/acme-legal"), RAWS, KINDS)
+        self.assertIsNone(why)
+        self.assertEqual((clean["op"], clean["item"]), ("add", None))
+        clean, why = verify.verify_op(op(op="close", item="people/acme-legal"), RAWS, KINDS)
+        self.assertIsNone(clean)
 
     def test_evidence_must_be_a_list(self):
         clean, _ = verify.verify_op(op(evidence={"raw": "a1b2c3d4e5f6"}), RAWS, KINDS)
@@ -81,6 +99,7 @@ class VerifyOpTest(unittest.TestCase):
 
     def test_update_needs_known_item(self):
         self.assertIsNone(verify.verify_op(op(op="update", item=ITEM), RAWS, KINDS)[0])
+        self.assertIsNone(verify.verify_op(op(op="update", item="[" + ITEM + "]"), RAWS, KINDS)[0])
         clean, _ = verify.verify_op(op(op="update", item=ITEM), RAWS, KINDS, known_items={ITEM})
         self.assertEqual(clean["item"], ITEM)
 
