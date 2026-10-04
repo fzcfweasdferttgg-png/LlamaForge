@@ -154,6 +154,9 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(body["response_format"]["type"], "json_schema")
         self.assertEqual(body["response_format"]["json_schema"]["schema"], SCHEMA)
         self.assertEqual((body["model"], body["temperature"], body["max_tokens"]), ("b", 0.2, 1000))
+        # A reasoning model would spend max_tokens thinking and never write the JSON
+        # (seen on a live 27B with reasoning-effort xhigh); templates ignore unknown kwargs.
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
 
     def test_missing_message(self):
         r = self.make({"completions": {"choices": []}})

@@ -225,7 +225,10 @@ class Router:
 
     def complete(self, model):
         def call(messages, schema, max_tokens):
+            # Thinking off: a reasoning model otherwise spends max_tokens reasoning and never
+            # writes the JSON. Chat templates without the variable ignore it.
             body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
+                    "chat_template_kwargs": {"enable_thinking": False},
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "reply", "schema": schema}}}
             r = self.request(self.base + "/v1/chat/completions", body, key=self._key, timeout=TIMEOUT)
