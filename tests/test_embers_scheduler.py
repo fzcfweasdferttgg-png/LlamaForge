@@ -28,6 +28,7 @@ class State:
         self.ctors = 0
         self.calls = []
         self.probe_errors = []         # activity/n_ctx asked about a model that is not loaded
+        self.sleeping = None           # model id models() reports as "sleeping"
 
 
 class FakeRouter:
@@ -74,9 +75,17 @@ class FakeRouter:
             self.s.probe_errors.append(("n_ctx", model))
         return 16384
 
+    def models(self):
+        self.s.calls.append(("models",))
+        out = [{"id": self.s.loaded, "status": "loaded"}] if isinstance(self.s.loaded, str) else []
+        if self.s.sleeping:
+            out.append({"id": self.s.sleeping, "status": "sleeping"})
+        return out
+
     def llm(self, model):
         def call(messages, schema, max_tokens=2048):
-            raise AssertionError("fake runners never call the model")
+            self.s.calls.append(("chat", model))
+            return {}, {}
         call.model = model
         return call
 
@@ -89,6 +98,8 @@ class Runners:
         self.calls = []
         self.raise_for = set()         # ember ids whose runner raises
         self.on_run = None             # callable(ember_id, job) run inside the job
+        self.llm_calls = 0             # model calls each job makes (after on_run)
+        self.llm_errors = []           # exceptions those calls raised
 
     def make(self, job):
         def run(ember, llm, now, n_ctx=8192):
@@ -98,6 +109,14 @@ class Runners:
                 rid = st.start_run(job, now)
             if self.on_run:
                 self.on_run(ember.id, job)
+            for _ in range(self.llm_calls):
+                try:
+                    llm([{"role": "user", "content": "x"}], {"type": "object"})
+                except RouterUnavailable as e:   # what jobs do: stop, count nothing
+                    self.llm_errors.append(e)
+                    with st.db:
+                        st.finish_run(rid, now, "failed", str(e))
+                    return {"status": "failed", "router_down": True}
             if ember.id in self.raise_for:
                 with st.db:
                     st.finish_run(rid, now, "failed", "boom")
@@ -414,6 +433,107 @@ class SwapTest(SchedCase):
         self.state.loaded = "other"
         self.t[0] = SWAP_IDLE
         self.assertIn("idle minutes", self.sched.tick()["waiting"]["a"]["ingest"])
+
+
+class PreemptTest(SchedCase):
+    def test_model_calls_go_through_while_ours_is_loaded(self):
+        self.ember("a")
+        self.runners.llm_calls = 3
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.state.calls.count(("chat", "base-model")), 3)
+        self.assertEqual(self.runners.llm_errors, [])
+
+    def test_user_swaps_mid_run_preempts_without_restore(self):
+        root = self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE
+        self.runners.llm_calls = 2
+
+        def user_takes_gpu(eid, job):
+            self.state.loaded = "users-model"
+        self.runners.on_run = user_takes_gpu
+        r = self.sched.tick()
+        self.assertEqual(r["ran"], ("a", "ingest", "failed"))
+        self.assertEqual(len(self.runners.llm_errors), 1)
+        self.assertIsInstance(self.runners.llm_errors[0], RouterUnavailable)
+        self.assertIn("pre-empted: users-model is loaded now", str(self.runners.llm_errors[0]))
+        self.assertNotIn(("chat", "pinned"), self.state.calls)
+        self.assertEqual(self.ops(), [("load", "pinned")])          # no restore, no reload
+        self.assertEqual(self.state.loaded, "users-model")
+        self.assertIn("pre-empted", self.runs(root, "ingest")[0]["error"])
+
+    def test_unloaded_mid_run_preempts_without_restore(self):
+        self.ember("a", model="pinned")
+        self.t[0] = SWAP_IDLE
+        self.runners.llm_calls = 1
+
+        def user_unloads(eid, job):
+            self.state.loaded = None
+        self.runners.on_run = user_unloads
+        self.sched.tick()
+        self.assertIn("pre-empted: nothing is loaded now", str(self.runners.llm_errors[0]))
+        self.assertEqual(self.ops(), [("load", "pinned")])
+
+    def test_check_error_becomes_router_unavailable(self):
+        self.ember("a")
+        self.runners.llm_calls = 1
+
+        def router_dies(eid, job):
+            self.state.loaded = LLMError("connection reset")
+        self.runners.on_run = router_dies
+        self.sched.tick()
+        self.assertIsInstance(self.runners.llm_errors[0], RouterUnavailable)
+        self.assertIn("connection reset", str(self.runners.llm_errors[0]))
+
+    def test_sleeping_model_is_still_ours(self):
+        self.ember("a")
+        self.runners.llm_calls = 1
+
+        def falls_asleep(eid, job):
+            self.state.loaded, self.state.sleeping = None, "base-model"
+        self.runners.on_run = falls_asleep
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.runners.llm_errors, [])
+
+    def test_preemption_resets_idle_clock(self):
+        self.ember("a", model="pinned")
+        self.ember("b", model="pinned")
+        self.t[0] = SWAP_IDLE
+        self.runners.llm_calls = 1
+        self.runners.on_run = lambda eid, job: setattr(self.state, "loaded", "users-model")
+        self.sched.tick()
+        self.runners.on_run = None
+        self.t[0] = 2 * SWAP_IDLE - 1
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["b"]["ingest"])
+
+
+class OwnJobActivityTest(SchedCase):
+    def test_job_end_counts_as_activity(self):
+        self.ember("a")
+        self.ember("b", model="pinned")
+        self.t[0] = SWAP_IDLE
+        clock_at_end = SWAP_IDLE + 300
+
+        def long_job(eid, job):
+            self.t[0] = clock_at_end           # the job took 5 minutes
+        self.runners.on_run = long_job
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.runners.on_run = None
+        self.t[0] = clock_at_end + SWAP_IDLE - 1
+        r = self.sched.tick()                  # a brief runs (no swap needed); b still waits
+        self.assertEqual(r["ran"], ("a", "brief", "ok"))
+        self.t[0] = clock_at_end + SWAP_IDLE - 1
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["b"]["ingest"])
+        self.t[0] = clock_at_end + 2 * SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("b", "ingest", "ok"))
+
+    def test_failed_job_counts_as_activity(self):
+        self.ember("a")
+        self.ember("b", model="pinned")
+        self.runners.raise_for = {"a"}
+        self.t[0] = SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "error"))
+        self.assertEqual(self.sched.tick()["ran"], ("a", "brief", "error"))
+        self.assertIn("idle minutes", self.sched.tick()["waiting"]["b"]["ingest"])
 
 
 class ErrorTest(SchedCase):

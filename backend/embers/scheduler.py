@@ -13,8 +13,22 @@ unless the user loaded something else meanwhile. activity() and n_ctx() are
 only ever asked about the loaded model (asking about another one makes the
 router load it).
 
+Pre-emption: before every model call the job checks that our model is still
+the loaded one (sleeping counts). If the user loaded another model, or
+unloaded ours, the call raises RouterUnavailable, so the job stops cleanly
+(its raws stay pending) and our next batch never auto-loads our model back
+over theirs. The GPU is then theirs: no restore. The end of any job, like a
+swap, counts as router activity, so the next swap needs fresh idle minutes.
+
 Everything that can go wrong is caught: tick() never raises, a broken ember
 never stops the others, and the last problem is kept in status().
+
+Known limits: each ember has one wait clock at a time, so its later due jobs
+start waiting (and count towards WAIT_MAX) only once the earlier job ran or
+was skipped; behind a router that stays busy, an ember with ingest and brief
+due can wait about two WAIT_MAX periods before both are skipped. And
+`embers_cli tick` builds a fresh Scheduler, which has observed no idle time,
+so it never swaps models.
 """
 import copy, datetime as dt, os, threading, time
 
@@ -52,6 +66,14 @@ def jobs_conf(conf):
     tpl = conf.get("template") if isinstance(conf, dict) else None
     j = tpl.get("jobs") if isinstance(tpl, dict) else None
     return j if isinstance(j, dict) else {}
+
+
+def _sleeping(router, model):
+    """True if the router reports model as sleeping (loaded, woken by a request)."""
+    models = getattr(router, "models", None)
+    if models is None:
+        return False
+    return any(m.get("id") == model and m.get("status") == "sleeping" for m in models() or [])
 
 
 def _msg(e):
@@ -251,7 +273,7 @@ class Scheduler:
             if c["job"] not in due:
                 self._waiting.pop((c["id"], c["job"]), None)
                 return
-            swapped = False
+            swapped, preempted = False, []
             try:
                 if action == "swap":
                     swapped = True
@@ -272,16 +294,36 @@ class Scheduler:
                         result["skipped"].append((c["id"], c["job"], why[:ERROR_CHARS]))
                         return
                 self._waiting.pop((c["id"], c["job"]), None)
-                self._run(result, c, ember, router, model)
+                self._run(result, c, ember, router, model, preempted)
             finally:
-                if swapped:
+                if swapped and not preempted:      # pre-empted: the GPU is the user's now
                     self._restore(router, prev, model)
 
-    def _run(self, result, c, ember, router, model):
+    def _guarded_llm(self, router, model, preempted):
+        """router.llm(model), but every call first checks our model is still loaded."""
+        inner = router.llm(model)
+
+        def call(messages, schema, max_tokens=2048):
+            try:
+                cur = router.loaded_model()
+                if cur is None and _sleeping(router, model):
+                    cur = model                # a request wakes it; still ours
+            except LLMError as e:
+                raise RouterUnavailable(f"could not check the loaded model: {e}"[:ERROR_CHARS]) from None
+            if cur != model:
+                who = cur if isinstance(cur, str) and cur else "nothing"
+                preempted.append(who)
+                raise RouterUnavailable(f"pre-empted: {who} is loaded now"[:ERROR_CHARS])
+            return inner(messages, schema, max_tokens)
+        call.model = model
+        return call
+
+    def _run(self, result, c, ember, router, model, preempted):
         self._set_running(c["id"], c["job"])
         try:
             n_ctx = clamp_n_ctx(router.n_ctx(model))
-            r = self.runners[c["job"]](ember, router.llm(model), self.now(), n_ctx=n_ctx)
+            llm = self._guarded_llm(router, model, preempted)
+            r = self.runners[c["job"]](ember, llm, self.now(), n_ctx=n_ctx)
             status = r.get("status") if isinstance(r, dict) else None
             result["ran"] = (c["id"], c["job"], status if isinstance(status, str) else "unknown")
             if isinstance(r, dict) and r.get("router_down") is True:
@@ -292,6 +334,9 @@ class Scheduler:
             self._error(result["error"])
         finally:
             self._set_running(c["id"], None)
+            self._last_active = self.clock()   # our own job counts as activity
+            if preempted:
+                self._last_loaded = _UNSEEN
 
     def _restore(self, router, prev, want):
         """Put the GPU back as we found it, unless the user loaded another model
