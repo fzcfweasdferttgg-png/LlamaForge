@@ -54,6 +54,13 @@ class BriefTest(EmberCase, unittest.TestCase):
         self.assertIn("Waiting on Sam", prompt)
         self.assertNotIn("Budget will triple", prompt)
 
+    def test_prompt_keeps_undated_items_out_of_today(self):
+        fake = FakeLLM({"headline": "h", "sections": []})
+        jobs.brief(self.ember, fake, LATER)
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Only put an item under Today if its due date is today", system)
+        self.assertIn("summarises the day", system)
+
     def test_new_and_stale_tags(self):
         fake = FakeLLM({"headline": "h", "sections": []})
         jobs.brief(self.ember, fake, NOW + dt.timedelta(days=4))       # stale_days = 3

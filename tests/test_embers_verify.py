@@ -1,5 +1,5 @@
 import conftest_paths  # noqa: F401
-import unittest
+import datetime as dt, unittest
 
 from embers import verify
 
@@ -248,6 +248,71 @@ class VerifyBatchTest(unittest.TestCase):
 
     def test_non_object_update(self):
         self.assertEqual(verify.verify_batch([], RAWS, KINDS), ([], [], [(-1, "update is not an object")]))
+
+
+class DueDatesTest(unittest.TestCase):
+    REF = dt.date(2026, 10, 4)
+
+    def test_formats(self):
+        d = dt.date(2026, 10, 9)
+        for text in ("payment due 2026-10-09 sharp", "Start: 20261009T150000Z", "on 20261009",
+                     "by Friday Oct 9", "by October 9", "by Oct. 9th", "the 9 Oct deadline",
+                     "on 9 October 2026", "the 9th of October", "Oct 9, 2026", "OCT 9",
+                     "Start: 2026-10-09 15:00 UTC (Friday 09 October 2026)"):
+            with self.subTest(text=text):
+                self.assertEqual(verify.due_dates(text, self.REF), {d})
+
+    def test_not_dates(self):
+        for text in ("Octavia 9 called", "you may 5x it", "10/09", "9/10/2026", "it may rain",
+                     "sha a20261009ff", "Oct 32", "February 30", "version 2026-13-01", "oct9"):
+            with self.subTest(text=text):
+                self.assertEqual(verify.due_dates(text, self.REF), set())
+
+    def test_may_is_a_month_only_before_a_day(self):
+        self.assertEqual(verify.due_dates("by May 5", self.REF), {dt.date(2026, 5, 5)})
+
+    def test_year_resolves_nearest_the_reference(self):
+        self.assertEqual(verify.due_dates("Jan 3", dt.date(2026, 12, 28)), {dt.date(2027, 1, 3)})
+        self.assertEqual(verify.due_dates("Dec 30", dt.date(2027, 1, 2)), {dt.date(2026, 12, 30)})
+        self.assertEqual(verify.due_dates("March 1", self.REF), {dt.date(2027, 3, 1)})
+        self.assertEqual(verify.due_dates("May 1", self.REF), {dt.date(2026, 5, 1)})
+        self.assertEqual(verify.due_dates("Oct 9, 2031", self.REF), {dt.date(2031, 10, 9)})
+
+    def test_several_dates(self):
+        self.assertEqual(verify.due_dates("from Oct 8 to 2026-10-12", self.REF),
+                         {dt.date(2026, 10, 8), dt.date(2026, 10, 12)})
+
+
+class GroundDueTest(unittest.TestCase):
+    REF = dt.date(2026, 10, 4)
+
+    def test_iso_due_matches_a_worded_date(self):
+        self.assertEqual(verify.ground_due("2026-10-09", ["I'll send the SOW by Friday Oct 9"], self.REF),
+                         "2026-10-09")
+
+    def test_worded_due_becomes_iso(self):
+        self.assertEqual(verify.ground_due("Oct 9th", ["by Friday 2026-10-09"], self.REF), "2026-10-09")
+
+    def test_weekday_kept_as_written(self):
+        self.assertEqual(verify.ground_due("Friday", ["by Friday Oct 9"], self.REF), "Friday")
+
+    def test_date_not_in_any_quote_is_dropped(self):
+        self.assertEqual(verify.ground_due("2026-10-12", ["by Friday Oct 9"], self.REF), "")
+        self.assertEqual(verify.ground_due("2026-10-09", [], self.REF), "")
+        self.assertEqual(verify.ground_due("2027-10-09", ["by Oct 9"], self.REF), "")
+
+    def test_bad_input(self):
+        for due in (None, 5, "", "  ", "x"):
+            with self.subTest(due=due):
+                self.assertEqual(verify.ground_due(due, ["by Friday Oct 9"], self.REF), "")
+
+    def test_verify_op_uses_the_reference_date(self):
+        raws = {"a1b2c3d4e5f6": "Sam: I'll send the signed SOW by Friday Oct 9."}
+        o = op(due="2026-10-09", evidence=[{"raw": "a1b2c3d4e5f6", "quote": "send the signed SOW by Friday Oct 9"}])
+        clean, _ = verify.verify_op(o, raws, KINDS, ref_date=self.REF)
+        self.assertEqual(clean["due"], "2026-10-09")
+        ops, _, _ = verify.verify_batch({"ops": [o]}, raws, KINDS, ref_date=self.REF)
+        self.assertEqual(ops[0]["due"], "2026-10-09")
 
 
 if __name__ == "__main__":

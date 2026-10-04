@@ -123,6 +123,28 @@ class IcsTest(unittest.TestCase):
         self.assertIn("Where: Room 4", text)
         self.assertIn("Bring the signed SOW.\nAsk Sam about the budget.", text)
         self.assertEqual(cursor, {"evt-1@example": "20261001T120000Z"})
+        self.assertTrue(text.startswith("Event: Acme kickoff, round 2\n"
+                                        "Start: 2026-10-06 09:00 Europe/London (Tuesday 06 October 2026)\n"
+                                        "End: 2026-10-06 10:00 Europe/London (Tuesday 06 October 2026)\n"), text)
+
+    def test_times_are_readable_and_iso(self):
+        def one(start, end=None):
+            ev = f"BEGIN:VEVENT\nUID:u\nSUMMARY:S\nDTSTART{start}\n" + (f"DTEND{end}\n" if end else "") + "END:VEVENT\n"
+            items, _ = sources.fetch_ics("https://x", {}, NOW,
+                                         opener=opener_for(("BEGIN:VCALENDAR\n" + ev + "END:VCALENDAR\n").encode()))
+            return items[0]["text"].split("\n")[1:]
+        self.assertEqual(one(":20261005T150000Z", ":20261005T153000Z"),
+                         ["Start: 2026-10-05 15:00 UTC (Monday 05 October 2026)",
+                          "End: 2026-10-05 15:30 UTC (Monday 05 October 2026)"])
+        self.assertEqual(one(";VALUE=DATE:20261008", ";VALUE=DATE:20261009"),
+                         ["Date: 2026-10-08 (Thursday 08 October 2026)"])
+        self.assertEqual(one(";VALUE=DATE:20261008", ";VALUE=DATE:20261011"),
+                         ["Date: 2026-10-08 (Thursday 08 October 2026)",
+                          "Until: 2026-10-10 (Saturday 10 October 2026)"])
+        self.assertEqual(one(':20261005T150000', ':garbage'),
+                         ["Start: 2026-10-05 15:00 (Monday 05 October 2026)", "End: garbage"])
+        self.assertEqual(one(';TZID="Evil\\nZone <b>":20261005T150000'),
+                         ["Start: 2026-10-05 15:00 EvilnZoneb (Monday 05 October 2026)"])
 
     def test_cursor_skips_unmodified(self):
         _, cursor = sources.fetch("ics", self.path, {}, NOW)
@@ -601,7 +623,7 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertIn("Outer", items[0]["text"])
         self.assertNotIn("ALARM LEAK", items[0]["text"])
-        self.assertIn("20261006", items[0]["text"])
+        self.assertIn("Start: 2026-10-06 09:00 (Tuesday 06 October 2026)", items[0]["text"])
 
     # 8
     def test_cdata_doctype_rejected_by_design(self):

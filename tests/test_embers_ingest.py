@@ -704,6 +704,24 @@ class SmallModelTest(EmberCase, unittest.TestCase):
         self.assertEqual((r["status"], r["unverified"]), ("ok", 1))
 
 
+class DueDateTest(EmberCase, unittest.TestCase):
+    def test_iso_due_is_kept_when_the_quote_words_the_date(self):
+        # the run's date, not the wall clock, places "May 5" in a year
+        ember = self.make_ember({"acme.md": "Call with Sam.\nSam: I'll send the signed SOW by May 5."})
+
+        def reply(messages):
+            return {"ops": [{"op": "add", "page": "projects/acme", "kind": "loop", "owner": "Sam",
+                             "text": "Waiting on Sam for the signed SOW", "due": "2027-05-05",
+                             "evidence": [{"raw": raw_ids(messages)[0],
+                                           "quote": "I'll send the signed SOW by May 5"}]}]}
+        fake = FakeLLM(reply)
+        jobs.ingest(ember, fake, dt.datetime(2027, 4, 20, 2, 0))
+        self.assertIn("signed SOW — 2027-05-05 ", self.read(ember, "pages", "projects", "acme.md"))
+        system = fake.calls[0][0]["content"]
+        self.assertIn("Today is Tuesday 20 April 2027.", system)
+        self.assertIn("YYYY-MM-DD", system)
+
+
 class ModelScoutTest(EmberCase, unittest.TestCase):
     def test_zero_setup_ember_ingests_releases_and_the_machine(self):
         with open(os.path.join(os.path.dirname(jobs.__file__), "..", "..", "templates", "model-scout.json"),

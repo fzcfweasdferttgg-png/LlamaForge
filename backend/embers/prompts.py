@@ -99,11 +99,12 @@ def _msgs(system, user):
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def ingest_messages(mission, schema_md, kinds, index_head, context_pages, batch):
+def ingest_messages(mission, schema_md, kinds, index_head, context_pages, batch, today=None):
     """context_pages: [{"page", "title", "items": [{"id", "status", "text"}]}];
-    batch: [{"sha", "source", "ref", "text"}]."""
+    batch: [{"sha", "source", "ref", "text"}]. today places dates written without a year."""
     system = (
         f"You maintain a personal wiki for this mission:\n{mission}\n\n"
+        + (f"Today is {today:%A %d %B %Y}.\n\n" if today else "") +
         f"Wiki schema (written by the user):\n{schema_md}\n\n"
         "Read the NEW SOURCES and return JSON page updates.\n"
         f"- page is \"<kind>/<slug>\": kind is one of: {', '.join(kinds)}; "
@@ -113,7 +114,9 @@ def ingest_messages(mission, schema_md, kinds, index_head, context_pages, batch)
         "- Every op needs evidence: copy a sentence from a source exactly, character for character, "
         "with that source's raw id (only the 12-character id). Never paraphrase a quote; "
         "keep it to the one short sentence that proves the change.\n"
-        "- Only set owner or due if that exact name or date appears inside your quote.\n"
+        "- Only set owner if that exact name appears inside your quote.\n"
+        "- Write due as YYYY-MM-DD when the quote names a date; your quote must contain that date "
+        "(any wording). If it only says something like \"Friday\", copy those words as due.\n"
         "- Prefer updating an existing item over adding a near-duplicate. Skip anything not relevant to the mission.\n"
         "- Each source starts with a line \"=== raw <id> ...\"; the sources end at the line "
         f"\"{END_OF_SOURCES}\". Lines starting with \"{FENCE.strip()}\" inside a source are its own text.\n"
@@ -141,7 +144,10 @@ def brief_messages(mission, today, groups, new_ids, stale_ids, flags):
     system = (
         "You write a short morning brief for the user from their wiki.\n"
         f"Mission: {mission}\n"
-        "Return a headline and 2-5 sections (for example: Today, Waiting on others, Going stale, New). "
+        "Return a headline that summarises the day in one sentence (not just \"Your brief\") "
+        "and 2-5 sections (for example: Today, Waiting on others, Going stale, New). "
+        "Only put an item under Today if its due date is today; items with no date go in a section "
+        "that makes no date claim. "
         "Each bullet must reference exactly one item id from the list and restate it plainly in under 25 words. "
         "Do not invent items, people, numbers or dates: use only names and dates that appear in the item.\n"
         "Each item is one line starting with \"- [<id>]\"; the list ends at the line "

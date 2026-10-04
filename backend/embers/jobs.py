@@ -163,14 +163,14 @@ def _schema_text(ember):
         return ember.template["schema_md"]
 
 
-def _prompt(tpl, schema, index_head, context, batch, cap):
+def _prompt(tpl, schema, index_head, context, batch, cap, today=None):
     """Build the ingest prompt and shrink it until it fits `cap` estimated
     tokens: first the matched pages, then the index excerpt, the schema, and
     last the raw text. Returns (messages, size_in_tokens, batch_as_shown)."""
     context = [dict(p, items=list(p["items"])) for p in context]
     batch = [dict(r) for r in batch]
     while True:
-        msgs = prompts.ingest_messages(tpl["mission"], schema, tpl["page_kinds"], index_head, context, batch)
+        msgs = prompts.ingest_messages(tpl["mission"], schema, tpl["page_kinds"], index_head, context, batch, today)
         size = sum(_est(m["content"]) for m in msgs)
         over = size - cap
         if over <= 0:
@@ -466,7 +466,8 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
             if not index_error:
                 errors.append(f"index head: {_err(e)}")
                 index_error = True
-        msgs, size, shown = _prompt(tpl, schema, index_head, context, batch, int(n_ctx * PROMPT_SHARE / scale))
+        msgs, size, shown = _prompt(tpl, schema, index_head, context, batch, int(n_ctx * PROMPT_SHARE / scale),
+                                    now.date())
         shown_shas = [r["sha"] for r in shown if r["text"]]   # a raw cut to nothing was not seen
         reply_tokens = max(MIN_REPLY_TOKENS, min(MAX_REPLY_TOKENS, n_ctx - math.ceil(size * scale)))
         try:                               # the model call runs outside any transaction
@@ -513,7 +514,8 @@ def _ingest(ember, llm, now, fetch, n_ctx, run, errors):
         # Quotes are checked against the full raw, but only raws shown in this batch count.
         raws = {sha: full_text[sha] for sha in shown_shas}
         try:
-            ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids())
+            ops, new_pages, rejected = verify.verify_batch(update, raws, tpl["page_kinds"], st.known_item_ids(),
+                                                           now.date())
             kept = []
             for op in ops:                 # an update/close acts on the page its item lives on
                 old = st.get_item(op["item"]) if op["op"] != "add" else None

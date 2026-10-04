@@ -5,7 +5,7 @@ as verified only if it carries a verbatim quote that really occurs in an
 immutable raw snapshot. Owners and due dates must appear inside such a quote,
 so the model cannot invent who owes what or by when.
 """
-import re, unicodedata
+import datetime as dt, re, unicodedata
 
 from . import reserved_name
 
@@ -64,6 +64,75 @@ def _grounded(value, quotes):
     return len(v) >= 2 and any(_contains(normalise(q), v) for q in quotes)
 
 
+_MONTHS = {m: i for i, names in enumerate((
+    ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"), ("may",),
+    ("june", "jun"), ("july", "jul"), ("august", "aug"), ("september", "sept", "sep"),
+    ("october", "oct"), ("november", "nov"), ("december", "dec")), 1) for m in names}
+_MON  = r"(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\b\.?"
+_DAY  = r"(\d{1,2})(?:st|nd|rd|th)?(?!\w)"
+_YEAR = r"(?:,?\s+(\d{4})(?!\w))?"
+_D    = "[-‐‑‒–−]"
+_DATE_RES = (
+    ("ymd", re.compile(r"(?<![\w.])(\d{4})" + _D + r"(\d{2})" + _D + r"(\d{2})(?![\w.])")),
+    ("ymd", re.compile(r"(?<!\w)(\d{4})(\d{2})(\d{2})(?=t\d|[^\w]|$)")),       # ICS 20261009T150000Z
+    ("mdy", re.compile(r"(?<!\w)" + _MON + r"\s+" + _DAY + _YEAR)),            # Oct 9th, 2026
+    ("dmy", re.compile(r"(?<!\w)" + _DAY + r"\s+(?:of\s+)?" + _MON + _YEAR)),  # 9 October 2026
+)
+
+
+def _near_year(month, day, ref):
+    """A month/day without a year: the occurrence nearest the reference date."""
+    best = None
+    for y in (ref.year - 1, ref.year, ref.year + 1):
+        try:
+            d = dt.date(y, month, day)
+        except ValueError:
+            continue
+        if best is None or abs((d - ref).days) < abs((best - ref).days):
+            best = d
+    return best
+
+
+def _dates(text, ref):
+    """Date mentions in text, in order. Numeric slash dates (10/09) are
+    ambiguous between countries, so they never count."""
+    s = unicodedata.normalize("NFKC", text or "")[:2000].lower()
+    found = []
+    for form, rx in _DATE_RES:
+        for m in rx.finditer(s):
+            try:
+                if form == "ymd":
+                    d = dt.date(int(m[1]), int(m[2]), int(m[3]))
+                else:
+                    mon, day = (m[1], m[2]) if form == "mdy" else (m[2], m[1])
+                    d = (dt.date(int(m[3]), _MONTHS[mon], int(day)) if m[3]
+                         else _near_year(_MONTHS[mon], int(day), ref))
+            except ValueError:
+                continue
+            if d is not None and 1900 <= d.year <= 2200:
+                found.append((m.start(), d))
+    return [d for _, d in sorted(found, key=lambda t: t[0])]
+
+
+def due_dates(text, ref_date):
+    return set(_dates(text, ref_date))
+
+
+def ground_due(due, quotes, ref_date):
+    """A due date the evidence supports, else "". A date in any wording
+    (2026-10-09, Oct 9th, 9 October) that a passing quote also names, in any
+    wording, comes back as YYYY-MM-DD; a non-date ("Friday") must appear in a
+    quote word for word and is kept as written."""
+    if not isinstance(due, str):
+        return ""
+    ref_date = ref_date or dt.date.today()
+    named = set().union(*(due_dates(q, ref_date) for q in quotes)) if quotes else set()
+    for d in _dates(due, ref_date):
+        if d in named:
+            return d.isoformat()
+    return _one_line(due, 40) if _grounded(due, quotes) else ""
+
+
 def cited_raw(sha, quote, raws):
     """The raw id a quote verifiably comes from, else None. Small models garble
     the id (the whole "=== raw <id> (...) ===" header, a source's first line),
@@ -80,8 +149,9 @@ def cited_raw(sha, quote, raws):
     return None
 
 
-def verify_op(op, raws, kinds, known_items=()):
-    """Check one proposed op against raws ({sha12: text}).
+def verify_op(op, raws, kinds, known_items=(), ref_date=None):
+    """Check one proposed op against raws ({sha12: text}). ref_date (the run's
+    date) places a month/day without a year.
     Returns (clean_op, None) or (None, reason)."""
     if not isinstance(op, dict):
         return None, "not an object"
@@ -120,11 +190,11 @@ def verify_op(op, raws, kinds, known_items=()):
     owner, due = op.get("owner"), op.get("due")
     return {"op": action, "page": page, "kind": kind, "item": item, "text": text,
             "owner": _one_line(owner, 80) if isinstance(owner, str) and _grounded(owner, quotes) else "",
-            "due": _one_line(due, 40) if isinstance(due, str) and _grounded(due, quotes) else "",
+            "due": ground_due(due, quotes, ref_date),
             "evidence": evidence, "verified": bool(evidence)}, None
 
 
-def verify_batch(update, raws, kinds, known_items=()):
+def verify_batch(update, raws, kinds, known_items=(), ref_date=None):
     """Check a whole model reply. Returns (ops, new_pages, rejected), where
     rejected is [(op_index, reason)]."""
     if not isinstance(update, dict):
@@ -135,7 +205,7 @@ def verify_batch(update, raws, kinds, known_items=()):
         if i >= MAX_OPS:
             rejected.append((i, "over the op cap"))
             continue
-        clean, why = verify_op(op, raws, kinds, known_items)
+        clean, why = verify_op(op, raws, kinds, known_items, ref_date)
         if clean:
             ops.append(clean)
         else:

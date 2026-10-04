@@ -197,6 +197,33 @@ def _ics_date(v):
         return None
 
 
+def _ics_time(v, tz):
+    """20261005T150000Z -> "2026-10-05 15:00 UTC (Monday 05 October 2026)":
+    ISO so a quote can carry a date the verifier can read, words so the model
+    can. Values that do not parse are shown as written."""
+    m = re.fullmatch(r"(\d{8})T(\d{2})(\d{2})\d{0,2}(Z?)", (v or "").strip(), re.IGNORECASE)
+    day = _ics_date(v) if m else None
+    if not day:
+        return (v or "").strip()
+    zone = " UTC" if m[4] else (f" {tz}" if tz else "")
+    return f"{day:%Y-%m-%d} {m[2]}:{m[3]}{zone} ({day:%A %d %B %Y})"
+
+
+def _ics_when(ev):
+    start, end = ev.get("DTSTART", ""), ev.get("DTEND", "")
+    if re.fullmatch(r"\d{8}", start.strip()):             # all-day: DTEND is the day after the last
+        day, last = _ics_date(start), _ics_date(end)
+        lines = [f"Date: {day:%Y-%m-%d} ({day:%A %d %B %Y})"]
+        if last and last - dt.timedelta(days=1) > day:
+            last -= dt.timedelta(days=1)
+            lines.append(f"Until: {last:%Y-%m-%d} ({last:%A %d %B %Y})")
+        return lines
+    lines = [f"Start: {_ics_time(start, ev.get('DTSTART;TZ'))}"]
+    if end:
+        lines.append(f"End: {_ics_time(end, ev.get('DTEND;TZ'))}")
+    return lines
+
+
 def parse_ics(text, today):
     """VEVENTs whose DTSTART falls within -7..+30 days of today (recurring
     events are matched on their first DTSTART only in v1)."""
@@ -217,7 +244,11 @@ def parse_ics(text, today):
                     cur = None
         elif cur is not None and depth == 0 and ":" in line:
             head, value = line.split(":", 1)
-            cur.setdefault(head.split(";", 1)[0].upper(), value)
+            name, *params = head.split(";")
+            cur.setdefault(name.upper(), value)
+            tz = next((p[5:] for p in params if p.upper().startswith("TZID=")), "")
+            if tz:
+                cur.setdefault(name.upper() + ";TZ", re.sub(r"[^A-Za-z0-9_/+-]", "", tz)[:40])
     lo, hi = today - dt.timedelta(days=7), today + dt.timedelta(days=30)
     out = []
     for ev in events:
@@ -243,9 +274,7 @@ def fetch_ics(binding, cursor, now, opener=None):
         seen[uid] = version
         if cursor.get(uid) == version:
             continue
-        lines = [f"Event: {title}", f"Start: {ev.get('DTSTART', '')}"]
-        if ev.get("DTEND"):
-            lines.append(f"End: {ev['DTEND']}")
+        lines = [f"Event: {title}"] + _ics_when(ev)
         if ev.get("LOCATION"):
             lines.append(f"Where: {_ics_unescape(ev['LOCATION'])}")
         if ev.get("DESCRIPTION"):
