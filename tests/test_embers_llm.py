@@ -99,10 +99,13 @@ class AskJsonTest(unittest.TestCase):
         self.assertEqual(usage["prompt_tokens"], 20)
 
     def test_gives_up_after_two(self):
-        complete, calls = self.scripted('{"nope": 1}', '{"nope": 2}')
-        with self.assertRaises(llm.LLMError):
+        complete, calls = self.scripted('{"nope": 1}', '{"nope": 2}\n' + "x" * 500)
+        with self.assertRaises(llm.LLMError) as cm:
             llm.ask_json(complete, [{"role": "user", "content": "x"}], SCHEMA)
         self.assertEqual(len(calls), 2)
+        msg = str(cm.exception)                 # the run log shows what the model actually said
+        self.assertIn("$.ops is missing; reply began: '{\"nope\": 2} xxx", msg)
+        self.assertLess(len(msg), 250)
 
     def test_deep_garbage_retries_then_llm_error(self):
         deep = "[" * 100000

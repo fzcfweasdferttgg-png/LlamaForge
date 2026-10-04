@@ -163,7 +163,8 @@ def ask_json(complete, messages, schema, max_tokens=2048):
             msgs = msgs + [{"role": "assistant", "content": (text or "")[:2000]},
                            {"role": "user", "content": f"That reply was rejected: {err}. "
                                                        "Reply again with only JSON matching the schema."}]
-    raise LLMError(f"model reply rejected twice: {err}")
+    head = " ".join(str(text or "").split())[:120]
+    raise LLMError(f"model reply rejected twice: {err[:200]}; reply began: '{head}'")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
