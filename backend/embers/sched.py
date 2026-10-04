@@ -6,7 +6,8 @@ model, wait, or give up). Both are answered here from plain values so they
 can be tested without threads or a live router. All datetimes are naive
 local time.
 """
-from datetime import timedelta
+import math
+from datetime import datetime, timedelta
 
 from .templates import WHEN_RE
 
@@ -54,7 +55,16 @@ def due_jobs(jobs_conf, last_attempts, created, now):
 
     Only the latest slot counts: a panel that was off for days runs each job
     once, and a brand-new ember waits for its first slot.
+
+    Datetimes only: the caller parses timestamps. Inputs come from the
+    user-editable ember.json, so junk is tolerated. A non-dict jobs_conf or
+    last_attempts, or a created that isn't a datetime, means nothing is due
+    (we can't tell the ember's age). A last attempt that isn't a datetime
+    counts as never attempted.
     """
+    if not (isinstance(jobs_conf, dict) and isinstance(last_attempts, dict)
+            and isinstance(created, datetime) and isinstance(now, datetime)):
+        return []
     out = []
     for job in ORDER:
         spec = jobs_conf.get(job)
@@ -64,13 +74,21 @@ def due_jobs(jobs_conf, last_attempts, created, now):
         if occ is None or occ <= created:
             continue
         last = last_attempts.get(job)
-        if last is None or last < occ:
+        if not isinstance(last, datetime) or last < occ:
             out.append(job)
     return out
 
 
+def _num(v):
+    """v as a finite number, or None (bools and numeric strings are not numbers)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        return None
+    return v
+
+
 def _decide(want, loaded, busy, idle_for, swap_allowed):
-    if busy is None:
+    busy = _num(busy)
+    if busy is None or busy < 0:
         return "wait", "the router is not reachable"
     if busy > 0:
         return "wait", "the router is busy"
@@ -78,18 +96,26 @@ def _decide(want, loaded, busy, idle_for, swap_allowed):
         return ("run", loaded) if loaded else ("wait", "no model is loaded")
     if want == loaded:
         return "run", want
-    if not swap_allowed:
+    if swap_allowed is not True:
         return "wait", f"needs {want}; model swapping is off"
-    if idle_for >= SWAP_IDLE:
+    if (_num(idle_for) or 0) >= SWAP_IDLE:
         return "swap", want
-    return "wait", f"waiting for 10 idle minutes before loading {want}"
+    return "wait", f"waiting for {SWAP_IDLE // 60} idle minutes before loading {want}"
 
 
 def decide(want, loaded, busy, idle_for, waited, swap_allowed):
-    """One of ('run', model), ('swap', model), ('wait', reason), ('skip', reason)."""
+    """One of ('run', model), ('swap', model), ('wait', reason), ('skip', reason).
+
+    busy and idle_for come from /metrics, so junk is tolerated: a bad busy
+    means the router is unreachable, a bad idle_for counts as 0 (never swap
+    on it) and a bad waited counts as WAIT_MAX (never wait forever).
+    """
     if not isinstance(want, str):
         want = ""
+    if not (isinstance(loaded, str) and loaded):
+        loaded = None
     action, arg = _decide(want, loaded, busy, idle_for, swap_allowed)
-    if action == "wait" and waited >= WAIT_MAX:
-        return "skip", f"{arg} for 60 minutes"
+    waited = _num(waited)
+    if action == "wait" and (waited is None or waited >= WAIT_MAX):
+        return "skip", f"{arg} for {WAIT_MAX // 60} minutes"
     return action, arg

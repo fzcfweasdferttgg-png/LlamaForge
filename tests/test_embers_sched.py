@@ -198,6 +198,89 @@ class DecideTest(unittest.TestCase):
                                 waited=99999), ("swap", "q"))
 
 
+class EdgeDatesTest(unittest.TestCase):
+    def test_daily_across_year_boundary(self):
+        self.assertEqual(sched.last_occurrence("23:00", dt(2027, 1, 1, 0, 30)),
+                         dt(2026, 12, 31, 23, 0))
+
+    def test_seconds_and_microseconds_at_slot_minute(self):
+        now = dt(2026, 10, 4, 7, 0, 42, 123456)
+        self.assertEqual(sched.last_occurrence("07:00", now), dt(2026, 10, 4, 7, 0))
+        self.assertEqual(sched.next_occurrence("07:00", now), dt(2026, 10, 5, 7, 0))
+
+    def test_created_exactly_at_slot_not_due(self):
+        occ = dt(2026, 10, 4, 7, 0)
+        self.assertEqual(sched.due_jobs({"brief": "07:00"}, {}, occ, occ.replace(hour=9)), [])
+
+
+class DueJobsJunkTest(unittest.TestCase):
+    NOW = dt(2026, 10, 4, 9, 0)
+    OLD = dt(2020, 1, 1)
+
+    def test_non_dict_jobs_conf(self):
+        for bad in (None, "02:00", ["ingest"], 5):
+            self.assertEqual(sched.due_jobs(bad, {}, self.OLD, self.NOW), [], bad)
+
+    def test_non_dict_last_attempts(self):
+        for bad in (None, "x", [None], 5):
+            self.assertEqual(sched.due_jobs({"brief": "07:00"}, bad, self.OLD, self.NOW), [], bad)
+
+    def test_non_datetime_created(self):
+        for bad in (None, "2020-01-01T00:00:00", 0, self.OLD.date()):
+            self.assertEqual(sched.due_jobs({"brief": "07:00"}, {}, bad, self.NOW), [], bad)
+
+    def test_non_datetime_last_attempt_counts_as_never(self):
+        for bad in ("2026-10-04T08:00:00", 12345, True, {}):
+            self.assertEqual(sched.due_jobs({"brief": "07:00"}, {"brief": bad},
+                                            self.OLD, self.NOW), ["brief"], bad)
+
+
+class DecideJunkTest(unittest.TestCase):
+    def d(self, want="", loaded="m", busy=0, idle_for=0, waited=0, swap_allowed=True):
+        return sched.decide(want, loaded, busy, idle_for, waited, swap_allowed)
+
+    def test_bad_busy_is_unreachable(self):
+        for bad in (True, False, "0", "1", float("nan"), float("inf"), -1, -0.5, [], {}):
+            self.assertEqual(self.d(busy=bad), ("wait", "the router is not reachable"), bad)
+
+    def test_float_busy_ok(self):
+        self.assertEqual(self.d(busy=0.0), ("run", "m"))
+        self.assertEqual(self.d(busy=1.0), ("wait", "the router is busy"))
+
+    def test_swap_allowed_must_be_true(self):
+        for bad in ("no", "false", "yes", 1, [1], None):
+            self.assertEqual(self.d(want="q", loaded="m", idle_for=sched.SWAP_IDLE,
+                                    swap_allowed=bad),
+                             ("wait", "needs q; model swapping is off"), bad)
+
+    def test_bad_waited_counts_as_wait_max(self):
+        for bad in (None, float("nan"), "0", True, []):
+            self.assertEqual(self.d(busy=None, waited=bad),
+                             ("skip", "the router is not reachable for 60 minutes"), bad)
+
+    def test_bad_idle_for_never_swaps(self):
+        wait = ("wait", "waiting for 10 idle minutes before loading q")
+        for bad in (None, float("nan"), "9999", True, float("inf")):
+            self.assertEqual(self.d(want="q", loaded="m", idle_for=bad), wait, bad)
+
+    def test_bad_loaded_is_none(self):
+        for bad in (5, "", True, ["m"], {"id": "m"}):
+            self.assertEqual(self.d(want="", loaded=bad), ("wait", "no model is loaded"), bad)
+        # A junk loaded never matches a pinned model.
+        self.assertEqual(self.d(want="q", loaded=5, idle_for=sched.SWAP_IDLE), ("swap", "q"))
+
+    def test_text_derived_from_constants(self):
+        old = sched.SWAP_IDLE, sched.WAIT_MAX
+        try:
+            sched.SWAP_IDLE, sched.WAIT_MAX = 300, 1800
+            self.assertEqual(self.d(want="q", loaded="m", idle_for=0),
+                             ("wait", "waiting for 5 idle minutes before loading q"))
+            self.assertEqual(self.d(busy=None, waited=1800),
+                             ("skip", "the router is not reachable for 30 minutes"))
+        finally:
+            sched.SWAP_IDLE, sched.WAIT_MAX = old
+
+
 class ConstantsTest(unittest.TestCase):
     def test_constants(self):
         self.assertEqual(sched.WAIT_MAX, 3600)
