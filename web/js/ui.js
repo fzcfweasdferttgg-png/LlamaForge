@@ -42,13 +42,29 @@ export async function setCvd(on) {
   try { localStorage.setItem("cvd", on ? "1" : "0"); } catch (e) {}
   try { await api("/api/config", {cvd: !!on}); } catch (e) {}
 }
+/* ---------- skin: Hearth (default) / Classic ----------
+   A third axis beside theme and cvd. Classic is the original terminal look,
+   untouched; Hearth layers web/css/hearth.css on top, scoped to
+   :root[data-skin="hearth"], so every light/dark/cvd combination still works. */
+export function applySkin(k) {
+  document.documentElement.dataset.skin = (k === "classic" ? "classic" : "hearth");
+  $$("#skin-toggle button").forEach(b =>
+    b.classList.toggle("active", b.dataset.skin === document.documentElement.dataset.skin));
+}
+export async function setSkin(k) {
+  applySkin(k);
+  try { localStorage.setItem("skin", k); } catch (e) {}
+  try { await api("/api/config", {skin: k}); } catch (e) {}
+}
 export function initThemeControls() {
   $$("#theme-toggle button").forEach(b => b.onclick = () => setTheme(b.dataset.theme));
+  $$("#skin-toggle button").forEach(b => b.onclick = () => setSkin(b.dataset.skin));
   const c = $("#cvd-check");
   if (c) c.onchange = () => setCvd(c.checked);
   // reflect the attributes already set by the <head> script
   applyTheme(document.documentElement.dataset.theme);
   applyCvd(document.documentElement.dataset.cvd === "safe");
+  applySkin(document.documentElement.dataset.skin);
 }
 
 /* ---------- sidebar rail / expanded ---------- */
@@ -88,6 +104,8 @@ export function initSidebar() {
     setCvd(nx); rc.classList.toggle("on", nx);
   };
   if (rc) rc.classList.toggle("on", document.documentElement.dataset.cvd === "safe");
+  const rk = $("#rail-skin");
+  if (rk) rk.onclick = () => setSkin(document.documentElement.dataset.skin === "classic" ? "hearth" : "classic");
   setNav(document.documentElement.dataset.nav || "rail");   // sync chevron glyph
   showNavHint();
 }
@@ -126,6 +144,8 @@ export function updatePageTitle() {
   const a = $(".navitem.active .label");
   const t = $("#page-title");
   if (a && t) t.textContent = a.textContent;
+  const l = $("#page-lede"), n = $(".navitem.active");
+  if (l) l.textContent = (n && n.dataset.lede) || "";
 }
 export function initTabs() {
   $$(".tab").forEach(t => t.onclick = () => {
@@ -144,6 +164,10 @@ export function initTabs() {
     if (fn) fn();
     updatePageTitle();
     dismissNavHint();
+  });
+  // nav items are divs: give keyboard users the same activation as a button
+  $$(".navitem").forEach(t => t.onkeydown = e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); t.click(); }
   });
 }
 /** The tab currently showing, e.g. "models" - polls use this to stay idle. */

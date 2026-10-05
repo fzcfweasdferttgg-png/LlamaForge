@@ -64,6 +64,7 @@ DEFAULTS = {
     "wiki_active":   {},                       # {model_id: profile_name}
     "theme":         "",                       # "" = follow OS/localStorage; "light"|"dark"
     "cvd":           False,                     # colorblind-safe palette + non-color cues
+    "skin":          "",                       # "" = default (hearth); "hearth"|"classic"
     "vram_bandwidths":      {},   # optional {vram_bw,ram_bw,disk_bw} GB/s overrides (empty = presets/defaults)
     "vram_predict_enabled": True, # compute vramwise placement/tok-s estimates (offline; Discover only on expand)
     "docs_dir":      "",                        # "" = <ROOT>/docs/content

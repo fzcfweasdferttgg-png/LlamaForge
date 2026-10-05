@@ -97,6 +97,7 @@ setInterval(clock, 1000);
     const cfg = (S.STATE && S.STATE.config) || {};
     if (!localStorage.getItem("theme") && cfg.theme) ui.applyTheme(cfg.theme);
     if (localStorage.getItem("cvd") === null && cfg.cvd) ui.applyCvd(true);
+    if (!localStorage.getItem("skin") && cfg.skin) ui.applySkin(cfg.skin);
     ui.applyMode(((S.STATE||{}).onboarding||{}).ui_mode || "lite");
   } catch (e) {}
 })();

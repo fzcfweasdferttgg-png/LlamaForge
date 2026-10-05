@@ -1915,6 +1915,7 @@ def _v_str(v):   return v if isinstance(v, str) else None
 def _v_port(v):  return v if isinstance(v, int) and 1 <= v <= 65535 else None
 def _v_mode(v):  return v if v in ("lite", "advanced") else None
 def _v_theme(v): return v if v in ("", "light", "dark") else None
+def _v_skin(v): return v if v in ("", "hearth", "classic") else None
 def _v_dirs(v):
     return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
 def _v_int(lo, hi):
@@ -1939,6 +1940,7 @@ CONFIG_WRITABLE = {
     "ui_mode":                 _v_mode,
     "theme":                   _v_theme,
     "cvd":                     _v_bool,
+    "skin":                    _v_skin,
     "onboarded":               _v_bool,
     "auto_load_model":         _v_str,
     "wsl_distro":              _v_str,
