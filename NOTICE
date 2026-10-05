@@ -20,3 +20,15 @@ The full text of llama.cpp's license is included in LICENSE.llama.cpp.txt
 All credit for the inference engine, model support, and performance belongs
 to the llama.cpp and ggml authors and contributors. Please support and cite
 the upstream project: https://github.com/ggml-org/llama.cpp
+
+--------------------------------------------------------------------------
+Optional, installed on request: pi (coding agent)
+Source:  https://github.com/earendil-works/pi
+Package: @earendil-works/pi-coding-agent (npm)
+License: MIT License, Copyright (c) 2025 Mario Zechner
+--------------------------------------------------------------------------
+
+LlamaForge does not bundle or modify pi. When you click "Install pi", it
+runs your own Node.js/npm to install the published package into the
+agents/pi folder next to LlamaForge; pi's own license and notices are
+installed with it. All credit for pi belongs to its author and contributors.

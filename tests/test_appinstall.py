@@ -56,15 +56,18 @@ class AppInstallTest(unittest.TestCase):
         for rel in ("config.json", "models.ini", "stats.json", "engines/llama.cpp/b1/llama-server",
                     "logs/router.out.log", "python/python.exe", "backend/__pycache__/x.pyc",
                     "models/org--repo/m.gguf", "wiki/notes.md",
+                    "embers/brief/ember.json", "agents/pi/package.json",
                     "backend/my_notes.txt"):
             write(self.dest, rel, "mine")
         # a hostile/broken release that ships user-data names must not clobber them
         self.release({"backend/server.py": "v2", "config.json": "{}",
-                      "engines/evil": "x", "python/python.exe": "evil"})
+                      "engines/evil": "x", "python/python.exe": "evil",
+                      "embers/brief/ember.json": "evil", "agents/pi/package.json": "evil"})
         r = appinstall.install(self.src, self.dest)
         for rel in ("config.json", "models.ini", "stats.json", "engines/llama.cpp/b1/llama-server",
                     "logs/router.out.log", "python/python.exe", "backend/my_notes.txt",
-                    "models/org--repo/m.gguf", "wiki/notes.md"):
+                    "models/org--repo/m.gguf", "wiki/notes.md",
+                    "embers/brief/ember.json", "agents/pi/package.json"):
             self.assertEqual(read(self.dest, rel), "mine", rel)
         self.assertFalse(os.path.exists(os.path.join(self.dest, "engines", "evil")))
         self.assertNotIn("config.json", r["added"] + r["updated"])
@@ -139,7 +142,7 @@ class UninstallTest(unittest.TestCase):
         appinstall.install(self.src, self.dest, "v1")
         for rel in ("config.json", "models.ini", "models/a.gguf", "engines/b1/llama-server",
                     "logs/router.err.log", "stats.json", "backend/__pycache__/x.pyc",
-                    "my-notes.txt"):
+                    "embers/brief/ember.json", "agents/pi/package.json", "my-notes.txt"):
             write(self.dest, rel)
 
     def exists(self, rel):
@@ -160,16 +163,17 @@ class UninstallTest(unittest.TestCase):
 
     def test_keep_mode_removes_the_app_and_keeps_settings_and_models(self):
         r = appinstall.uninstall(self.dest)
-        for rel in ("backend", "web", "run.sh", "engines", "logs", "stats.json",
+        for rel in ("backend", "web", "run.sh", "engines", "logs", "stats.json", "agents",
                     appinstall.MANIFEST):
             self.assertFalse(self.exists(rel), rel)
-        for rel in ("config.json", "models.ini", "models/a.gguf", "my-notes.txt"):
+        for rel in ("config.json", "models.ini", "models/a.gguf", "embers/brief/ember.json",
+                    "my-notes.txt"):
             self.assertTrue(self.exists(rel), rel)
         self.assertIn("my-notes.txt", r["kept"])
 
     def test_everything_still_spares_files_it_does_not_know(self):
         r = appinstall.uninstall(self.dest, everything=True)
-        for rel in ("config.json", "models.ini", "models", "backend", "engines"):
+        for rel in ("config.json", "models.ini", "models", "backend", "engines", "embers"):
             self.assertFalse(self.exists(rel), rel)
         self.assertTrue(self.exists("my-notes.txt"))
         self.assertEqual(r["kept"], ["my-notes.txt"])

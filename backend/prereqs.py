@@ -34,6 +34,15 @@ TOOLS = {
     },
 }
 
+# installable on request, but not build prerequisites: kept out of status()
+OPTIONAL = {
+    "node": {   # for pi (piinstall); distro packages are often older than pi needs
+        "cmd": "node", "args": ["--version"],
+        "winget": "OpenJS.NodeJS.LTS", "choco": "nodejs-lts", "brew": "node", "pkg": "nodejs",
+        "url": "https://nodejs.org/en/download",
+    },
+}
+
 def _which(cmd):
     return shutil.which(cmd)
 
@@ -159,7 +168,7 @@ def _post_install(spec, log):
 
 def install(name):
     """Install one tool by name. Returns (ok, log)."""
-    spec = TOOLS.get(name)
+    spec = TOOLS.get(name) or OPTIONAL.get(name)
     if not spec:
         return False, f"unknown tool: {name}"
     if osplat.IS_MAC:

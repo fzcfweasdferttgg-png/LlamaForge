@@ -518,7 +518,8 @@ class Server:
              "(it can run commands). Blocks until pi is done and returns its final answer, the "
              "tools it used, turns and token usage. Model defaults to a loaded worker in "
              "multi-model mode, else the loaded model. Needs pi installed "
-             "(npm install -g @earendil-works/pi-coding-agent).",
+             "(Setup -> pi coding agent -> Install pi, or npm install -g "
+             "@earendil-works/pi-coding-agent).",
              _schema({"task": _prop("string", "What pi should do. Self-contained: pi sees "
                                     "only this and the files in cwd."),
                       "model": _prop("string", "A loaded model id (default: see above)."),

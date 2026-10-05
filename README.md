@@ -167,4 +167,6 @@ see [NOTICE](NOTICE) and [LICENSE.llama.cpp.txt](LICENSE.llama.cpp.txt).
 The hard part is theirs; please star and support the upstream project.
 
 `pi_run` drives **[pi](https://github.com/earendil-works/pi)**, Mario Zechner's open-source coding agent (MIT).
-LlamaForge doesn't ship it: install it with `npm install -g @earendil-works/pi-coding-agent`.
+LlamaForge doesn't ship it: **Setup → Install pi** fetches the published npm package into
+LlamaForge's own `agents/` folder using your Node.js (or install it yourself with
+`npm install -g @earendil-works/pi-coding-agent`).

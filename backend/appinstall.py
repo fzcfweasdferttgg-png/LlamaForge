@@ -18,7 +18,7 @@ MANIFEST = ".lf-files.json"
 # Top-level names that belong to the user, not to a release.
 USER_TOP = {"config.json", "models.ini", "models-ikllama.ini", "stats.json",
             "vllm_models.json", "engines", "logs", "models", "wiki", "llama.cpp",
-            "python", MANIFEST}
+            "embers", "agents", "python", MANIFEST}
 # Paths in config.example.json that are placeholders, not real installs.
 _PLACEHOLDER_KEYS = ("llama_src", "build_dir", "server_bin")
 SKIP_DIRS = {"__pycache__", ".git"}
@@ -128,10 +128,10 @@ def ensure_config(dest):
 
 
 # What LlamaForge writes for itself next to the code: removed on any uninstall.
-APP_DATA = ("engines", "logs", "stats.json", ".lf-python")
+APP_DATA = ("engines", "logs", "stats.json", ".lf-python", "agents")
 # The user's settings and models: removed only when they ask for everything.
 USER_DATA = ("config.json", "config.json.corrupt", "models.ini", "models-ikllama.ini",
-             "vllm_models.json", "models", "wiki", "llama.cpp")
+             "vllm_models.json", "models", "wiki", "llama.cpp", "embers")
 
 
 def _remove(path):

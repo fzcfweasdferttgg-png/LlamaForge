@@ -21,9 +21,12 @@ import tempfile
 import threading
 import time
 
+import config
+
 IS_WIN = os.name == "nt"
 _NO_WINDOW = 0x08000000
 PACKAGE = ("@earendil-works", "pi-coding-agent")
+MANAGED_DIR = os.path.join(config.ROOT, "agents", "pi")     # piinstall's npm --prefix
 PROVIDER = "llamaforge"
 KEY_ENV = "LLAMAFORGE_API_KEY"
 MAX_TEXT = 50_000
@@ -110,26 +113,41 @@ def _from_shim(shim, which, is_win):
     return _with_node(js, which, is_win, near=d)
 
 
-def locate(pi_bin="", which=shutil.which, is_win=IS_WIN):
-    """The command prefix that runs pi, or None when it isn't installed."""
+def locate_how(pi_bin="", which=shutil.which, is_win=IS_WIN):
+    """(command prefix, source) for pi: the configured pi_bin, then the copy
+    LlamaForge installed, then pi on PATH. (None, "") when there is none."""
     p = (pi_bin or "").strip()
     if p:
-        if os.path.isdir(p):
-            return _with_node(_pkg_entry(p), which, is_win)
-        if not os.path.isfile(p):
-            return None
-        ext = os.path.splitext(p)[1].lower()
-        if ext in _JS_EXTS:
-            return _with_node(p, which, is_win)
-        if is_win and ext in _SHIM_EXTS:
-            return _from_shim(p, which, is_win)
-        return [p]
+        cmd = _configured(p, which, is_win)
+        return cmd, "pi_bin" if cmd else ""
+    cmd = _with_node(_pkg_entry(os.path.join(MANAGED_DIR, "node_modules", *PACKAGE)), which, is_win)
+    if cmd:
+        return cmd, "managed"
     found = which("pi")
     if not found:
-        return None
+        return None, ""
     if is_win and os.path.splitext(found)[1].lower() in _SHIM_EXTS:
-        return _from_shim(found, which, is_win)
-    return [found]
+        cmd = _from_shim(found, which, is_win)
+        return cmd, "path" if cmd else ""
+    return [found], "path"
+
+
+def locate(pi_bin="", which=shutil.which, is_win=IS_WIN):
+    """The command prefix that runs pi, or None when it isn't installed."""
+    return locate_how(pi_bin, which, is_win)[0]
+
+
+def _configured(p, which, is_win):
+    if os.path.isdir(p):
+        return _with_node(_pkg_entry(p), which, is_win)
+    if not os.path.isfile(p):
+        return None
+    ext = os.path.splitext(p)[1].lower()
+    if ext in _JS_EXTS:
+        return _with_node(p, which, is_win)
+    if is_win and ext in _SHIM_EXTS:
+        return _from_shim(p, which, is_win)
+    return [p]
 
 
 def _text(msg):
@@ -223,7 +241,8 @@ def run(task, model, endpoint, key="", cwd=None, tools="read", timeout=DEFAULT_T
         return out
     cmd = cmd or locate(pi_bin)
     if not cmd:
-        out["error"] = ("pi is not installed (npm install -g @earendil-works/pi-coding-agent, "
+        out["error"] = ("pi is not installed (Setup -> pi coding agent -> Install pi, "
+                        "npm install -g @earendil-works/pi-coding-agent, "
                         "or set pi_bin in config.json)")
         return out
     try:

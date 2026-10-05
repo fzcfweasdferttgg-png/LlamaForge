@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server
+import mcp_server, piinstall
 from builder import BuildManager
 from embers import panel as embers_panel
 
@@ -1475,6 +1475,24 @@ def get_mcp_setup(req):
     return 200, info
 
 
+def get_pi_status(req):
+    return 200, piinstall.status(cfg().get("pi_bin") or "")
+
+
+def _pi_job(action):
+    if not piinstall.start(action):
+        raise ApiError(409, piinstall.BUSY)
+    return 200, {"started": True}
+
+
+def post_pi_install(req):
+    return _pi_job("install")
+
+
+def post_pi_remove(req):
+    return _pi_job("remove")
+
+
 def post_slots_main(req):
     SLOTS.set_main(req.body.get("model") or "")
     return 200, {"ok": True, "main": req.body.get("model") or ""}
@@ -2448,6 +2466,7 @@ GET_ROUTES = {
     "/api/slots":             get_slots,
     "/api/slots/plan":        get_slots_plan,
     "/api/mcp/setup":         get_mcp_setup,
+    "/api/pi/status":         get_pi_status,
     "/api/embers":            _embers(embers_panel.get_embers),
     "/api/embers/templates":  _embers(embers_panel.get_templates),
     "/api/embers/brief":      _embers(embers_panel.get_brief),
@@ -2483,6 +2502,8 @@ POST_ROUTES = {
     "/api/profiles/import":     post_profiles_import,
     "/api/build/start":         post_build_start,
     "/api/setup/install":       post_setup_install,
+    "/api/pi/install":          post_pi_install,
+    "/api/pi/remove":           post_pi_remove,
     "/api/scan":                post_scan,
     "/api/scan/apply":          post_scan_apply,
     "/api/scan/prune":          post_scan_prune,

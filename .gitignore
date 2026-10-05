@@ -8,6 +8,8 @@ stats.json
 footprints.json
 wiki/
 /embers/
+# pi installed on request (piinstall)
+/agents/
 logs/
 __pycache__/
 *.pyc
