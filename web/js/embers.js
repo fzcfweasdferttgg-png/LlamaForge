@@ -68,6 +68,21 @@ function took(a, b) {
   return isFinite(s) && s >= 0 ? (s < 60 ? Math.round(s) + "s" : Math.round(s / 60) + "m") : "";
 }
 
+/* ---------- one flame colour per ember ----------
+   Derived from the id, so an ember keeps its colour across reloads and
+   machines. The hues are a curated set that stays legible on both Hearth
+   surfaces; colour is identity only, never status (the LED carries that).
+   Only the Hearth skin draws the flame - Classic hides .ef-flame. */
+const HUES = [24, 6, 42, 172, 196, 262, 328, 138, 52, 292, 350, 214];
+function emberHue(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return HUES[h % HUES.length];
+}
+const FLAME = `<svg class="ef-flame" viewBox="0 0 24 24" aria-hidden="true">`
+  + `<path class="o" d="M12 2.5c.8 3.6 5.5 5.3 5.5 10.8a5.5 5.5 0 0 1-11 0c0-3.2 2.1-4.6 2.3-7.4 1.1 1.2 2 2.2 3.2 2.4.3-1.9.3-3.8 0-5.8z"/>`
+  + `<path class="i" d="M12 11.5c.4 1.7 2.6 2.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.4.9-2.1 1.1-3.3.5.5.9.9 1.5 1 .1-.9.1-1.7 0-2.7z"/></svg>`;
+
 /* ---------- state of one ember, as one LED + one line ---------- */
 function state(c) {
   if (c.error) return ["err", "can't be read: " + c.error];
@@ -89,7 +104,7 @@ export async function loadEmbers() {
     v.dataset.ready = "1";
     setHTML(v, `<div class="ef-wrap">
         <aside class="ef-side">
-          <div class="tbl-head"><h2>Embers</h2><span class="count" id="ef-count"></span></div>
+          <div class="tbl-head"><h2>Your embers</h2><span class="count" id="ef-count"></span></div>
           <div class="ef-row ef-forgerow" id="ef-forgerow" data-forge-open role="button" tabindex="0"
             title="Describe what you want; Forge builds the ember">
             <span class="ef-led forge"></span>
@@ -153,8 +168,8 @@ function renderList() {
     const sub = c.error ? line
       : c.brief ? `${dayName(c.brief.date)} · ${c.counts.open} open` : "no brief yet";
     return `<div class="ef-row${c.id === E.sel && !E.forge ? " sel" : ""}" data-ember="${esc(c.id)}" role="button" tabindex="0"
-        title="${esc(line)}">
-      <span class="ef-led ${led}"></span>
+        title="${esc(line)}" style="--ember-h:${emberHue(c.id)}">
+      ${FLAME}<span class="ef-led ${led}"></span>
       <span class="ef-rowtext"><span class="ef-name">${esc(c.name)}</span><span class="ef-sub">${esc(sub)}</span></span>
     </div>`;
   }).join(""));
@@ -231,10 +246,10 @@ function renderEmpty() {
 function renderDetail() {
   const c = card(E.sel);
   if (!c) return renderEmpty();
-  setHTML($("#ef-main"), `<div id="ef-detail" data-id="${esc(c.id)}">
+  setHTML($("#ef-main"), `<div id="ef-detail" data-id="${esc(c.id)}" style="--ember-h:${emberHue(c.id)}">
       <div class="ef-head">
         <div class="ef-headtext">
-          <h2 class="ef-title">${esc(c.name)}${c.origin === "forge" ? ` <span class="ef-tag" title="Built by Forge">forge</span>` : ""}</h2>
+          <h2 class="ef-title">${FLAME}<span class="ef-tname">${esc(c.name)}</span>${c.origin === "forge" ? ` <span class="ef-tag" title="Built by Forge">forge</span>` : ""}</h2>
           <div class="ef-mission">${esc(c.mission || "")}</div>
         </div>
         <div class="qbtns">
@@ -479,7 +494,7 @@ async function saveSettings(form) {
   if (!d || d.error) { msg.className = "msg err"; msg.textContent = d ? d.error : "The panel didn't answer."; return false; }
   msg.className = "msg ok"; msg.textContent = "Saved.";
   await refresh(true);
-  $(".ef-title").textContent = card(E.sel).name;
+  $(".ef-tname").textContent = card(E.sel).name;
   return true;
 }
 

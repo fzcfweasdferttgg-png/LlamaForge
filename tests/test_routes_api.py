@@ -55,10 +55,11 @@ class ConfigAllowlistTest(unittest.TestCase):
 
     def test_accepts_the_keys_the_ui_sets(self):
         status, out = routes.post_config(Req(body={
-            "theme": "dark", "cvd": True, "ui_mode": "advanced",
+            "theme": "dark", "cvd": True, "skin": "classic", "ui_mode": "advanced",
             "onboarded": True, "auto_load_model": "qwen", "wsl_distro": "Ubuntu"}))
         self.assertEqual(status, 200)
         self.assertEqual(self.saved["theme"], "dark")
+        self.assertEqual(self.saved["skin"], "classic")
         self.assertEqual(self.saved["ui_mode"], "advanced")
         self.assertNotIn("rejected", out)
 
@@ -78,7 +79,7 @@ class ConfigAllowlistTest(unittest.TestCase):
         self.assertEqual(self.saved, {})
 
     def test_rejects_ill_typed_values(self):
-        for body in ({"ui_mode": "root"}, {"theme": "neon"}, {"cvd": "yes"},
+        for body in ({"ui_mode": "root"}, {"theme": "neon"}, {"skin": "neon"}, {"cvd": "yes"},
                      {"vllm_port": 99999}, {"vllm_port": "8081"},
                      {"model_dirs": "not-a-list"}, {"onboarded": 1}):
             with self.assertRaises(ApiError, msg=str(body)):

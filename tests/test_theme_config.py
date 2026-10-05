@@ -16,12 +16,17 @@ class TestThemeConfig(unittest.TestCase):
         c = config.load()
         self.assertEqual(c["theme"], "")
         self.assertIs(c["cvd"], False)
+        self.assertEqual(c["skin"], "")
 
     def test_round_trip(self):
         config.save({**config.load(), "theme": "light", "cvd": True})
         c = config.load()
         self.assertEqual(c["theme"], "light")
         self.assertIs(c["cvd"], True)
+
+    def test_skin_round_trip(self):
+        config.save({**config.load(), "skin": "classic"})
+        self.assertEqual(config.load()["skin"], "classic")
 
 
 if __name__ == "__main__":
