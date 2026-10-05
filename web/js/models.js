@@ -7,7 +7,7 @@
 // scroll and half-typed knob values survive the 4-second poll. See syncEditor()
 // for how the editor separates what the server owns from what the user is
 // typing. Nothing here may re-render a knob input the user might be editing.
-import { $, $$, esc, setHTML, api, toast, meter } from "./core.js";
+import { $, $$, esc, setHTML, api, toast, meter, motionOK } from "./core.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
@@ -219,7 +219,7 @@ function rowHead(m, showBackend) {
   const beTag = showBackend
     ? `<span class="tag be-${esc(be)}">${esc(BACKEND_LABEL[be] || be)}</span>` : "";
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
-        <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
+        <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
         <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
@@ -261,7 +261,7 @@ export function renderModels() {
   const showBackend = backendTagNeeded();
   const list = $("#list");
   if (!list) return;
-  if (!ms.length) { setHTML(list, `<div class="skel">NO MODELS MATCH</div>`); return; }
+  if (!ms.length) { setHTML(list, `<div class="skel empty">NO MODELS MATCH</div>`); return; }
   if (list.firstElementChild && list.firstElementChild.classList.contains("skel")) setHTML(list, "");
 
   const existing = new Map($$(".row", list).map(r => [
@@ -287,6 +287,9 @@ export function renderModels() {
       setHTML(head, rowHead(m, showBackend));
       row._hs = hs;
     }
+    // a model that just finished loading lights its row once (Hearth styles .ignite)
+    if (row._st && row._st !== "loaded" && m.status === "loaded") ignite(row);
+    row._st = m.status;
     row.classList.toggle("open", m.id === openId);
     row.classList.toggle("sel", m.id === selId);
     syncEditor(row, m);
@@ -297,6 +300,17 @@ export function renderModels() {
     prev = row;
   }
   for (const stale of existing.values()) stale.remove();
+}
+function ignite(row) {
+  if (!motionOK()) return;
+  row.classList.remove("ignite");
+  void row.offsetWidth;              // restart if it is still glowing from a moment ago
+  row.classList.add("ignite");
+  row.addEventListener("animationend", function done(e) {
+    if (e.animationName !== "hearth-ignite") return;
+    row.classList.remove("ignite");
+    row.removeEventListener("animationend", done);
+  });
 }
 /* Bring one row's editor in line with the model, preserving user input. */
 function syncEditor(row, m) {

@@ -1,5 +1,5 @@
 // Stats tab: totals, live throughput, a daily activity chart, per-model usage.
-import { $, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter } from "./core.js";
+import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK } from "./core.js";
 import { createFactRotator, normalizeVram } from "./stats-facts.js";
 
 let statsSort = "tokens", statsRange = 14, statsRequest = 0;
@@ -31,8 +31,26 @@ export function initStats() {
   });
 }
 
-function statCard(label, val) {
-  return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
+const FMT = { num: fmtNum, dur: fmtDur, int: n => String(Math.round(n)) };
+
+// `count` (a raw number and a FMT key) lets the first render count up to it.
+function statCard(label, val, count) {
+  const c = count ? ` data-count="${esc(count[0])}" data-fmt="${esc(count[1])}"` : "";
+  return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div class="statnum"${c} style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
+}
+
+// Odometer on the first paint of the tab only; the 4s refresh replaces these
+// nodes, which simply strands any frame still in flight on a detached element.
+function countUp(root) {
+  if (!motionOK()) return;
+  const t0 = performance.now(), ms = 750;
+  const els = $$("[data-count]", root).map(el => [el, +el.dataset.count || 0, FMT[el.dataset.fmt] || fmtNum]);
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+    for (const [el, to, f] of els) el.textContent = f(to * e);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 // One line per loaded model with its own live speed. live.models comes from a
@@ -112,14 +130,15 @@ export async function loadStats(silent) {
   const restoreDetailsFocus = !!oldSummary && document.activeElement === oldSummary;
   const detailsOpen = !!$(".token-scale-details", v)?.open;
   setHTML(v, `
+    <div class="stats-body${silent ? "" : " intro"}">
     ${renderTokenScale(t.generated, fact, detailsOpen)}
     <div class="stats-vram" id="stats-vram" aria-label="GPU VRAM usage">${hasGpuPayload ? renderStatsVram(lastGpuPayload) : `<div class="stats-vram-empty">VRAM TELEMETRY LOADING...</div>`}</div>
     <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-      ${statCard("Tokens processed", fmtNum(t.tokens))}
-      ${statCard("Generated", fmtNum(t.generated))}
-      ${statCard("Inference time", fmtDur(t.loaded_hours*3600))}
-      ${statCard("Models used", t.models_used)}
-      ${statCard("Runs (approx)", fmtNum(t.total_runs))}
+      ${statCard("Tokens processed", fmtNum(t.tokens), [t.tokens, "num"])}
+      ${statCard("Generated", fmtNum(t.generated), [t.generated, "num"])}
+      ${statCard("Inference time", fmtDur(t.loaded_hours*3600), [t.loaded_hours*3600, "dur"])}
+      ${statCard("Models used", t.models_used, [t.models_used, "int"])}
+      ${statCard("Runs (approx)", fmtNum(t.total_runs), [t.total_runs, "num"])}
       ${statCard("Most used", t.most_used||"-")}
     </div>
     <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:10px">(router offline)</span>`}</h3>
@@ -134,8 +153,8 @@ export async function loadStats(silent) {
           <span class="chip ${statsRange===30?"on":""}" data-range="30">30d</span>
         </span></h3>
       ${daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
-        ${daily.map(d=>{const hp=Math.round(100*d.prompt/maxDaily),hg=Math.round(100*d.generated/maxDaily);
-          return `<div title="${esc(d.date)} &middot; ${fmtNum(d.generated)} generated + ${fmtNum(d.prompt)} prompt" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+        ${daily.map((d,i)=>{const hp=Math.round(100*d.prompt/maxDaily),hg=Math.round(100*d.generated/maxDaily);
+          return `<div class="bar" title="${esc(d.date)} &middot; ${fmtNum(d.generated)} generated + ${fmtNum(d.prompt)} prompt" style="--i:${i};flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
             <div style="height:${hg}%;min-height:${d.generated?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div>
             <div style="height:${hp}%;min-height:${d.prompt?2:0}px;background:var(--cyan);opacity:.55"></div></div>`;}).join("")}
       </div>
@@ -162,6 +181,7 @@ export async function loadStats(silent) {
           <span class="stat">${fmtAgo(m.last_used)}</span>
         </div></div>`).join("")}</div>`
       :`<div class="note">No models have logged usage yet.</div>`}
-    </div>`);
+    </div></div>`);
+  if (!silent) countUp(v);
   if (restoreDetailsFocus) $(".token-scale-details summary", v)?.focus({preventScroll: true});
 }

@@ -407,3 +407,75 @@
   :root[data-skin="hearth"] .wizard-overlay:not([hidden]) .wizard-card{animation:hearth-pop .32s var(--ease-out) backwards}
   :root[data-skin="hearth"] #toast{transition:transform .42s var(--ease-spring),opacity .22s ease}
 }
+
+/* ---- Character ------------------------------------------------------------
+   The hearth behaves like fire. A loading model's LED kindles and its row
+   catches when it comes up (models.js adds .ignite on the loading->loaded
+   edge); sparks drift off the brand flame; the first paint of Stats counts up
+   and grows its chart (.intro is only on that paint, never on the 4s refresh);
+   switching theme spreads from the control like a lamp being lit (ui.js, View
+   Transitions). Same rules as above: nothing replays on a poll, nothing runs
+   when reduced motion is asked for. */
+:root[data-skin="hearth"] .led.loading{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+@keyframes hearth-kindle{0%,100%{opacity:1;box-shadow:0 0 6px var(--amber)}35%{opacity:.55;box-shadow:0 0 2px var(--amber)}55%{opacity:.9;box-shadow:0 0 12px 1px var(--amber)}75%{opacity:.6;box-shadow:0 0 4px var(--amber)}}
+@keyframes hearth-ignite{0%{box-shadow:0 0 0 1px var(--amber),0 0 0 0 rgba(255,138,76,.55),var(--lift)}40%{box-shadow:0 0 0 1px var(--amber),0 0 34px 4px rgba(255,138,76,.32),var(--lift)}100%{box-shadow:var(--lift)}}
+@keyframes hearth-ignite-led{0%{transform:scale(1)}30%{transform:scale(1.7);box-shadow:0 0 18px 3px var(--green)}100%{transform:scale(1)}}
+@keyframes hearth-spark{0%,58%{opacity:0;transform:translate(0,0) scale(1)}62%{opacity:1}100%{opacity:0;transform:translate(var(--sx,4px),-26px) scale(.3)}}
+@keyframes hearth-grow{from{transform:scaleY(0)}to{transform:none}}
+@keyframes hearth-shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+@keyframes hearth-shake{0%,100%{transform:translateX(-50%)}20%{transform:translateX(calc(-50% - 6px))}40%{transform:translateX(calc(-50% + 5px))}60%{transform:translateX(calc(-50% - 3px))}80%{transform:translateX(calc(-50% + 2px))}}
+@keyframes hearth-dot{0%{transform:scale(0)}60%{transform:scale(1.4)}100%{transform:scale(1)}}
+@keyframes hearth-navbar{from{box-shadow:inset 0 0 0 var(--amber),0 8px 24px -14px transparent}}
+@keyframes hearth-reveal{from{clip-path:circle(0 at var(--rx,50%) var(--ry,0))}to{clip-path:circle(150vmax at var(--rx,50%) var(--ry,0))}}
+@keyframes hearth-think{0%,100%{opacity:.45}50%{opacity:1}}
+/* toast status dot (the colorblind-safe mode keeps its ✓ / ✗ glyphs instead) */
+:root[data-skin="hearth"]:not([data-cvd="safe"]) #toast:is(.ok,.err)::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:10px;vertical-align:1px;background:var(--green);box-shadow:0 0 8px var(--green)}
+:root[data-skin="hearth"]:not([data-cvd="safe"]) #toast.err::before{background:var(--red);box-shadow:0 0 8px var(--red)}
+:root[data-skin="hearth"][data-cvd="safe"] #toast::before{margin-right:8px}
+@media (prefers-reduced-motion:no-preference){
+  /* models: kindling while loading, then the row catches once */
+  :root[data-skin="hearth"] .led.loading{animation:hearth-kindle 1.2s steps(12,end) infinite}
+  :root[data-skin="hearth"] #list>.row.ignite{animation:hearth-rise .4s var(--ease-out) backwards,hearth-ignite 1.4s var(--ease-out)}
+  :root[data-skin="hearth"] #list>.row.ignite .led.loaded{animation:hearth-ignite-led .7s var(--ease-spring),hearth-led 2.8s ease-in-out .7s infinite}
+  /* the brand flame throws the odd spark and leans in when you point at it */
+  :root[data-skin="hearth"] .logo{transition:transform .35s var(--ease-spring)}
+  :root[data-skin="hearth"] .side-head:hover .logo{transform:scale(1.08) rotate(-4deg)}
+  :root[data-skin="hearth"] .logo::before,
+  :root[data-skin="hearth"] .logo::after{content:"";display:block;position:absolute;left:50%;top:22%;right:auto;width:3px;height:3px;
+    border-radius:50%;background:#ffd27a;box-shadow:0 0 6px 1px rgba(255,150,60,.85);opacity:0;pointer-events:none;
+    animation:hearth-spark 4.6s ease-out infinite}
+  :root[data-skin="hearth"] .logo::after{left:38%;--sx:-6px;width:2px;height:2px;animation-duration:6.2s;animation-delay:1.9s}
+  /* primary buttons: a glint crosses on hover (and snaps back, not sweeps back) */
+  :where(:root[data-skin="hearth"]:not([data-cvd="safe"])) button.primary{
+    background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.42) 50%,transparent 58%) 150% 0/260% 100% no-repeat,linear-gradient(180deg,#ffc07a,#ff7a48)}
+  :where(:root[data-skin="hearth"]:not([data-cvd="safe"])) button.primary:hover{background-position:-60% 0,0 0;
+    transition:background-position .8s var(--ease-out),box-shadow .22s ease,transform .22s var(--ease-out),filter .18s ease}
+  /* the active nav item's bar grows in when you arrive */
+  :root[data-skin="hearth"] .navitem.active{animation:hearth-navbar .45s var(--ease-out)}
+  /* stats, first paint: cards rise in turn, the chart grows from the floor */
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu{animation:hearth-rise .45s var(--ease-out) backwards}
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(2){animation-delay:.04s}
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(3){animation-delay:.08s}
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(4){animation-delay:.12s}
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(5){animation-delay:.16s}
+  :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(6){animation-delay:.2s}
+  :root[data-skin="hearth"] .stats-body.intro .bar{transform-origin:50% 100%;animation:hearth-grow .6s var(--ease-out) backwards;animation-delay:calc(.15s + var(--i,0) * 22ms)}
+  /* waiting text shimmers like heat; "nothing matched" is not waiting, so it doesn't */
+  :root[data-skin="hearth"] .skel:not(.empty):not([style]){color:transparent;-webkit-background-clip:text;background-clip:text;
+    background-image:linear-gradient(100deg,var(--dim) 35%,var(--amber-text) 50%,var(--dim) 65%);background-size:240% 100%;
+    animation:hearth-shimmer 1.8s linear infinite}
+  /* knob groups open with the same drop as the editor */
+  :root[data-skin="hearth"] .kgroup[open]>summary~*{animation:hearth-drop .24s var(--ease-out) backwards}
+  /* forge: the newest message rises in; "thinking" breathes */
+  :root[data-skin="hearth"] .fg-log>.fg-msg:last-child{animation:hearth-rise .32s var(--ease-out) backwards}
+  :root[data-skin="hearth"] .fg-wait .fg-text{animation:hearth-think 1.4s ease-in-out infinite}
+  /* toasts: the dot pops; an error gives a short shake once it has landed */
+  :root[data-skin="hearth"] #toast.show::before{animation:hearth-dot .4s var(--ease-spring) .12s backwards}
+  :root[data-skin="hearth"] #toast.err.show{animation:hearth-shake .42s ease-out .28s}
+  /* theme switch: the new theme spreads out from the toggle */
+  :root[data-skin="hearth"]::view-transition-old(root),
+  :root[data-skin="hearth"]::view-transition-new(root){animation:none;mix-blend-mode:normal}
+  :root[data-skin="hearth"]::view-transition-new(root){animation:hearth-reveal .65s var(--ease-out)}
+  :root[data-skin="hearth"].theme-swap *{transition:none!important}
+}

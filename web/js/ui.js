@@ -4,7 +4,7 @@
 // Knows nothing about any individual view. Tab activation publishes through
 // onTabShown(), and main.js registers each view's loader - so adding a tab
 // never edits this file's imports.
-import { $, $$, api } from "./core.js";
+import { $, $$, api, motionOK } from "./core.js";
 
 /* ---------- lite/advanced mode ---------- */
 export function applyMode(mode) {
@@ -32,8 +32,22 @@ export function applyCvd(on) {
   const c = $("#cvd-check");
   if (c) c.checked = !!on;
 }
-export async function setTheme(t) {
-  applyTheme(t);
+// Hearth: the new theme spreads out from the control that asked for it, like a
+// lamp coming on. Without View Transitions (or with reduced motion) it just swaps.
+function revealFrom(e, apply) {
+  const el = e && e.currentTarget;
+  if (!el || !el.getBoundingClientRect || !document.startViewTransition || !motionOK()) { apply(); return; }
+  const r = el.getBoundingClientRect(), root = document.documentElement.style;
+  root.setProperty("--rx", Math.round(r.left + r.width / 2) + "px");
+  root.setProperty("--ry", Math.round(r.top + r.height / 2) + "px");
+  // hover/colour transitions would otherwise fade the cards inside the reveal
+  document.documentElement.classList.add("theme-swap");
+  document.startViewTransition(apply).finished
+    .finally(() => document.documentElement.classList.remove("theme-swap"));
+}
+export async function setTheme(t, e) {
+  if (t === document.documentElement.dataset.theme) applyTheme(t);
+  else revealFrom(e, () => applyTheme(t));
   try { localStorage.setItem("theme", t); } catch (e) {}
   try { await api("/api/config", {theme: t}); } catch (e) {}
 }
@@ -57,7 +71,7 @@ export async function setSkin(k) {
   try { await api("/api/config", {skin: k}); } catch (e) {}
 }
 export function initThemeControls() {
-  $$("#theme-toggle button").forEach(b => b.onclick = () => setTheme(b.dataset.theme));
+  $$("#theme-toggle button").forEach(b => b.onclick = e => setTheme(b.dataset.theme, e));
   $$("#skin-toggle button").forEach(b => b.onclick = () => setSkin(b.dataset.skin));
   const c = $("#cvd-check");
   if (c) c.onchange = () => setCvd(c.checked);
@@ -97,7 +111,7 @@ export function initSidebar() {
   const rm = $("#rail-mode");
   if (rm) rm.onclick = () => setMode(document.body.classList.contains("mode-lite") ? "advanced" : "lite");
   const rt = $("#rail-theme");
-  if (rt) rt.onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  if (rt) rt.onclick = e => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", e);
   const rc = $("#rail-cvd");
   if (rc) rc.onclick = () => {
     const nx = document.documentElement.dataset.cvd !== "safe";
