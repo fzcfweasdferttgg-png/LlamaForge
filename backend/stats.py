@@ -5,7 +5,9 @@ directly), and llama.cpp's own Prometheus counters reset on restart and keep no
 per-model history. So this module runs a background poller that scrapes the
 router's `/metrics`, diffs the token counters of every loaded model (each has its own
 `/metrics?model=`, so several loaded at once on a multi-model pool keep apart),
-and persists per-model + daily totals to stats.json. Pure stdlib.
+plus the bare `/metrics` of every process slot (a model pinned to another build
+runs in its own llama-server, outside the router), and persists per-model +
+daily totals to stats.json. Live numbers are reported per model too. Pure stdlib.
 """
 import json, os, re, threading, time, urllib.request, urllib.parse
 from datetime import date
@@ -74,7 +76,11 @@ class StatsTracker:
         self._last_flush = 0.0
         self.live = {"prompt_per_sec": 0.0, "gen_per_sec": 0.0,
                      "requests_processing": 0, "loaded_model": None,
-                     "loaded_models": [], "router_up": False}
+                     "loaded_models": [], "models": [], "router_up": False}
+        # {model: endpoint} of the process slots that are up (models pinned to
+        # another build run as their own llama-server, outside the router).
+        # routes wires it to slotproc; stats can't import routes.
+        self.proc_source = lambda: {}
 
     # ---------- persistence ----------
     def _load(self):
@@ -103,16 +109,29 @@ class StatsTracker:
     def _base(self):
         return f"http://127.0.0.1:{config.load()['router_port']}"
 
-    def _get(self, path, timeout=4):
-        c = config.load()
+    def _fetch(self, url, c, timeout):
         headers = {}
         key = network_policy.effective_key(c)
         if key:
             headers["Authorization"] = "Bearer " + key
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{c['router_port']}" + path, headers=headers)
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode(errors="replace")
+
+    def _get(self, path, timeout=4):
+        c = config.load()
+        return self._fetch(f"http://127.0.0.1:{c['router_port']}" + path, c, timeout)
+
+    def _get_proc(self, endpoint, path, timeout=4):
+        """A process slot is started with the router's key (slotctl), so it
+        takes the same bearer."""
+        return self._fetch(endpoint + path, config.load(), timeout)
+
+    def _procs(self):
+        try:
+            return dict(self.proc_source() or {})
+        except Exception:
+            return {}
 
     def _router_state(self):
         """(router_up, loaded model ids, the main first). One /models call
@@ -194,33 +213,43 @@ class StatsTracker:
         # a model name, so we must know the models before scraping them -
         # scraping bare /metrics (the old bug) made every poll look like the
         # router down.
+        # Process slots (models pinned to another build) run outside the router
+        # with their own bare /metrics, and keep running when the router is
+        # down. A model the router serves is scraped there, once. Models that
+        # were loaded last poll but not now drop out of _prev, so they start
+        # from a fresh baseline when they come back.
         up, loaded = self._router_state()
-        if not up:
-            with self.lock:
-                self.live.update(router_up=False, prompt_per_sec=0.0,
-                                 gen_per_sec=0.0, requests_processing=0,
-                                 loaded_model=None, loaded_models=[])
-                self._prev, self._idle = {}, {}    # re-baseline on next good poll
-                self._poll_vllm()          # vLLM runs independently of this router
-                self._flush()
-            return
+        procs = {m: ep for m, ep in self._procs().items() if m not in loaded}
 
-        scraped = {}
+        scraped, where = {}, {}
         for model in loaded:
+            where[model] = "router"
             try:
                 scraped[model] = _parse_metrics(
                     self._get("/metrics?model=" + urllib.parse.quote(model)))
             except Exception:
                 scraped[model] = None      # unknown, not zero: keep its baseline
-        live = [m for m in scraped.values() if m]
+        for model, endpoint in procs.items():
+            where[model] = "process"
+            try:
+                scraped[model] = _parse_metrics(self._get_proc(endpoint, "/metrics"))
+            except Exception:
+                scraped[model] = None
+        names = list(scraped)
+        per = [{"id": mid, "where": where[mid],
+                "gen_per_sec": m.get(M_GEN_PER_SEC, 0.0),
+                "prompt_per_sec": m.get(M_PROMPT_PER_SEC, 0.0),
+                "requests_processing": int(m.get(M_REQ_PROCESSING, 0.0))}
+               for mid, m in scraped.items() if m]
         with self.lock:
             self.live.update(
-                router_up=True,
-                prompt_per_sec=sum(m.get(M_PROMPT_PER_SEC, 0.0) for m in live),
-                gen_per_sec=sum(m.get(M_GEN_PER_SEC, 0.0) for m in live),
-                requests_processing=int(sum(m.get(M_REQ_PROCESSING, 0.0) for m in live)),
-                loaded_model=loaded[0] if loaded else None,
-                loaded_models=list(loaded),
+                router_up=up,
+                prompt_per_sec=sum(p["prompt_per_sec"] for p in per),
+                gen_per_sec=sum(p["gen_per_sec"] for p in per),
+                requests_processing=sum(p["requests_processing"] for p in per),
+                loaded_model=names[0] if names else None,
+                loaded_models=names,
+                models=per,
             )
             prev, idle = self._prev, self._idle
             self._prev, self._idle = {}, {}

@@ -35,6 +35,24 @@ function statCard(label, val) {
   return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
 }
 
+// One line per loaded model with its own live speed. live.models comes from a
+// backend that scrapes each model (router pool + process slots); an older
+// backend only sends the names, so those rows show no numbers.
+export function liveModels(loaded, live) {
+  if (!loaded.length)
+    return `<div class="kv"><span class="k">loaded model</span><span class="v">none</span></div>`;
+  const by = Object.fromEntries((live.models || []).map(m => [m.id, m]));
+  return loaded.map(id => {
+    const m = by[id];
+    const own = m && m.where === "process"
+      ? ` <span class="tag" title="Pinned to another build, so it runs in its own llama-server outside the router">own process</span>` : "";
+    const nums = m
+      ? `${(m.gen_per_sec||0).toFixed(1)} tok/s <span style="color:var(--dim)">&middot; prompt ${(m.prompt_per_sec||0).toFixed(1)} &middot; ${esc(m.requests_processing)} active</span>`
+      : `<span style="color:var(--dim)">-</span>`;
+    return `<div class="kv"><span class="k" style="color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0"><span class="led loaded" style="flex:0 0 auto"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(id)}</span>${own}</span><span class="v" style="white-space:nowrap">${nums}</span></div>`;
+  }).join("");
+}
+
 export function renderStatsVram(payload) {
   const gpus = normalizeVram(payload);
   if (!gpus.length) return `<div class="stats-vram-empty">VRAM TELEMETRY UNAVAILABLE</div>`;
@@ -105,9 +123,9 @@ export async function loadStats(silent) {
       ${statCard("Most used", t.most_used||"-")}
     </div>
     <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:10px">(router offline)</span>`}</h3>
-      <div class="kv"><span class="k">loaded model${loaded.length>1?"s":""}</span><span class="v ${loaded.length?"ok":""}">${esc(loaded.join(", ")||"none")}</span></div>
-      <div class="kv"><span class="k">generation</span><span class="v">${(live.gen_per_sec||0).toFixed(1)} tok/s</span></div>
-      <div class="kv"><span class="k">prompt eval</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
+      ${liveModels(loaded, live)}
+      <div class="kv"><span class="k">generation${loaded.length>1?" (all models)":""}</span><span class="v">${(live.gen_per_sec||0).toFixed(1)} tok/s</span></div>
+      <div class="kv"><span class="k">prompt eval${loaded.length>1?" (all models)":""}</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">active requests</span><span class="v">${esc(live.requests_processing)}</span></div>
     </div>
     <div class="card"><h3>Activity${daily.length?` (last ${daily.length} days)`:""}

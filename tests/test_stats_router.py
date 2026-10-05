@@ -189,5 +189,119 @@ class TestPool(RouterCase):
         self.assertEqual(self.tr.live["loaded_model"], "small")
 
 
+class TestProcessSlots(RouterCase):
+    """A model pinned to another build (ik_llama.cpp, an older llama.cpp) runs
+    in its own llama-server process on its own port, outside the router. It has
+    its own bare /metrics, and has to be counted like a router model."""
+
+    def _wire_all(self, router, procs, router_up=True, seen=None):
+        """router: {model: (prompt, gen, tps)} loaded in the router;
+        procs: {model: (prompt, gen, tps)} running as process slots."""
+        def metrics(c):
+            p, g, tps = c
+            return (f"llamacpp:prompt_tokens_total {p}\n"
+                    f"llamacpp:tokens_predicted_total {g}\n"
+                    f"llamacpp:prompt_tokens_seconds {tps * 10}\n"
+                    f"llamacpp:predicted_tokens_seconds {tps}\n"
+                    f"llamacpp:requests_processing 1\n")
+
+        def fake_get(path, timeout=4):
+            if not router_up:
+                raise urllib.error.URLError("connection refused")
+            if path == "/models":
+                return json.dumps({"data": [{"id": m, "status": {"value": "loaded"}} for m in router]})
+            return metrics(router[path.split("=", 1)[1]])
+
+        ports = {m: f"http://127.0.0.1:{8100 + i}" for i, m in enumerate(procs)}
+        by_port = {v: k for k, v in ports.items()}
+
+        def fake_proc(endpoint, path, timeout=4):
+            if seen is not None:
+                seen.append(endpoint + path)
+            return metrics(procs[by_port[endpoint]])
+
+        self.tr._get = fake_get
+        self.tr._get_proc = fake_proc
+        self.tr.proc_source = lambda: dict(ports)
+        self.tr._main = lambda: ""
+
+    def test_process_slot_tokens_are_counted(self):
+        self._wire_all({"big": (0, 100, 5.0)}, {"ik-moe": (0, 10, 9.0)})
+        self.tr.poll_once()
+        self._wire_all({"big": (0, 150, 5.0)}, {"ik-moe": (20, 70, 9.0)})
+        self.tr.poll_once()
+        models = self.tr.data["models"]
+        self.assertEqual(models["big"]["generated"], 50)
+        self.assertEqual((models["ik-moe"]["prompt"], models["ik-moe"]["generated"]), (20, 60))
+
+    def test_process_slots_scrape_their_own_bare_metrics(self):
+        seen = []
+        self._wire_all({}, {"ik-moe": (0, 0, 0.0)}, seen=seen)
+        self.tr.poll_once()
+        self.assertEqual(seen, ["http://127.0.0.1:8100/metrics"])
+
+    def test_process_slots_count_while_the_router_is_down(self):
+        self._wire_all({}, {"ik-moe": (0, 10, 4.0)}, router_up=False)
+        self.tr.poll_once()
+        self._wire_all({}, {"ik-moe": (0, 30, 4.0)}, router_up=False)
+        self.tr.poll_once()
+        self.assertFalse(self.tr.live["router_up"])
+        self.assertEqual(self.tr.live["loaded_models"], ["ik-moe"])
+        self.assertEqual(self.tr.data["models"]["ik-moe"]["generated"], 20)
+
+    def test_live_reports_each_model_separately(self):
+        self._wire_all({"big": (0, 0, 5.0)}, {"ik-moe": (0, 0, 9.0)})
+        self.tr.poll_once()
+        live = self.tr.live
+        self.assertEqual(live["loaded_models"], ["big", "ik-moe"])
+        self.assertEqual(live["gen_per_sec"], 14.0)
+        self.assertEqual(live["models"], [
+            {"id": "big", "where": "router", "gen_per_sec": 5.0,
+             "prompt_per_sec": 50.0, "requests_processing": 1},
+            {"id": "ik-moe", "where": "process", "gen_per_sec": 9.0,
+             "prompt_per_sec": 90.0, "requests_processing": 1},
+        ])
+
+    def test_a_model_the_router_already_serves_is_scraped_once(self):
+        seen = []
+        self._wire_all({"big": (0, 0, 5.0)}, {"big": (0, 0, 5.0)}, seen=seen)
+        self.tr.poll_once()
+        self.assertEqual(seen, [])
+        self.assertEqual([m["id"] for m in self.tr.live["models"]], ["big"])
+
+    def test_a_broken_process_source_is_ignored(self):
+        self._wire_all({"big": (0, 0, 5.0)}, {})
+        def boom():
+            raise RuntimeError("slot table unreadable")
+        self.tr.proc_source = boom
+        self.tr.poll_once()
+        self.assertEqual(self.tr.live["loaded_models"], ["big"])
+
+    def test_process_scrapes_carry_the_bearer_key(self):
+        seen = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return b""
+
+        def open_request(request, timeout=4):
+            seen["url"] = request.full_url
+            seen["authorization"] = request.get_header("Authorization")
+            return Response()
+
+        with mock.patch.object(stats.config, "load", return_value={
+                "router_port": 8080, "router_api_key": "secret-key"}), \
+             mock.patch.object(stats.urllib.request, "urlopen", side_effect=open_request):
+            self.tr._get_proc("http://127.0.0.1:8100", "/metrics")
+        self.assertEqual(seen, {"url": "http://127.0.0.1:8100/metrics",
+                                "authorization": "Bearer secret-key"})
+
+
 if __name__ == "__main__":
     unittest.main()

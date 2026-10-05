@@ -2567,6 +2567,14 @@ SLOTS = slotctl.SlotManager(sys.modules[__name__], os.path.join(ROOT, "footprint
 # Models pinned to another build, each in its own llama-server. Adopting the
 # ones a previous panel left running is server.main()'s job (PROCS.reconcile()).
 PROCS = slotproc.Manager(LOGDIR)
+
+
+def _proc_endpoints():
+    """{model: endpoint} of the process slots that are up, for the stats poller."""
+    return {mid: s["endpoint"] for mid, s in PROCS.status().items() if s.get("state") == "ready"}
+
+
+stats.TRACKER.proc_source = _proc_endpoints
 embers_panel.MAIN_FN = lambda: SLOTS._main()   # Ask lists the pool's main model first
 
 
