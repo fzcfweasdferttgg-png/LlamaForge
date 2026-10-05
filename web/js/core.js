@@ -27,6 +27,14 @@ export function toast(m, c = "") {
   t._t = setTimeout(() => t.className = "", 2600);
 }
 
+/** JS-driven flourishes (count-ups, row ignition, the theme reveal) are part of
+ *  the Hearth skin and respect the OS reduced-motion setting, like its CSS. */
+export function motionOK() {
+  const root = document.documentElement;
+  return !!(root && root.dataset && root.dataset.skin === "hearth")
+    && !(typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
 /* ---------- formatting ---------- */
 export function fmtNum(n) {
   n = Number(n) || 0;
