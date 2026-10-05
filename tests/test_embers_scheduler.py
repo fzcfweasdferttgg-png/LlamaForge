@@ -878,3 +878,166 @@ class RestoreTest(SchedCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManualRunTest(SchedCase):
+    """Run now from the panel: request() queues jobs that then go through the
+    same lock, router gate and pool rules as scheduled ones."""
+
+    def fresh(self, eid="fresh", **conf):
+        root = self.ember(eid, created=dt.datetime(2026, 10, 4, 23, 0), **conf)
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)      # nothing due yet
+        return root
+
+    def test_runs_jobs_that_are_not_due_in_order(self):
+        root = self.fresh()
+        self.sched.request("fresh", ["brief", "ingest"])
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "ingest", "ok"))
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "brief", "ok"))
+        self.assertIsNone(self.sched.tick()["ran"])
+        self.assertEqual([r["job"] for r in self.runs(root)], ["brief", "ingest"])
+        self.assertEqual(self.sched.status()["fresh"]["queued"], [])
+
+    def test_queued_is_visible_before_the_next_tick(self):
+        self.fresh()
+        self.sched.request("fresh", ["ingest"])
+        self.assertEqual(self.sched.status()["fresh"]["queued"], ["ingest"])
+        self.sched.request("fresh", ["ingest", "brief"])      # no duplicates
+        self.assertEqual(self.sched.status()["fresh"]["queued"], ["ingest", "brief"])
+
+    def test_bad_requests_raise(self):
+        self.fresh()
+        for eid, wanted in (("fresh", ["bogus"]), ("fresh", []), ("Bad_Id", ["ingest"]),
+                            ("con", ["ingest"]), ("fresh", "ingest")):
+            with self.assertRaises(ValueError, msg=(eid, wanted)):
+                self.sched.request(eid, wanted)
+        self.assertEqual(self.sched.status().get("fresh", {}).get("queued", []), [])
+
+    def test_disabled_ember_runs_when_asked(self):
+        self.fresh(enabled=False)
+        self.sched.request("fresh", ["ingest"])
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "ingest", "ok"))
+        self.assertIsNone(self.sched.tick()["ran"])
+
+    def test_scheduler_off_still_runs_requests_only(self):
+        self.ember("due")                                  # due, but the scheduler is off
+        self.fresh()
+        self.cfg["embers_scheduler"] = False
+        self.sched.request("fresh", ["ingest"])
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "ingest", "ok"))
+        self.assertIsNone(self.sched.tick()["ran"])
+        self.assertEqual([c[0] for c in self.runners.calls], ["fresh"])
+
+    def test_requests_wait_while_the_router_is_busy(self):
+        self.fresh()
+        self.state.activity = 2
+        self.sched.request("fresh", ["ingest"])
+        r = self.sched.tick()
+        self.assertIsNone(r["ran"])
+        self.assertIn("busy", r["waiting"]["fresh"]["ingest"])
+        self.assertEqual(self.sched.status()["fresh"]["queued"], ["ingest"])
+        self.state.activity = 0
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "ingest", "ok"))
+        self.assertEqual(self.sched.status()["fresh"]["queued"], [])
+
+    def test_skipped_after_wait_max_leaves_the_queue(self):
+        root = self.fresh()
+        self.state.activity = 2
+        self.sched.request("fresh", ["ingest"])
+        self.sched.tick()
+        self.t[0] = WAIT_MAX
+        r = self.sched.tick()
+        self.assertEqual(r["skipped"][0][:2], ("fresh", "ingest"))
+        self.assertEqual(self.sched.status()["fresh"]["queued"], [])
+        self.assertEqual(self.runs(root, "ingest")[0]["status"], "skipped")
+
+    def test_due_and_requested_runs_once(self):
+        self.ember("a")                                    # ingest and brief due
+        self.sched.request("a", ["ingest"])
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+        self.assertEqual(self.sched.tick()["ran"], ("a", "brief", "ok"))
+        self.assertIsNone(self.sched.tick()["ran"])
+        self.assertEqual([c[1] for c in self.runners.calls], ["ingest", "brief"])
+
+    def test_requests_go_before_other_embers_due_jobs(self):
+        self.ember("a")                                    # due
+        self.ember("b")
+        self.sched.request("b", ["lint"])
+        self.assertEqual(self.sched.tick()["ran"], ("b", "lint", "ok"))
+
+    def test_cancel_clears_the_queue(self):
+        self.fresh()
+        self.sched.request("fresh", ["ingest", "brief"])
+        self.assertEqual(self.sched.cancel("fresh"), ["ingest", "brief"])
+        self.assertIsNone(self.sched.tick()["ran"])
+        self.assertEqual(self.sched.status()["fresh"]["queued"], [])
+        self.assertEqual(self.sched.cancel("fresh"), [])
+
+    def test_locked_ember_keeps_the_request(self):
+        root = self.fresh()
+        self.sched.request("fresh", ["ingest"])
+        with lock.held(root):
+            r = self.sched.tick()
+        self.assertIn("running in another process", r["waiting"]["fresh"]["ingest"])
+        self.assertEqual(self.sched.tick()["ran"], ("fresh", "ingest", "ok"))
+
+    def test_request_wakes_the_loop(self):
+        self.fresh()
+        with mock.patch.object(scheduler, "TICK", 30):
+            self.sched.start()
+            try:
+                time.sleep(0.2)                            # first pass: nothing due, then a 30 s wait
+                self.sched.request("fresh", ["ingest"])
+                deadline = time.monotonic() + 5
+                while not self.runners.calls and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            finally:
+                self.sched.stop()
+        self.assertEqual([c[1] for c in self.runners.calls], ["ingest"])
+
+
+class AfterRunHookTest(SchedCase):
+    """after_run(ember, job, result, now) sees every finished job while the
+    ember is still open; push uses it to send a brief."""
+
+    def make_sched(self):
+        self.hooked = []
+        self.hook_error = None
+
+        def hook(ember, job, result, now):
+            self.hooked.append((ember.id, ember.conf["name"], job, result["status"], now))
+            if self.hook_error:
+                raise self.hook_error
+        return scheduler.Scheduler(lambda: dict(self.cfg),
+                                   router_cls=lambda cfg: FakeRouter(self.state, cfg),
+                                   now=lambda: self.now[0], clock=lambda: self.t[0],
+                                   sleep=lambda s: None, runners=self.runners.table(), after_run=hook)
+
+    def test_hook_sees_each_finished_job(self):
+        self.ember("one", created=dt.datetime(2026, 10, 4, 23, 0))
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)
+        self.sched.request("one", ["ingest", "brief"])
+        self.sched.tick()
+        self.sched.tick()
+        self.assertEqual([(h[0], h[2], h[3]) for h in self.hooked], [("one", "ingest", "ok"), ("one", "brief", "ok")])
+        self.assertEqual(self.hooked[0][4], self.now[0])
+
+    def test_hook_failure_is_reported_not_fatal(self):
+        self.ember("one", created=dt.datetime(2026, 10, 4, 23, 0))
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)
+        self.hook_error = RuntimeError("ntfy exploded")
+        self.sched.request("one", ["brief"])
+        self.assertEqual(self.sched.tick()["ran"], ("one", "brief", "ok"))
+        self.assertIn("ntfy exploded", self.sched.status()["last_error"])
+
+    def test_no_hook_when_the_job_raised(self):
+        self.ember("one", created=dt.datetime(2026, 10, 4, 23, 0))
+        self.now[0] = dt.datetime(2026, 10, 5, 1, 0)
+        self.runners.raise_for.add("one")
+        self.sched.request("one", ["brief"])
+        self.sched.tick()
+        self.assertEqual(self.hooked, [])
+
+    def test_default_hook_is_push(self):
+        from embers import push
+        self.assertIs(scheduler.Scheduler(lambda: {}).after_run, push.after_run)

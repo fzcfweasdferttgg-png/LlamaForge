@@ -34,7 +34,7 @@ def _safe_url(u):
     return "#"                       # neutralize javascript:, data:, etc.
 
 
-def _inline(text):
+def _inline(text, images=True):
     out = html.escape(text, quote=True)           # escape first (strict/safe)
     codes = []
 
@@ -43,7 +43,10 @@ def _inline(text):
         return "\x00%d\x00" % (len(codes) - 1)
 
     out = _CODE.sub(_stash, out)                   # protect code spans
-    out = _IMG.sub(lambda m: '<img alt="%s" src="%s">' % (m.group(1), _safe_url(m.group(2))), out)
+    if images:
+        out = _IMG.sub(lambda m: '<img alt="%s" src="%s">' % (m.group(1), _safe_url(m.group(2))), out)
+    else:                                          # a link instead: viewing fetches nothing remote
+        out = _IMG.sub(lambda m: '<a href="%s">%s</a>' % (_safe_url(m.group(2)), m.group(1) or "image"), out)
     out = _LINK.sub(lambda m: '<a href="%s">%s</a>' % (_safe_url(m.group(2)), m.group(1)), out)
     out = _BOLD.sub(r"<strong>\1</strong>", out)
     out = _ITAL.sub(r"<em>\1</em>", out)
@@ -52,7 +55,7 @@ def _inline(text):
     return out
 
 
-def _render_list(lines, i, n):
+def _render_list(lines, i, n, images=True):
     def kind(l):
         if re.match(r"\s*\d+\.\s+", l):
             return "ol"
@@ -70,18 +73,21 @@ def _render_list(lines, i, n):
         i += 1
         sub = ""
         if i < n and kind(lines[i]) and indent(lines[i]) > base:
-            sub, i = _render_list(lines, i, n)
-        items.append("<li>%s%s</li>" % (_inline(text.strip()), sub))
+            sub, i = _render_list(lines, i, n, images)
+        items.append("<li>%s%s</li>" % (_inline(text.strip(), images), sub))
     return "<%s>%s</%s>" % (top, "".join(items), top), i
 
 
-def render(md):
+def render(md, images=True):
+    """Markdown subset -> HTML, escaped before formatting. images=False turns
+    image syntax into plain links (pages whose text came from a model or an
+    outside source must not make the viewer fetch remote URLs)."""
     lines = md.replace("\r\n", "\n").split("\n")
     out, para, i, n = [], [], 0, len(lines)
 
     def flush():
         if para:
-            out.append("<p>%s</p>" % _inline(" ".join(para).strip()))
+            out.append("<p>%s</p>" % _inline(" ".join(para).strip(), images))
             para.clear()
 
     def cells(row):
@@ -104,7 +110,7 @@ def render(md):
         if m:
             flush()
             lvl, txt = len(m.group(1)), m.group(2).strip()
-            out.append('<h%d id="%s">%s</h%d>' % (lvl, _slug(txt), _inline(txt), lvl))
+            out.append('<h%d id="%s">%s</h%d>' % (lvl, _slug(txt), _inline(txt, images), lvl))
             i += 1
             continue
         if re.match(r"(-{3,}|\*{3,})\s*$", line):
@@ -118,10 +124,10 @@ def render(md):
             if adm:
                 body = [adm.group(2)] + buf[1:]
                 out.append('<div class="admon admon-%s"><p>%s</p></div>'
-                           % (adm.group(1).lower(), _inline(" ".join(body).strip())))
+                           % (adm.group(1).lower(), _inline(" ".join(body).strip(), images)))
             else:
                 out.append("<blockquote><p>%s</p></blockquote>"
-                           % _inline(" ".join(buf).strip()))
+                           % _inline(" ".join(buf).strip(), images))
             continue
         if "|" in line and i + 1 < n and re.match(
                 r"\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$", lines[i + 1]):
@@ -130,15 +136,15 @@ def render(md):
             rows = []
             while i < n and lines[i].strip() and "|" in lines[i]:
                 rows.append(cells(lines[i])); i += 1
-            th = "".join("<th>%s</th>" % _inline(c) for c in header)
-            trs = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % _inline(c) for c in r)
+            th = "".join("<th>%s</th>" % _inline(c, images) for c in header)
+            trs = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % _inline(c, images) for c in r)
                           for r in rows)
             out.append("<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>"
                        % (th, trs))
             continue
         if re.match(r"\s*[-*]\s+", line) or re.match(r"\s*\d+\.\s+", line):
             flush()
-            html_list, i = _render_list(lines, i, n)
+            html_list, i = _render_list(lines, i, n, images)
             out.append(html_list)
             continue
         if not line.strip():

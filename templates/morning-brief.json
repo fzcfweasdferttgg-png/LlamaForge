@@ -13,5 +13,5 @@
   "jobs": {"ingest": "02:00", "brief": "07:00", "lint": "sun 03:00"},
   "model_hint": "8B+ instruct model; 14B+ recommended",
   "stale_days": 3,
-  "about": "Bundled with LlamaForge. Reads only; never sends anything."
+  "about": "Bundled with LlamaForge. Reads your sources and never writes to them. Sends nothing unless you turn on push."
 }

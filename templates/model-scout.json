@@ -11,5 +11,5 @@
   "jobs": {"ingest": "06:30", "brief": "07:00", "lint": "sun 03:00"},
   "model_hint": "4B+ instruct model",
   "stale_days": 7,
-  "about": "Bundled with LlamaForge. Reads the public llama.cpp release list and this machine's hardware; never sends anything."
+  "about": "Bundled with LlamaForge. Reads the public llama.cpp release list and this machine's hardware. Sends nothing unless you turn on push."
 }

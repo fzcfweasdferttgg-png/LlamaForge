@@ -454,6 +454,7 @@ def main():
         from embers.scheduler import Scheduler
         EMBERS_SCHED = Scheduler(routes.cfg, pool=routes.EmbersPool())
         EMBERS_SCHED.start()
+        routes.embers_panel.SCHEDULER = EMBERS_SCHED   # the Embers tab's "run now" queues here
     except Exception as e:
         print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")
     import threading
