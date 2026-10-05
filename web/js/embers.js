@@ -8,6 +8,7 @@
 import { $, $$, api, esc, setHTML, toast } from "./core.js";
 import { models } from "./state.js";
 import { showModal } from "./models.js";
+import { forgeReset, forgeSend, initForge, renderForge } from "./forge.js";
 
 const SLOT_HINT = {
   folder: "A folder of notes, e.g. D:\\Notes or ~/notes (Markdown or text, read only)",
@@ -27,6 +28,7 @@ const E = {
   sub: "brief",        // shown section
   sig: "",             // the selected ember's run signature, to refresh on change
   page: null,          // wiki page shown (null = index)
+  forge: false,        // the Forge conversation is showing instead of an ember
 };
 try { E.sel = localStorage.getItem("lf_ember"); } catch (e) {}
 
@@ -88,6 +90,11 @@ export async function loadEmbers() {
     setHTML(v, `<div class="ef-wrap">
         <aside class="ef-side">
           <div class="tbl-head"><h2>Embers</h2><span class="count" id="ef-count"></span></div>
+          <div class="ef-row ef-forgerow" id="ef-forgerow" data-forge-open role="button" tabindex="0"
+            title="Describe what you want; Forge builds the ember">
+            <span class="ef-led forge"></span>
+            <span class="ef-rowtext"><span class="ef-name">Forge</span><span class="ef-sub">builds embers by talking with you</span></span>
+          </div>
           <div id="ef-list" class="ef-list"></div>
           <button id="ef-new" class="primary ef-newbtn">+ New ember</button>
           <div id="ef-sched" class="note"></div>
@@ -98,9 +105,12 @@ export async function loadEmbers() {
     v.addEventListener("click", onClick);
     v.addEventListener("submit", onSubmit);
     v.addEventListener("keydown", e => {
-      if (e.key === "Enter" && e.target.matches("[data-ember]")) e.target.click();
+      if (e.key === "Enter" && e.target.matches("[data-ember], [data-forge-open]")) e.target.click();
     });
     $("#ef-new").onclick = openNew;
+    initForge(async id => {
+      await refresh(true);                       // the new ember shows in the list; Forge stays open
+    });
   }
   await refresh(false);
 }
@@ -117,6 +127,10 @@ async function refresh(quiet) {
   E.data = d;
   if (!card(E.sel)) E.sel = d.embers.length ? d.embers[0].id : null;
   renderList();
+  if (E.forge) {                                 // the conversation owns the main area
+    if (!$("#ef-forge")) renderForge($("#ef-main"));
+    return;
+  }
   const c = card(E.sel);
   const sig = sigOf(c);
   if (!quiet || !$("#ef-detail") || $("#ef-detail").dataset.id !== (E.sel || "")) {
@@ -138,12 +152,13 @@ function renderList() {
     const [led, line] = state(c);
     const sub = c.error ? line
       : c.brief ? `${dayName(c.brief.date)} · ${c.counts.open} open` : "no brief yet";
-    return `<div class="ef-row${c.id === E.sel ? " sel" : ""}" data-ember="${esc(c.id)}" role="button" tabindex="0"
+    return `<div class="ef-row${c.id === E.sel && !E.forge ? " sel" : ""}" data-ember="${esc(c.id)}" role="button" tabindex="0"
         title="${esc(line)}">
       <span class="ef-led ${led}"></span>
       <span class="ef-rowtext"><span class="ef-name">${esc(c.name)}</span><span class="ef-sub">${esc(sub)}</span></span>
     </div>`;
   }).join(""));
+  $("#ef-forgerow").classList.toggle("sel", E.forge);
   const sched = !d.scheduler ? "The embers scheduler isn't running in this panel, so nothing runs. It starts when you launch LlamaForge normally."
     : !d.scheduled ? "Automatic runs are off (config embers_scheduler). Run now still works."
     : "Runs on schedule while LlamaForge is open, when the GPU is free.";
@@ -204,7 +219,10 @@ function renderEmpty() {
       <p>Every item in the wiki cites a quote from a source snapshot, and the panel checks that the quote
       is really there. Nothing leaves this machine unless you turn on push.</p>
       <p class="note">Wiki folder: <code>${esc(E.data.embers_dir)}</code> · plain Markdown, opens in Obsidian.</p>
-      <button class="primary" id="ef-new2">Create your first ember</button>
+      <div class="actions"><button class="primary" type="button" data-forge-open>Talk to Forge</button>
+        <button type="button" id="ef-new2">Start from a template</button></div>
+      <p class="note">Forge asks what you want kept track of and builds the ember for you, using a model you
+      already loaded. Templates are ready-made embers you point at your sources yourself.</p>
     </div>`);
   $("#ef-new2").onclick = openNew;
 }
@@ -216,7 +234,7 @@ function renderDetail() {
   setHTML($("#ef-main"), `<div id="ef-detail" data-id="${esc(c.id)}">
       <div class="ef-head">
         <div class="ef-headtext">
-          <h2 class="ef-title">${esc(c.name)}</h2>
+          <h2 class="ef-title">${esc(c.name)}${c.origin === "forge" ? ` <span class="ef-tag" title="Built by Forge">forge</span>` : ""}</h2>
           <div class="ef-mission">${esc(c.mission || "")}</div>
         </div>
         <div class="qbtns">
@@ -514,14 +532,20 @@ async function openNew() {
   if (!d || d.error) return toast(d ? d.error : "The panel didn't answer.", "err");
   const m = showModal("New ember", `
     <div class="note">Pick a starting point. You can change sources, schedule and model later.</div>
-    <div class="ef-tpls">${d.templates.map((t, i) => `
+    <div class="ef-tpls">
+      <button type="button" class="ef-tpl ef-tplforge" data-forge-new>
+        <span class="ef-tpltitle">Talk to Forge</span>
+        <span class="ef-tplmission">Say what you want in your own words. Forge asks a few questions and builds an ember
+          that fits, using a model you already loaded (12B+ instruct works best).</span>
+      </button>${d.templates.map((t, i) => `
       <button type="button" class="ef-tpl" data-tpl="${i}">
         <span class="ef-tpltitle">${esc(t.title)}${t.zero_setup ? ` <span class="ef-tag ok">no setup</span>` : ""}</span>
         <span class="ef-tplmission">${esc(t.mission)}</span>
         ${t.about ? `<span class="note">${esc(t.about)}</span>` : ""}
       </button>`).join("")}</div>
     <div id="ef-newform"></div>`);
-  $$(".ef-tpl").forEach(b => b.onclick = () => {
+  $(".ef-tplforge").onclick = () => { m.close(); openForge(); };
+  $$(".ef-tpl:not(.ef-tplforge)").forEach(b => b.onclick = () => {
     $$(".ef-tpl").forEach(x => x.classList.toggle("on", x === b));
     newForm(d.templates[Number(b.dataset.tpl)], m);
   });
@@ -551,7 +575,7 @@ function newForm(t, m) {
       template: t.name, id: form.elements.id.value.trim(), bindings: formBindings(form, t.slots) }).catch(() => null);
     if (!r || r.error) { msg.className = "msg err"; msg.textContent = r ? r.error : "The panel didn't answer."; return; }
     m.close();
-    E.sel = r.id; E.sub = "brief"; E.page = null;
+    E.sel = r.id; E.sub = "brief"; E.page = null; E.forge = false;
     try { localStorage.setItem("lf_ember", r.id); } catch (e2) {}
     toast(r.queued.length ? "Created. First run queued." : "Created.", "ok");
     await refresh(false);
@@ -560,10 +584,21 @@ function newForm(t, m) {
   if (first) first.focus();
 }
 
+/* ---------- Forge ---------- */
+function openForge() {
+  E.forge = true;
+  renderList();
+  renderForge($("#ef-main"));
+}
+
 /* ---------- events ---------- */
 async function onClick(e) {
+  if (e.target.closest("[data-forge-open]")) return openForge();
+  const fg = e.target.closest("[data-fg]");
+  if (fg) return forgeReset();
   const row = e.target.closest("[data-ember]");
   if (row) {
+    E.forge = false;
     E.sel = row.dataset.ember; E.page = null; E.sig = sigOf(card(E.sel));
     try { localStorage.setItem("lf_ember", E.sel); } catch (e2) {}
     renderList(); renderDetail();
@@ -614,6 +649,9 @@ function onSubmit(e) {
     e.preventDefault();
     const q = $("#ef-q").value.trim();
     if (q) ask(q);
+  } else if (e.target.id === "fg-form") {
+    e.preventDefault();
+    forgeSend();
   } else if (e.target.id === "ef-folderform") {
     e.preventDefault();
     saveFolder(e.target.elements.path.value);

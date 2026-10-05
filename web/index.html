@@ -554,10 +554,10 @@ body.mode-lite .advanced-only{display:none !important}
 .ef-danger{margin-left:auto;background:none;border:1px solid var(--red);color:var(--red)}
 .ef-danger:hover{background:var(--red-tint)}
 .ef-tpls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
-.ef-tpl{display:flex;flex-direction:column;gap:6px;text-align:left;background:var(--panel2);border:1px solid var(--hair);color:var(--ink);padding:12px;cursor:pointer;font:inherit}
+.ef-tpl{display:flex;flex-direction:column;gap:6px;text-align:left;text-transform:none;letter-spacing:normal;background:var(--panel2);border:1px solid var(--hair);color:var(--ink);padding:12px;cursor:pointer;font:inherit}
 .ef-tpl:hover{border-color:var(--amber)}
 .ef-tpl.on{border-color:var(--amber);background:var(--amber-tint)}
-.ef-tpltitle{font-family:var(--disp);color:var(--ink-strong);font-size:13px;letter-spacing:.03em}
+.ef-tpltitle{font-family:var(--disp);text-transform:uppercase;font-weight:600;color:var(--ink-strong);font-size:13px;letter-spacing:.03em}
 .ef-tplmission{font-size:12px;line-height:1.5}
 .ef-createf{border-top:1px solid var(--hair);padding-top:12px}
 .ef-createf .actions{display:flex;gap:12px;align-items:center;margin:8px 0}
@@ -565,6 +565,43 @@ body.mode-lite .advanced-only{display:none !important}
 .ef-quoteline{font-size:12px;margin:6px 0}
 .ef-raw{white-space:pre-wrap;word-break:break-word;max-height:55vh;overflow:auto;background:var(--code-bg);color:var(--code-ink);padding:12px;font-size:12px;border:1px solid var(--hair)}
 .ef-raw mark{background:var(--amber);color:var(--on-amber);padding:0 1px}
+/* Forge: the interviewing builder */
+.ef-forgerow{border:1px solid var(--hair);background:var(--panel);margin-bottom:8px}
+.ef-forgerow:last-child{border-bottom:1px solid var(--hair)}
+.ef-led.forge{background:var(--amber);border-radius:1px;transform:rotate(45deg) scale(.85)}
+.ef-tplforge{grid-column:1/-1;border-color:var(--amber-dim)}
+.fg-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;margin-top:14px;align-items:start}
+.fg-chat{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fg-log{border:1px solid var(--hair);background:var(--inset);padding:12px 14px;height:min(56vh,560px);overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.fg-msg{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;line-height:1.55;font-size:13px}
+.fg-who{font-family:var(--disp);font-size:10px;letter-spacing:.14em;padding-top:2px;color:var(--dim);white-space:nowrap}
+.fg-forge .fg-who{color:var(--amber-text)}
+.fg-error .fg-who,.fg-error .fg-text{color:var(--red)}
+.fg-you .fg-text{color:var(--ink-strong)}
+.fg-text{white-space:pre-wrap;word-break:break-word}
+.fg-note{margin-top:4px;font-size:11px;color:var(--dim);border-left:2px solid var(--hair-hi);padding-left:8px}
+.fg-open{margin-top:6px;display:inline-block}
+.fg-wait .fg-text{color:var(--dim);animation:ef-pulse 1.4s infinite}
+@media (prefers-reduced-motion:reduce){.fg-wait .fg-text{animation:none}}
+.fg-form{display:flex;gap:8px;align-items:stretch}
+.fg-form textarea{flex:1;resize:vertical;min-height:44px;max-height:200px;background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:13px;padding:9px 10px;outline:none}
+.fg-form textarea:focus{border-color:var(--amber)}
+.fg-bp{border:1px solid var(--hair);background:var(--panel);padding:12px 14px;position:sticky;top:64px}
+.fg-bphead{font-family:var(--disp);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-text);margin-bottom:10px}
+.fg-rows{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px 10px;font-size:12px;line-height:1.5;margin-bottom:10px}
+.fg-k{color:var(--dim);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding-top:2px}
+.fg-v{min-width:0;word-break:break-word;color:var(--ink)}
+.fg-v code{color:var(--cyan-text);font-size:11px}
+.fg-blank{color:var(--faint)}
+.fg-src{display:flex;gap:6px;align-items:flex-start}
+.fg-src+.fg-src{margin-top:4px}
+.fg-mark{flex:none;width:12px}
+.fg-src.ok .fg-mark{color:var(--green)}
+.fg-src.bad .fg-mark{color:var(--red)}
+.fg-src.bad code{text-decoration:line-through;color:var(--dim)}
+.fg-kind{color:var(--dim)}
+.fg-why{display:block;color:var(--dim);font-size:11px}
+@media (max-width:1100px){.fg-grid{grid-template-columns:1fr}.fg-bp{position:static}}
 @media (max-width:900px){.ef-wrap,.ef-wiki{grid-template-columns:1fr}.ef-side,.ef-pages{position:static}.ef-tpls{grid-template-columns:1fr}}
 </style>
 </head>

@@ -12,7 +12,7 @@ wiki: the scheduler stops seeing it, and nothing the user wrote is lost.
 import datetime as dt, json, os, re, tempfile, threading
 
 import atomicio, config
-from embers import embers_dir, jobs, lock, push, reserved_name, templates, view, wikifs
+from embers import embers_dir, forge, jobs, lock, push, reserved_name, templates, view, wikifs
 from embers.ask import AskError, ask
 from embers.llm import LLMError, Router, RouterUnavailable, clamp_n_ctx
 from embers.scheduler import jobs_conf, list_embers
@@ -101,6 +101,7 @@ def _card(eid, root, sched):
     return {
         "id": eid, "name": conf.get("name") or eid, "template": tpl["name"], "title": tpl["title"],
         "mission": tpl["mission"], "model_hint": tpl["model_hint"], "created": conf.get("created"),
+        "origin": conf.get("origin") or "",
         "enabled": conf.get("enabled", True) is not False, "model": conf.get("model") or "",
         "bindings": conf.get("bindings") or {}, "slots": tpl["slots"], "schedule": jobs_conf(conf),
         "next": sched.get("next") or {}, "running": sched.get("running"),
@@ -398,6 +399,84 @@ def post_ask(req, cfg):
         except ValueError as ex:
             raise Error(400, str(ex)) from None
     return 200, dict(result, model=model)
+
+
+FORGE_MESSAGES = 100        # messages in one conversation
+FORGE_BUILDS   = 3          # embers one conversation may build
+
+
+def _forge_body(b):
+    msgs = b.get("messages")
+    if not isinstance(msgs, list) or not msgs or len(msgs) > FORGE_MESSAGES:
+        raise Error(400, f"a Forge conversation holds 1-{FORGE_MESSAGES} messages; start over")
+    for m in msgs:
+        if not isinstance(m, dict) or not isinstance(m.get("text"), str) or len(m["text"]) > forge.MAX_TEXT:
+            raise Error(400, f"each message is text of at most {forge.MAX_TEXT} characters")
+        if m.get("notes") is not None and not isinstance(m["notes"], list):
+            raise Error(400, "notes must be a list")
+    built = b.get("built") or []
+    if not isinstance(built, list) or not all(isinstance(x, str) for x in built):
+        raise Error(400, "built must be a list of ember ids")
+    return msgs, built[:20]
+
+
+def _forge_build(cfg, out, model, built):
+    """Build the drafted ember. Returns (built or None, notes)."""
+    if len(built) >= FORGE_BUILDS:
+        return None, [f"Not built: Forge builds at most {FORGE_BUILDS} embers per conversation. "
+                      "Start over to build another."]
+    try:
+        tpl, bindings = forge.assemble(out["draft"], model, NOW_FN())
+    except ValueError as e:
+        return None, [f"Not built: {e}."]
+    name = tpl["name"]
+    done = next((x for x in built if x == name or re.fullmatch(re.escape(name) + r"-\d+", x)), None)
+    if done:
+        return None, [f"Not built: this conversation already built {done}. Change the title to build a new one."]
+    base = embers_dir(cfg)
+    with _conf_lock:
+        eid, n = _free_id(base, name)
+        title = f"{tpl['title']} {n}" if n > 1 else None
+        try:
+            root = jobs.create_ember(base, tpl, eid, bindings, NOW_FN(), name=title, origin="forge")
+        except ValueError as e:
+            return None, [f"Not built: {e}."]
+    queued = SCHEDULER.request(eid, RUN_SETS["run"]) if SCHEDULER else []
+    left = [f"{s['type']} {s['value']}".strip() for s in out["draft"]["sources"] if not s["ok"]]
+    notes = [f"Built ember {eid} in {root}. Its first run is " + ("queued." if queued else "waiting for the scheduler.")]
+    if left:
+        notes.append("Left out: " + "; ".join(left) + ".")
+    return {"id": eid, "name": title or tpl["title"], "root": root, "queued": queued}, notes
+
+
+def post_forge(req, cfg):
+    """One Forge interview turn; builds the ember when the model says the user agreed."""
+    msgs, built = _forge_body(req.body)
+    router = ROUTER_CLS(cfg)
+    try:
+        loaded = router.loaded_ids(MAIN_FN())
+    except LLMError as ex:
+        raise Error(503, f"the llama.cpp router isn't answering ({_msg(ex)})") from None
+    wanted = req.body.get("model")
+    model = wanted if wanted in loaded else (loaded[0] if loaded else None)
+    if not model:
+        raise Error(409, "Load a model in LlamaForge first. Forge talks with a model that is already "
+                         "loaded (a 12B+ instruct model works best) and never loads one itself.")
+    n_ctx = clamp_n_ctx(router.n_ctx(model))
+    if n_ctx < jobs.MIN_N_CTX:
+        raise Error(409, f"{model} has a {n_ctx}-token context; Forge needs at least {jobs.MIN_N_CTX}")
+    ctx = {"today": NOW_FN(), "embers": [eid for eid, _ in list_embers(embers_dir(cfg))]}
+    try:
+        out = forge.turn(router.llm(model, autoload=False), msgs, req.body.get("draft"), ctx, n_ctx)
+    except RouterUnavailable as ex:
+        raise Error(503, _msg(ex)) from None
+    except LLMError as ex:
+        raise Error(502, f"{model} gave a reply that couldn't be used ({_msg(ex)}). Try again, "
+                         "or load a larger model.") from None
+    except ValueError as ex:
+        raise Error(400, str(ex)) from None
+    made, notes = _forge_build(cfg, out, model, built) if out["build"] else (None, [])
+    return 200, {"say": out["say"], "draft": out["draft"], "notes": notes, "built": made, "model": model}
 
 
 def post_push_test(req, cfg):

@@ -2532,6 +2532,7 @@ POST_ROUTES = {
     "/api/embers/cancel":       _embers(embers_panel.post_cancel),
     "/api/embers/folder":       _embers(embers_panel.post_folder),
     "/api/embers/ask":          _embers(embers_panel.post_ask),
+    "/api/embers/forge":        _embers(embers_panel.post_forge),
     "/api/embers/push/test":    _embers(embers_panel.post_push_test),
 }
 

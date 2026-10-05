@@ -69,9 +69,9 @@ class Ember:
         self.close()
 
 
-def create_ember(embers_dir, template, ember_id, bindings, now, name=None):
+def create_ember(embers_dir, template, ember_id, bindings, now, name=None, origin=None):
     """template: a parse_template() result. bindings: {slot_id: path_or_url}.
-    Returns the new ember's folder."""
+    origin: who made it ("forge"), recorded when given. Returns the new ember's folder."""
     if not isinstance(ember_id, str) or not ID_RE.fullmatch(ember_id):
         raise ValueError("ember id must be lowercase letters, digits and dashes")
     if reserved_name(ember_id):
@@ -82,10 +82,12 @@ def create_ember(embers_dir, template, ember_id, bindings, now, name=None):
     clean = clean_bindings(template, bindings)
     os.makedirs(root, exist_ok=True)
     wikifs.init_wiki(root, template["title"], template["schema_md"])
-    atomicio.write_json(os.path.join(root, "ember.json"), {
-        "id": ember_id, "name": name or template["title"],
-        "template": {k: v for k, v in template.items() if k != "dropped"},
-        "bindings": clean, "model": "", "enabled": True, "created": ts(now)})
+    conf = {"id": ember_id, "name": name or template["title"],
+            "template": {k: v for k, v in template.items() if k != "dropped"},
+            "bindings": clean, "model": "", "enabled": True, "created": ts(now)}
+    if origin:
+        conf["origin"] = origin
+    atomicio.write_json(os.path.join(root, "ember.json"), conf)
     return root
 
 
