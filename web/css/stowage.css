@@ -1,5 +1,5 @@
 /* Stowage - LlamaForge's default skin.
-   VRAM is cargo space: every GPU is a hold ruled in 1 GB cells and every
+   VRAM is cargo space: every GPU is a hold ruled in 1 GiB cells and every
    loaded model is a container stowed in it at its real size (models.js
    draws the bay plans). The shell around it is a hull-navy rail over a pale
    chart-grey ground; safety yellow is the one primary action; each section
@@ -336,6 +336,7 @@
 :root[data-skin="stowage"] .stats-vram-head{font-family:var(--cond);font-weight:700;font-size:15px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-strong)}
 :root[data-skin="stowage"] .stats-vram-head span+span{font-weight:600;font-size:12.5px;color:var(--dim);letter-spacing:.1em}
 :root[data-skin="stowage"] .stats-vram-card .stats{font-size:12.5px}
+:root[data-skin="stowage"] .stats-vram-empty{font-family:var(--cond);font-weight:600;font-size:12.5px;letter-spacing:.1em}
 :root[data-skin="stowage"] .stats-vram-card .stats b{font-size:inherit;color:var(--ink-hi)}
 :root[data-skin="stowage"] .token-scale-label{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.1em}
 :root[data-skin="stowage"] :is(.formrow .lbl,.ef-flabel,.ef-flink){font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em}

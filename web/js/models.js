@@ -51,7 +51,7 @@ function toggleFavOnly(el) {
 
 /* ---------- GPU telemetry ----------
    Classic and Hearth draw a tile per GPU with a segment meter. Stowage draws
-   a bay plan: each GPU is a hold ruled in 1 GB cells, on one scale shared by
+   a bay plan: each GPU is a hold ruled in 1 GiB cells, on one scale shared by
    every GPU, with each model it holds stowed as a container at its real size.
    Per-model sizes come from the pool's footprints (models this panel loaded
    in multi-model mode); whatever the card uses beyond them is one honest
