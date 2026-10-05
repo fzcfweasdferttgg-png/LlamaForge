@@ -82,6 +82,9 @@ class Argv(unittest.TestCase):
 class Locate(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.managed = os.path.join(self.d, "agents", "pi")     # never the real install dir
+        self.addCleanup(setattr, pirun, "MANAGED_DIR", pirun.MANAGED_DIR)
+        pirun.MANAGED_DIR = self.managed
 
     def tearDown(self):
         shutil.rmtree(self.d, ignore_errors=True)
@@ -141,6 +144,26 @@ class Locate(unittest.TestCase):
         self.assertIsNone(pirun.locate("", which=lambda n: None, is_win=False))
         self.assertIsNone(pirun.locate(os.path.join(self.d, "missing.js"),
                                        which=lambda n: None, is_win=False))
+
+    def test_managed_copy_beats_pi_on_path(self):
+        pkg, js = self._pkg(self.managed, {"pi": "dist/cli.js"})
+        which = {"pi": "/usr/local/bin/pi", "node": "/usr/bin/node"}.get
+        self.assertEqual(pirun.locate_how("", which=which, is_win=False),
+                         (["/usr/bin/node", os.path.normpath(js)], "managed"))
+        self.assertEqual(pirun.locate("", which=which, is_win=False), ["/usr/bin/node", os.path.normpath(js)])
+
+    def test_configured_pi_bin_beats_the_managed_copy(self):
+        self._pkg(self.managed, {"pi": "dist/cli.js"})
+        mine = os.path.join(self.d, "my-pi")
+        open(mine, "w").close()
+        which = {"node": "/usr/bin/node"}.get
+        self.assertEqual(pirun.locate_how(mine, which=which, is_win=False), ([mine], "pi_bin"))
+
+    def test_managed_copy_without_node_falls_back_to_path(self):
+        self._pkg(self.managed, {"pi": "dist/cli.js"})
+        which = {"pi": "/usr/local/bin/pi"}.get
+        self.assertEqual(pirun.locate_how("", which=which, is_win=False), (["/usr/local/bin/pi"], "path"))
+        self.assertEqual(pirun.locate_how("", which=lambda n: None, is_win=False), (None, ""))
 
     def test_js_without_node(self):
         pkg, js = self._pkg(self.d, {"pi": "dist/cli.js"})

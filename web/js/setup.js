@@ -735,7 +735,9 @@ function renderAgentConnect(generation) {
       <button id="ac-apply" type="button" class="primary">Apply</button>
     </div>
     <div id="ac-out" class="agent-out"></div>
+    <div id="pi-install"></div>
     <div id="mcp-connect"></div>`);
+  renderPiInstall(generation);
   renderMcpConnect(generation);
 
   const sync = () => {
@@ -856,6 +858,93 @@ async function applyAgentConfig(generation) {
   clearAgentPreview(`${r.action}: ${r.path}${r.backup ? " (backup created)" : ""}`);
 }
 
+/* ---------- pi (installed on request into <root>/agents/pi) ---------- */
+const PI_SOURCES = {
+  managed: "LlamaForge's copy",
+  path: "the pi on your PATH",
+  pi_bin: "the pi_bin set in config.json",
+};
+
+async function renderPiInstall(generation, said = "") {
+  let s;
+  try { s = await api("/api/pi/status"); } catch (e) { return; }
+  const host = $("#pi-install");
+  if (!host || !setupViewActive(generation) || !s || s.error) return;
+  const node = s.node || {};
+  const need = `Node.js ${esc(s.min_node)} or newer`;
+  let state, buttons = "";
+  if (s.busy) {
+    state = "Working... npm can take a few minutes.";
+  } else if (s.managed) {
+    state = `Installed: pi <b>${esc(s.managed)}</b> in LlamaForge's agents folder` +
+      (s.active === "managed" ? "." : `, but ${esc(PI_SOURCES[s.active] || "another pi")} takes precedence.`);
+    buttons = `<button type="button" data-pi="install">Update</button>
+      <button type="button" data-pi="remove">Remove</button>`;
+  } else if (!node.ok) {
+    state = node.path
+      ? `pi needs ${need}; this machine has ${esc(node.version || "an unknown version")}.`
+      : `pi needs ${need}, which isn't installed.`;
+    buttons = s.node_installable
+      ? `<button type="button" class="primary" data-pi-node>Install Node.js</button>`
+      : s.hint ? `Run in a terminal: <code>${esc(s.hint)}</code> (distro packages can be too old; see
+          <a href="${esc(s.node_url)}" target="_blank" rel="noopener">nodejs.org</a>)`
+        : `<a href="${esc(s.node_url)}" target="_blank" rel="noopener">Get Node.js</a>`;
+  } else {
+    state = s.active
+      ? `Using ${esc(PI_SOURCES[s.active] || "an existing pi")}. You can also let LlamaForge keep its own copy.`
+      : "Not installed.";
+    buttons = `<button type="button" class="primary" data-pi="install">Install pi</button>`;
+  }
+  const last = s.last || {};
+  const failed = !s.busy && last.ok === false && last.log;
+  setHTML(host, `<h3>pi coding agent</h3>
+    <div class="note"><a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener">pi</a>
+      is an open-source coding agent by Mario Zechner (MIT). LlamaForge doesn't bundle it: Install
+      runs your Node.js to fetch the published npm package into LlamaForge's own folder (nothing
+      global, no install scripts). Remove deletes that folder.</div>
+    <div class="note">${state}</div>
+    <div class="actions">${buttons}<span class="msg" id="pi-msg">${esc(said)}</span></div>
+    ${failed ? `<div class="log">${esc(last.log)}</div>` : ""}<div style="height:14px"></div>`);
+  for (const b of $$("[data-pi]", host)) {
+    b.onclick = async () => {
+      const action = b.dataset.pi;
+      if (action === "remove" && !confirm("Remove LlamaForge's copy of pi?")) return;
+      const r = await api(`/api/pi/${action}`, {});
+      if (r.error) { toast(r.error, "err"); return; }
+      watchPi(generation, action);
+    };
+  }
+  const nb = $("[data-pi-node]", host);
+  if (nb) nb.onclick = async () => {
+    nb.disabled = true; nb.textContent = "installing Node.js...";
+    const r = await api("/api/setup/install", {tool: "node"});
+    toast(r.ok ? "Node.js installed" : "Node.js install failed", r.ok ? "ok" : "err");
+    renderPiInstall(generation, r.ok ? "" : "Node.js install failed; see the Setup log or install it from nodejs.org.");
+  };
+  if (s.busy) setTimeout(() => watchPi(generation), 2000);
+}
+
+async function watchPi(generation, action = "") {
+  // poll until the background job finishes; stop when the Setup view goes away
+  for (;;) {
+    if (!setupViewActive(generation) || !$("#pi-install")) return;
+    let s;
+    try { s = await api("/api/pi/status"); } catch (e) { return; }
+    if (!s.busy) {
+      const last = s.last || {};
+      if (action) toast(last.ok ? (action === "remove" ? "pi removed" : `pi ${s.managed} installed`)
+                                : `pi ${action} failed`, last.ok ? "ok" : "err");
+      renderPiInstall(generation);
+      renderMcpConnect(generation);
+      return;
+    }
+    const msg = $("#pi-msg");
+    if (msg) msg.textContent = "working...";
+    for (const b of $$("[data-pi]")) b.disabled = true;
+    await new Promise(res => setTimeout(res, 2000));
+  }
+}
+
 /* ---------- MCP server ---------- */
 async function renderMcpConnect(generation) {
   let r;
@@ -875,8 +964,7 @@ async function renderMcpConnect(generation) {
       <a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener">pi</a>
       (Mario Zechner's open-source coding agent) running on a loaded local model.
       The client starts the server itself; it talks only to this panel on 127.0.0.1.
-      ${r.pi ? "pi is installed." :
-        "pi is not installed yet: <code>npm install -g @earendil-works/pi-coding-agent</code>"}</div>` +
+      ${r.pi ? "pi is installed." : "pi is not installed yet: install it above."}</div>` +
     snip("Claude Code (run once)", r.claude, 0) +
     snip("Codex (~/.codex/config.toml)", r.codex_toml, 1) +
     snip("Other clients (mcpServers JSON)", r.json, 2) +
