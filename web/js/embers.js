@@ -91,6 +91,7 @@ export async function loadEmbers() {
           <div id="ef-list" class="ef-list"></div>
           <button id="ef-new" class="primary ef-newbtn">+ New ember</button>
           <div id="ef-sched" class="note"></div>
+          <div id="ef-folder" class="ef-folder"></div>
         </aside>
         <section id="ef-main" class="ef-main"></section>
       </div>`);
@@ -147,6 +148,50 @@ function renderList() {
     : !d.scheduled ? "Automatic runs are off (config embers_scheduler). Run now still works."
     : "Runs on schedule while LlamaForge is open, when the GPU is free.";
   setHTML($("#ef-sched"), esc(sched) + (d.last_error ? `<div class="msg err">${esc(d.last_error)}</div>` : ""));
+  const f = $("#ef-folder");                    // redraw only on change: never wipe a half-typed path
+  if (!$("#ef-folderform") && f.dataset.path !== d.embers_dir) renderFolder();
+}
+
+/* ---------- where all embers live ---------- */
+function renderFolder() {
+  $("#ef-folder").dataset.path = E.data.embers_dir;
+  setHTML($("#ef-folder"), `<div class="ef-flabel">Folder <button type="button" class="ef-flink" data-folder="edit">Change</button></div>
+    <code class="ef-fpath" title="${esc(E.data.embers_dir)}">${esc(E.data.embers_dir)}</code>`);
+}
+
+function editFolder() {
+  delete $("#ef-folder").dataset.path;          // Cancel / save redraws it
+  setHTML($("#ef-folder"), `<form id="ef-folderform">
+      <div class="ef-flabel">Folder</div>
+      <input name="path" value="${esc(E.data.embers_dir)}" spellcheck="false" autocomplete="off" aria-label="Embers folder">
+      <div class="note">Each ember is a subfolder of plain Markdown, so a folder inside an Obsidian vault works.
+      Nothing is moved: embers in the old folder stay there until you move them.</div>
+      <div class="ef-factions">
+        <button class="primary" type="submit">Use folder</button>
+        <button type="button" data-folder="default" title="Back to the embers folder next to LlamaForge">Default</button>
+        <button type="button" data-folder="cancel">Cancel</button>
+      </div>
+      <div id="ef-fmsg" class="msg"></div>
+    </form>`);
+  const input = $("#ef-folderform input");
+  input.focus(); input.select();
+}
+
+async function saveFolder(path) {
+  const form = $("#ef-folderform");
+  if (form) form.querySelectorAll("button").forEach(b => b.disabled = true);
+  const d = await api("/api/embers/folder", { path }).catch(() => null);
+  if (!d || d.error) {
+    if (form) form.querySelectorAll("button").forEach(b => b.disabled = false);
+    setHTML($("#ef-fmsg"), `<span class="msg err">${esc(d ? d.error : "The panel didn't answer.")}</span>`);
+    return;
+  }
+  const n = k => k === 1 ? "1 ember" : `${k} embers`;
+  toast(`Using ${d.embers_dir}. ${d.found ? `Found ${n(d.found)} there.` : "No embers there yet."}`
+    + (d.left ? ` ${n(d.left)} stayed in the old folder.` : ""), "ok");
+  E.sel = null;
+  $("#ef-folder").textContent = "";             // no form, no path: refresh redraws it
+  await refresh(false);
 }
 
 /* ---------- empty state ---------- */
@@ -377,7 +422,7 @@ function showSettings(el, c) {
         <span id="ef-setmsg" class="msg"></span>
         <button type="button" id="ef-remove" class="ef-danger">Remove ember</button>
       </div>
-      <div class="note">Wiki folder: <code>${esc(c.root)}</code></div>
+      <div class="note">Wiki folder: <code>${esc(c.root)}</code> · change where all embers live under Folder in the list.</div>
     </form>`);
   $("#ef-pushtest").onclick = pushTest;
   $("#ef-remove").onclick = remove;
@@ -524,6 +569,11 @@ async function onClick(e) {
     renderList(); renderDetail();
     return;
   }
+  const folder = e.target.closest("[data-folder]");
+  if (folder) {
+    const act = folder.dataset.folder;
+    return act === "edit" ? editFolder() : act === "default" ? saveFolder("") : renderFolder();
+  }
   const sub = e.target.closest("[data-sub]");
   if (sub) return showSub(sub.dataset.sub);
   const run = e.target.closest("[data-run]");
@@ -564,6 +614,9 @@ function onSubmit(e) {
     e.preventDefault();
     const q = $("#ef-q").value.trim();
     if (q) ask(q);
+  } else if (e.target.id === "ef-folderform") {
+    e.preventDefault();
+    saveFolder(e.target.elements.path.value);
   } else if (e.target.id === "ef-set") {
     e.preventDefault();
     saveSettings(e.target);
