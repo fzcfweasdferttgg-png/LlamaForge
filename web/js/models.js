@@ -605,7 +605,9 @@ function buildBar(m) {
   if (!b || !Array.isArray(b.options)) return "";
   const pinned = b.pinned || "", opts = b.options;
   const cur = opts.find(o => o.ref === pinned);
-  if (opts.length < 2 && !pinned) return "";          // nothing to choose between
+  // nothing to choose when every build is the router's own; one other build
+  // (ik beside a router on the user's own binary) is already a choice
+  if (!pinned && !opts.some(o => !o.router)) return "";
   const router = opts.find(o => o.router);
   const opt = (v, label) => `<option value="${esc(v)}"${v === pinned ? " selected" : ""}>${esc(label)}</option>`;
   const items = [opt("", `follow the router${router ? " (" + router.label + ")" : ""}`)]
