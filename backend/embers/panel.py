@@ -9,7 +9,7 @@ only ever uses a model that is already loaded (autoload=False).
 Deleting an ember renames ember.json to ember.removed.json and keeps the
 wiki: the scheduler stops seeing it, and nothing the user wrote is lost.
 """
-import datetime as dt, json, os, re, threading
+import datetime as dt, json, os, re, tempfile, threading
 
 import atomicio, config
 from embers import embers_dir, jobs, lock, push, reserved_name, templates, view, wikifs
@@ -22,6 +22,7 @@ ROUTER_CLS    = Router
 MAIN_FN       = lambda: ""           # routes.py: the pool's main model, listed first
 NOW_FN        = dt.datetime.now
 PUSH_OPENER   = push._open
+SAVE_FN       = config.update      # persists the embers folder choice
 TEMPLATES_DIR = os.path.join(config.ROOT, "templates")
 REMOVED       = "ember.removed.json"
 RUN_SETS      = {"run": ["ingest", "brief"], "ingest": ["ingest"], "brief": ["brief"], "lint": ["lint"]}
@@ -33,6 +34,7 @@ MAX_RAWS      = 300
 MAX_RUNS      = 30
 LOG_LINES     = 60
 ERROR_CHARS   = 300
+FULL_PATH     = r"use a full path, like D:\Notes\Embers or ~/notes/embers"
 _DAY_RE       = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CTRL         = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _conf_lock    = threading.Lock()     # ember.json read-modify-write (create/update/delete)
@@ -413,3 +415,42 @@ def post_push_test(req, cfg):
               else {"headline": "Test from LlamaForge: this ember has no brief yet."})
     ok, error = push.deliver(root, conf, push_conf, result, NOW_FN(), PUSH_OPENER)
     return 200, {"ok": ok, "error": error}
+
+
+def post_folder(req, cfg):
+    """Point the panel at another embers folder ("" = the default).
+
+    Nothing is moved: embers already in the old folder stay there, and
+    switching back finds them again. The new folder is created when its
+    parent exists, and must be writable."""
+    v = req.body.get("path")
+    if not isinstance(v, str):
+        raise Error(400, FULL_PATH)
+    v = os.path.expanduser(v.strip())
+    old = embers_dir(cfg)
+    if v:
+        if not os.path.isabs(v):
+            raise Error(400, FULL_PATH)
+        v = os.path.normpath(v)
+        if os.path.isfile(os.path.join(v, "ember.json")):
+            raise Error(400, "that is one ember's own folder; pick the folder that holds embers")
+        if os.path.exists(v) and not os.path.isdir(v):
+            raise Error(400, "that is a file, not a folder")
+        if not os.path.isdir(v):
+            if not os.path.isdir(os.path.dirname(v)):
+                raise Error(400, f"its parent folder doesn't exist: {os.path.dirname(v)}")
+            try:
+                os.mkdir(v)
+            except OSError as ex:
+                raise Error(400, f"can't create it: {_msg(ex)}") from None
+        try:
+            fd, probe = tempfile.mkstemp(dir=v, prefix=".lf-write-test-")
+            os.close(fd)
+            os.remove(probe)
+        except OSError as ex:
+            raise Error(400, f"can't write there: {_msg(ex)}") from None
+    new = embers_dir(dict(cfg, embers_dir=v))
+    SAVE_FN({"embers_dir": v})
+    same = os.path.normcase(old) == os.path.normcase(new)
+    return 200, {"ok": True, "embers_dir": new, "found": len(list_embers(new)),
+                 "left": 0 if same else len(list_embers(old))}

@@ -2530,6 +2530,7 @@ POST_ROUTES = {
     "/api/embers/delete":       _embers(embers_panel.post_delete),
     "/api/embers/run":          _embers(embers_panel.post_run),
     "/api/embers/cancel":       _embers(embers_panel.post_cancel),
+    "/api/embers/folder":       _embers(embers_panel.post_folder),
     "/api/embers/ask":          _embers(embers_panel.post_ask),
     "/api/embers/push/test":    _embers(embers_panel.post_push_test),
 }

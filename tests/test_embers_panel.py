@@ -378,12 +378,52 @@ class PushTestTest(PanelCase):
         self.assertTrue(card["push_last"]["ok"])
 
 
+class FolderTest(PanelCase):
+    def setUp(self):
+        super().setUp()
+        self.saved = []
+        old = panel.SAVE_FN
+        panel.SAVE_FN = lambda changes: (self.saved.append(changes), self.cfg.update(changes))
+        self.addCleanup(setattr, panel, "SAVE_FN", old)
+
+    def test_moves_to_a_new_folder_and_counts_what_is_where(self):
+        self.make("one", ingest=False, brief=False)
+        new = os.path.join(self.dir, "vault", "Embers")
+        os.makedirs(os.path.dirname(new))
+        out = self.call(panel.post_folder, {"path": new})[1]
+        self.assertTrue(os.path.isdir(new))                   # the leaf is created
+        self.assertEqual(self.saved, [{"embers_dir": new}])
+        self.assertEqual((out["embers_dir"], out["found"], out["left"]), (new, 0, 1))
+        self.assertEqual(self.call(panel.get_embers)[1]["embers_dir"], new)
+        back = self.call(panel.post_folder, {"path": self.base})[1]   # nothing is moved: switching back finds it
+        self.assertEqual((back["found"], back["left"]), (1, 0))
+
+    def test_blank_resets_to_the_default(self):
+        out = self.call(panel.post_folder, {"path": "  "})[1]
+        self.assertEqual(self.saved, [{"embers_dir": ""}])
+        self.assertEqual(os.path.normpath(out["embers_dir"]),
+                         os.path.normpath(os.path.join(panel.config.ROOT, "embers")))
+
+    def test_refuses_what_it_cannot_use(self):
+        a_file = os.path.join(self.dir, "a.txt")
+        open(a_file, "w").close()
+        self.make("one", ingest=False, brief=False)
+        for body, needle in (({"path": "relative/embers"}, "full path"),
+                             ({"path": a_file}, "file"),
+                             ({"path": os.path.join(self.dir, "no", "such", "x")}, "parent"),
+                             ({"path": os.path.join(self.base, "one")}, "one ember"),
+                             ({"path": 5}, "full path")):
+            self.assertIn(needle, self.err(400, panel.post_folder, body), body)
+        self.assertEqual(self.saved, [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "no")))
+
+
 class RoutesTest(PanelCase):
     def test_routes_are_wired_and_errors_become_api_errors(self):
         import routes
         for path in ("/api/embers", "/api/embers/brief", "/api/embers/page", "/api/embers/raw"):
             self.assertIn(path, routes.GET_ROUTES)
-        for path in ("/api/embers/create", "/api/embers/ask", "/api/embers/push/test"):
+        for path in ("/api/embers/create", "/api/embers/ask", "/api/embers/push/test", "/api/embers/folder"):
             self.assertIn(path, routes.POST_ROUTES)
         old = routes.cfg
         routes.cfg = lambda: self.cfg
