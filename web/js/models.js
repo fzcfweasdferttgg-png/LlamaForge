@@ -11,6 +11,7 @@ import { $, $$, esc, setHTML, api, toast, meter } from "./core.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
+import * as slots from "./slots.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -117,7 +118,8 @@ function editorButtons(m) {
       <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
-      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
+      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
+      ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
       ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
@@ -157,7 +159,8 @@ function editor(m) {
   const placeholder = m.backend === "vllm"
     ? "filter knobs (e.g. tensor, memory, quant)..."
     : "filter knobs (e.g. cache, rope, temp)...";
-  return `<div class="ed-live">${editorLive(m)}</div>
+  return `<div class="ed-slot">${slots.block(m, renderModels)}</div>
+    <div class="ed-live">${editorLive(m)}</div>
     <div class="toolbar ed-tools">
       <input class="search" data-knobfilter placeholder="${esc(placeholder)}">
       <span class="chip ${onlySet?"on":""}" data-onlyset>Only set</span>
@@ -216,7 +219,7 @@ function rowHead(m, showBackend) {
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="qbtns">${quickBtn(m)}</span>
@@ -227,7 +230,8 @@ function rowHead(m, showBackend) {
 function headSig(m, cols, showBackend) {
   return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.eff_ctx,
     m.modalities, m.in_ini, favs.has(m.id), compareMode, cmpSet.has(m.id),
-    loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, cols, showBackend]);
+    loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, cols, showBackend,
+    slots.chipSig(m)]);
 }
 // Keyed so only a different model, backend or schema rebuilds the knob grid.
 function knobSig(m) {
@@ -249,6 +253,7 @@ export function renderModels() {
   if (count) count.textContent = `${nLoaded} LOADED / ${all.length} TOTAL` +
     (ms.length !== all.length ? ` · ${ms.length} shown` : "");
   document.title = nLoaded ? `▸${nLoaded} LLAMAFORGE` : "LLAMAFORGE";
+  slots.renderBanner();
   const cols = compareMode ? "16px 14px 18px 1fr auto auto auto auto"
                            : "14px 18px 1fr auto auto auto auto";
   const showBackend = backendTagNeeded();
@@ -302,9 +307,10 @@ function syncEditor(row, m) {
   if (row._ks !== ks) {          // first open, or the schema/model actually changed
     setHTML(edit, editor(m));
     row._ks = ks;
-    row._live = row._btns = row._note = null;
+    row._slot = row._live = row._btns = row._note = null;
   }
-  const regions = [[".ed-live", editorLive, "_live"],
+  const regions = [[".ed-slot", x => slots.block(x, renderModels), "_slot"],
+                   [".ed-live", editorLive, "_live"],
                    [".ed-btns", editorButtons, "_btns"],
                    [".ed-note", editorNote, "_note"]];
   for (const [sel, build, key] of regions) {
@@ -331,6 +337,7 @@ function beOf(id) {
 function enqueueLoad(id) {
   if (loadQ.some(j => j.id === id) || (loadBusy && loadQ[0] && loadQ[0].id === id)) return;
   delete diagCache[id];               // a retry should re-diagnose, not show stale error
+  slots.forget(id);
   loadQ.push({id});
   toast(loadBusy ? `Queued #${loadQ.length}` : "Loading...", "ok");
   renderModels(); processQ();
@@ -339,7 +346,14 @@ async function processQ() {
   if (loadBusy || !loadQ.length) return;
   loadBusy = true;
   const job = loadQ[0];
-  try { await api(beOf(job.id) === "vllm" ? "/api/vllm/load" : "/api/load", {model: job.id}); } catch (e) {}
+  let r = null;
+  try {
+    r = beOf(job.id) === "vllm" ? await api("/api/vllm/load", {model: job.id})
+                                : await slots.load(job.id);
+  } catch (e) {}
+  // a planner refusal is an answer, not a crash: say it (the open row shows the details)
+  if (r && r.success === false && typeof r.reason === "string")
+    toast(`${job.id}: ${slots.errText(r)}`.slice(0, 220), "err");
   loadQ.shift(); loadBusy = false;
   await refresh(true);
   if (chatAfterLoad.delete(job.id)) {
@@ -613,7 +627,7 @@ function renderTuneResults(row, measurements) {
     const label = diff ? diff : "base";
     return `<div class="tunebar-cand${isBest?" best":""}"><span class="tunebar-cand-label">${esc(label)}</span><span class="tunebar-cand-tok">${tok} tok/s</span>${isBest?'<span class="tunebar-cand-best">← chosen</span>':''}</div>`;
   }).join("");
-  el.innerHTML = `<div class="tunebar-cand-header"><span>candidate</span><span>speed</span></div>${rows}`;
+  setHTML(el, `<div class="tunebar-cand-header"><span>candidate</span><span>speed</span></div>${rows}`);
   el.hidden = false;
 }
 async function handleTuneRefine(modelId) {
@@ -627,7 +641,11 @@ async function handleTuneRefine(modelId) {
     const tok = (r.measurements?.chosen_tok_s || 0).toFixed(1);
     applyTuneResult(row, {knobs: r.knobs, intent});
     renderTuneResults(row, r.measurements);
-    toast(`Refined — ${tok} tok/s`, "ok");
+    if (r.restore_error) {
+      const msg = $("[data-msg]", row);
+      if (msg) { msg.className = "msg err"; msg.textContent = `benchmarked, but ${modelId} didn't load back: ${r.restore_error}`; }
+      toast(`Refined, but ${modelId} didn't load back`, "err");
+    } else toast(`Refined — ${tok} tok/s`, "ok");
   } catch (e) { toast("Refine failed: " + e, "err"); }
   btn.disabled = false; btn.textContent = "Run (~1 min)";
 }
@@ -778,6 +796,26 @@ export function initModels() {
     // quick load/unload in the row header
     const quick = e.target.closest("#view-models [data-quick]");
     if (quick) { e.stopPropagation(); quickAction(quick.dataset.quick, quick.dataset.qid); return; }
+    // multi-model slots: make main, unload-the-workers-and-load, restart with the pool
+    const sMain = e.target.closest("#view-models [data-slot-main]");
+    if (sMain) {
+      e.stopPropagation(); sMain.disabled = true;
+      await slots.makeMain(sMain.dataset.slotMain); await refresh(true); return;
+    }
+    const sEvict = e.target.closest("#view-models [data-slot-evict]");
+    if (sEvict) {
+      e.stopPropagation(); sEvict.disabled = true;
+      const id = sEvict.dataset.slotEvict;
+      toast(`Unloading workers, then loading ${id}...`, "ok");
+      const r = await slots.load(id, "main", true);
+      toast(r.success ? `${id} is loaded` : `${id}: ${slots.errText(r)}`.slice(0, 220), r.success ? "ok" : "err");
+      await refresh(true); return;
+    }
+    if (e.target.closest("#view-models [data-slot-apply]")) {
+      e.stopPropagation();
+      if (await slots.applyPool()) await refresh(true);
+      return;
+    }
     // presets
     const pApply = e.target.closest("[data-preset-apply]");
     if (pApply) {
@@ -816,11 +854,16 @@ export function initModels() {
           msg.textContent = r.was_running ? "saved - unloaded to apply" : "saved + reloaded";
           toast("Saved & reloaded", "ok");
           invalidateKnobs();   // server now matches the inputs; refresh "set" marks
+          slots.forget(id);    // new knobs, new footprint: ask the planner again
         } else { msg.className = "msg err"; msg.textContent = r.error || "failed"; }
       } else if (act === "load") {
         msg.className = "msg work"; msg.textContent = "loading (may take seconds)...";
-        const r = await api("/api/load", {model: id});
-        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=(r.error&&r.error.message)||"load failed");
+        const r = await slots.load(id);
+        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
+      } else if (act === "loadw") {
+        msg.className = "msg work"; msg.textContent = "loading beside the main model...";
+        const r = await slots.load(id, "worker");
+        r.success ? toast("Loaded as a worker","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
       } else if (act === "unload") {
         msg.className = "msg work"; msg.textContent = "unloading...";
         await api("/api/unload", {model: id}); toast("Unloaded", "ok");

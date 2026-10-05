@@ -129,6 +129,65 @@ class Endpoints(Base):
         self.assertIs(routes.GET_ROUTES["/api/slots"], routes.get_slots)
         self.assertIs(routes.GET_ROUTES["/api/slots/plan"], routes.get_slots_plan)
         self.assertIs(routes.POST_ROUTES["/api/slots/main"], routes.post_slots_main)
+        self.assertIs(routes.POST_ROUTES["/api/slots/apply"], routes.post_slots_apply)
+
+
+class StateSlots(Base):
+    """What the dashboard's 4-second poll carries: roles and settings, never
+    a planner run or an nvidia-smi call."""
+    def test_roles_and_settings(self):
+        self.cfg.update({"slots": {"main": "m1"}, "slot_cap": 4, "slot_headroom_mib": 2048})
+        self.slots.devices.return_value = {"m1": [0], "w1": [1]}
+        out = routes._slots_state(dict(self.cfg))
+        self.assertEqual((out["enabled"], out["main"], out["restart_needed"]), (True, "m1", False))
+        self.assertEqual(out["devices"], {"m1": [0], "w1": [1]})
+        self.assertEqual(out["settings"], {"multi_model": True, "slot_cap": 4,
+                                           "slot_headroom_mib": 2048, "slot_autoload": False})
+        self.assertEqual(out["cap_range"], [routes.slots.CAP_MIN, routes.slots.CAP_MAX])
+        self.slots.loaded.assert_not_called()
+        self.slots.plan.assert_not_called()
+
+    def test_a_single_router_needs_a_restart(self):
+        self.pool.return_value = None
+        out = routes._slots_state(dict(self.cfg))
+        self.assertEqual((out["enabled"], out["restart_needed"], out["main"], out["devices"]),
+                         (False, True, "", {}))
+
+    def test_ik_llama_is_not_a_restart(self):
+        self.cfg["active_engine"] = "ikllama"
+        out = routes._slots_state(dict(self.cfg))
+        self.assertEqual((out["enabled"], out["restart_needed"], out["engine_ok"]),
+                         (False, False, False))
+
+    def test_off(self):
+        self.cfg["multi_model"] = False
+        out = routes._slots_state(dict(self.cfg))
+        self.assertEqual((out["enabled"], out["restart_needed"]), (False, False))
+        self.assertFalse(out["settings"]["multi_model"])
+
+    def test_junk_in_config_reads_as_defaults(self):
+        self.cfg.update({"slots": "junk", "slot_cap": "lots"})
+        out = routes._slots_state(dict(self.cfg))
+        self.assertEqual((out["main"], out["settings"]["slot_cap"]), ("", 3))
+
+    def test_in_the_state(self):
+        with mock.patch.object(routes.REGISTRY, "state", return_value={"models": []}), \
+             mock.patch.object(routes._GPU_TELEMETRY, "get", return_value=[]):
+            status, out = routes.get_state(Req())
+        self.assertTrue(out["slots"]["enabled"])
+
+
+class Apply(Base):
+    def test_restarts_the_router_with_the_pool(self):
+        with mock.patch.object(routes, "_sync_router_pool", return_value=(True, "")) as sync:
+            status, out = routes.post_slots_apply(Req(body={}))
+        self.assertEqual((status, out), (200, {"ok": True, "restarted": True, "error": ""}))
+        sync.assert_called_once()
+
+    def test_a_failed_restart_says_why(self):
+        with mock.patch.object(routes, "_sync_router_pool", return_value=(False, "port busy")):
+            status, out = routes.post_slots_apply(Req(body={}))
+        self.assertEqual((status, out["ok"], out["error"]), (500, False, "port busy"))
 
 
 class TurningItOff(Base):

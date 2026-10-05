@@ -339,6 +339,16 @@ class Roles(Base):
         self.mgr.load("m1", "worker")                                  # the user asked for it
         self.assertEqual(config.load()["slots"]["main"], "")
 
+    def test_devices_for_the_poll_never_ask_nvidia_smi(self):
+        self.router.cost["m1"] = {0: 4 * G}
+        self.mgr.load("m1", "main")
+        no_smi = mock.patch.object(self.mgr, "gpus", side_effect=AssertionError("nvidia-smi"))
+        with no_smi:
+            self.assertEqual(self.mgr.devices(), {"m1": [0]})
+        self.mgr.unload("m1")                       # an unload does measure what it freed
+        with no_smi:
+            self.assertEqual(self.mgr.devices(), {})
+
     def test_one_main_at_a_time(self):
         self.mgr.load("m1", "main")
         self.mgr.load("m2", "main")

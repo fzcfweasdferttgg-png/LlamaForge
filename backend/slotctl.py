@@ -350,6 +350,12 @@ class SlotManager:
         with self._lock:
             return self._running(self._statuses() or {})
 
+    def devices(self):
+        """{model: [nvidia-smi index]} for the models this process loaded, from
+        memory: cheap enough for the dashboard's poll (loaded() may ask nvidia-smi)."""
+        with self._lock:
+            return {m: list(v.get("devices") or []) for m, v in self._live.items()}
+
     def touch(self, mid):
         """A worker that just did work is the last one to evict."""
         with self._lock:

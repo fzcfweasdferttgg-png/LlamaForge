@@ -785,6 +785,7 @@ def get_state(req):
     s["chat_port"] = c.get("chat_port", 8091)
     s["config_error"] = config.LOAD_ERROR
     s["version"] = version.VERSION
+    s["slots"] = _slots_state(c)
     s["onboarding"] = {
         "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
         "model_count": len(s["models"]),
@@ -1295,6 +1296,36 @@ def get_slots(req):
                  "pool": router_ctl.running_pool(LOGDIR),
                  "restart_needed": bool(c.get("multi_model")) and not on,
                  "main": SLOTS._main(), "loaded": SLOTS.loaded() if on else []}
+
+
+def _slots_state(c):
+    """The slots part of /api/state: roles, where our loads went, and the
+    settings. Built for the 4-second poll - config and two small files, never
+    the planner or nvidia-smi."""
+    on = _slots_on(c)
+    llama = c.get("active_engine", "llamacpp") == "llamacpp"
+    s = c.get("slots") if isinstance(c.get("slots"), dict) else {}
+    main = s.get("main") if on and isinstance(s.get("main"), str) else ""
+    cap = c.get("slot_cap")
+    head = c.get("slot_headroom_mib")
+    return {"enabled": on, "engine_ok": llama, "main": main,
+            "restart_needed": bool(c.get("multi_model")) and llama and not on,
+            "devices": SLOTS.devices() if on else {},
+            "settings": {"multi_model": bool(c.get("multi_model")),
+                         "slot_cap": cap if _v_int(slots.CAP_MIN, slots.CAP_MAX)(cap)
+                         is not None else slots.CAP_DEFAULT,
+                         "slot_headroom_mib": head if _v_int(0, 32768)(head) is not None
+                         else slots.DEFAULT_HEADROOM_MIB,
+                         "slot_autoload": bool(c.get("slot_autoload"))},
+            "cap_range": [slots.CAP_MIN, slots.CAP_MAX]}
+
+
+def post_slots_apply(req):
+    """Restart the router with the pool the settings ask for (the one running
+    was started single, by run.ps1 / run.sh or before the setting)."""
+    with _ROUTER_LIFECYCLE_LOCK:
+        restarted, err = _sync_router_pool(cfg())
+    return (500 if err else 200), {"ok": not err, "restarted": restarted, "error": err or ""}
 
 
 def get_slots_plan(req):
@@ -2329,6 +2360,7 @@ POST_ROUTES = {
     "/api/wiki/active":         post_wiki_active,
     "/api/wiki/export":         post_wiki_export,
     "/api/slots/main":          post_slots_main,
+    "/api/slots/apply":         post_slots_apply,
 }
 
 
