@@ -140,12 +140,16 @@ export function switchTab(name) {
   const t = $(`.tab[data-tab="${name}"]`);
   if (t) t.click();
 }
+// Restart a one-shot CSS entrance (.swap) on an element that persists across tabs.
+function replay(el) { el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); }
 export function updatePageTitle() {
   const a = $(".navitem.active .label");
   const t = $("#page-title");
-  if (a && t) t.textContent = a.textContent;
   const l = $("#page-lede"), n = $(".navitem.active");
+  const changed = !!(a && t && t.textContent !== a.textContent);
+  if (a && t) t.textContent = a.textContent;
   if (l) l.textContent = (n && n.dataset.lede) || "";
+  if (changed) { replay(t); if (l) replay(l); }
 }
 export function initTabs() {
   $$(".tab").forEach(t => t.onclick = () => {
