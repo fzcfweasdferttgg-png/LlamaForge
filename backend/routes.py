@@ -26,6 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
+import mcp_server
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -1466,6 +1467,13 @@ def get_slots_plan(req):
     return 200, SLOTS.plan(mid, _slot_role(req.q("role") or "worker"))
 
 
+def get_mcp_setup(req):
+    """Client configs for LlamaForge's MCP server (backend/mcp_server.py)."""
+    info = mcp_server.setup_info()
+    info["pi"] = bool(mcp_server.pirun.locate(cfg().get("pi_bin") or ""))
+    return 200, info
+
+
 def post_slots_main(req):
     SLOTS.set_main(req.body.get("model") or "")
     return 200, {"ok": True, "main": req.body.get("model") or ""}
@@ -2429,6 +2437,7 @@ GET_ROUTES = {
     "/api/docs/page":         get_docs_page,
     "/api/slots":             get_slots,
     "/api/slots/plan":        get_slots_plan,
+    "/api/mcp/setup":         get_mcp_setup,
 }
 
 POST_ROUTES = {

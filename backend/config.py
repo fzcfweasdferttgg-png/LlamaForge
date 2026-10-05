@@ -49,6 +49,7 @@ DEFAULTS = {
     "ik_llama_cmake_flags": {},               # separate build flags for ik_llama
     "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
+    "pi_bin":        "",                       # pi coding agent: .js entry, package dir or binary ("" = PATH)
     "presets":     {},                       # named knob sets: {name: {knob: value}}
     "profiles":    {},                       # {name: {model, backend, preset, engine}}
     "preset_bindings": {},                    # {model_id: preset_name} auto-applied on bind/edit

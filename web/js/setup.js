@@ -734,7 +734,9 @@ function renderAgentConnect(generation) {
       <button id="ac-show" type="button">Show configuration</button>
       <button id="ac-apply" type="button" class="primary">Apply</button>
     </div>
-    <div id="ac-out" class="agent-out"></div>`);
+    <div id="ac-out" class="agent-out"></div>
+    <div id="mcp-connect"></div>`);
+  renderMcpConnect(generation);
 
   const sync = () => {
     const claude = $("#ac-agent").value === "claude-code";
@@ -852,6 +854,38 @@ async function applyAgentConfig(generation) {
     return;
   }
   clearAgentPreview(`${r.action}: ${r.path}${r.backup ? " (backup created)" : ""}`);
+}
+
+/* ---------- MCP server ---------- */
+async function renderMcpConnect(generation) {
+  let r;
+  try { r = await api("/api/mcp/setup"); } catch (e) { return; }
+  const host = $("#mcp-connect");
+  if (!host || !setupViewActive(generation) || !r || r.error) return;
+  const values = [r.claude, r.codex_toml, r.json];
+  const snip = (label, text, i) =>
+    // .snip keeps whitespace: nothing between the tag, the button and the text
+    `<div class="slabel">${esc(label)}</div><div class="snip"><button type="button"
+      class="qbtn scopy" data-mcp-copy="${i}"
+      aria-label="Copy ${esc(label)}">Copy</button>${esc(text)}</div>`;
+  setHTML(host, `<h3>MCP server</h3>
+    <div class="note">Let Claude Code, Codex or any MCP client drive LlamaForge:
+      status, load and unload, fit checks, Hugging Face downloads, one-shot prompts,
+      and <b>pi_run</b>, which hands a whole task to
+      <a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener">pi</a>
+      (Mario Zechner's open-source coding agent) running on a loaded local model.
+      The client starts the server itself; it talks only to this panel on 127.0.0.1.
+      ${r.pi ? "pi is installed." :
+        "pi is not installed yet: <code>npm install -g @earendil-works/pi-coding-agent</code>"}</div>` +
+    snip("Claude Code (run once)", r.claude, 0) +
+    snip("Codex (~/.codex/config.toml)", r.codex_toml, 1) +
+    snip("Other clients (mcpServers JSON)", r.json, 2) +
+    `<div class="note">Tools: ${esc((r.tools || []).join(", "))}</div>`);
+  for (const b of $$("[data-mcp-copy]", host)) {
+    const text = values[Number(b.dataset.mcpCopy)] || "";
+    b.onclick = () => navigator.clipboard.writeText(text).then(
+      () => toast("Copied to clipboard", "ok"));
+  }
 }
 
 /* ---------- drive scanning ---------- */

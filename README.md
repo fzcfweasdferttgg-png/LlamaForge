@@ -82,6 +82,10 @@ base URL, key and model id ready to paste.
 - **Anthropic-compatible** `POST /v1/messages` on the panel, with streaming and tool use.
 - **Connect an agent** writes the config for **Claude Code**, **Codex** and **pi.dev** (any file it touches is backed up first).
 - Load/unload endpoints let an agent swap models on demand.
+- **MCP server** (stdio, `backend/mcp_server.py`): Claude Code, Codex or any MCP client can see what's loaded,
+  load and unload models, check what fits, pull GGUFs from Hugging Face, and hand a whole task to
+  [pi](https://github.com/earendil-works/pi) running on a loaded local model (`pi_run`). One-line setup under
+  **Setup -> MCP server**, e.g. `claude mcp add --scope user llamaforge -- python <LlamaForge>/backend/mcp_server.py`.
 
 ## Screenshots
 
@@ -161,3 +165,6 @@ LlamaForge is MIT-licensed ([LICENSE](LICENSE)). It builds and drives
 **[llama.cpp](https://github.com/ggml-org/llama.cpp)** - MIT, (c) The ggml authors -
 see [NOTICE](NOTICE) and [LICENSE.llama.cpp.txt](LICENSE.llama.cpp.txt).
 The hard part is theirs; please star and support the upstream project.
+
+`pi_run` drives **[pi](https://github.com/earendil-works/pi)**, Mario Zechner's open-source coding agent (MIT).
+LlamaForge doesn't ship it: install it with `npm install -g @earendil-works/pi-coding-agent`.
