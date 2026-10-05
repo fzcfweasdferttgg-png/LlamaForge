@@ -56,16 +56,23 @@ export async function setCvd(on) {
   try { localStorage.setItem("cvd", on ? "1" : "0"); } catch (e) {}
   try { await api("/api/config", {cvd: !!on}); } catch (e) {}
 }
-/* ---------- skin: Hearth (default) / Classic ----------
+/* ---------- skin: Stowage (default) / Hearth / Classic ----------
    A third axis beside theme and cvd. Classic is the original terminal look,
-   untouched; Hearth layers web/css/hearth.css on top, scoped to
-   :root[data-skin="hearth"], so every light/dark/cvd combination still works. */
+   untouched; Stowage and Hearth layer web/css/stowage.css and hearth.css on
+   top, each scoped to its own :root[data-skin=...], so every light/dark/cvd
+   combination still works. "lf-skin" tells views that draw differently per
+   skin (the Stowage bay plan) to redraw. */
+const SKINS = ["stowage", "hearth", "classic"];
+const skinOf = k => SKINS.includes(k) ? k : "stowage";
 export function applySkin(k) {
-  document.documentElement.dataset.skin = (k === "classic" ? "classic" : "hearth");
+  const root = document.documentElement, was = root.dataset.skin;
+  root.dataset.skin = skinOf(k);
   $$("#skin-toggle button").forEach(b =>
-    b.classList.toggle("active", b.dataset.skin === document.documentElement.dataset.skin));
+    b.classList.toggle("active", b.dataset.skin === root.dataset.skin));
+  if (was !== root.dataset.skin) document.dispatchEvent(new Event("lf-skin"));
 }
 export async function setSkin(k) {
+  k = skinOf(k);
   applySkin(k);
   try { localStorage.setItem("skin", k); } catch (e) {}
   try { await api("/api/config", {skin: k}); } catch (e) {}
@@ -119,7 +126,7 @@ export function initSidebar() {
   };
   if (rc) rc.classList.toggle("on", document.documentElement.dataset.cvd === "safe");
   const rk = $("#rail-skin");
-  if (rk) rk.onclick = () => setSkin(document.documentElement.dataset.skin === "classic" ? "hearth" : "classic");
+  if (rk) rk.onclick = () => setSkin(SKINS[(SKINS.indexOf(document.documentElement.dataset.skin) + 1) % SKINS.length]);
   setNav(document.documentElement.dataset.nav || "rail");   // sync chevron glyph
   showNavHint();
 }

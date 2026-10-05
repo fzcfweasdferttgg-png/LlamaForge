@@ -63,6 +63,11 @@ class ConfigAllowlistTest(unittest.TestCase):
         self.assertEqual(self.saved["ui_mode"], "advanced")
         self.assertNotIn("rejected", out)
 
+    def test_every_skin_is_accepted(self):
+        for skin in ("", "stowage", "hearth", "classic"):
+            routes.post_config(Req(body={"skin": skin}))
+            self.assertEqual(self.saved["skin"], skin)
+
     def test_refuses_executable_path_keys(self):
         """The RCE path: set server_bin, then GET /api/schema runs it."""
         for key in ("server_bin", "llama_src", "build_dir", "models_ini",

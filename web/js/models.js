@@ -49,15 +49,135 @@ function toggleFavOnly(el) {
   favOnly = !favOnly; el.classList.toggle("on", favOnly); renderModels();
 }
 
-/* ---------- GPU telemetry ---------- */
-export function renderGpus(g) {
-  if (!g || !g.length || g[0].error) {
-    setHTML($("#gpus"), `<div class="gpu"><div class="stats">GPU telemetry unavailable</div></div>`);
-    return;
-  }
-  setHTML($("#gpus"), g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
+/* ---------- GPU telemetry ----------
+   Classic and Hearth draw a tile per GPU with a segment meter. Stowage draws
+   a bay plan: each GPU is a hold ruled in 1 GB cells, on one scale shared by
+   every GPU, with each model it holds stowed as a container at its real size.
+   Per-model sizes come from the pool's footprints (models this panel loaded
+   in multi-model mode); whatever the card uses beyond them is one honest
+   remainder block, and the open row's planner verdict is drawn as a booked
+   box. A booking bigger than the free space hangs past the hold's end as
+   hatched deck cargo, and anything the planner would unload for it is marked.
+   Sizes are GiB, as the planner reports them. The HTML is cached so an
+   unchanged poll touches nothing. */
+let lastGpus = null, lastBays = "";
+// box id -> {t, i}: when it was first drawn. A box keeps .stow for as long as
+// the motion runs, so a second render inside one poll can't cut it short.
+const seenBoxes = new Map();
+const tenth = mib => Math.round(mib / 102.4) / 10;
+const gb = mib => tenth(mib).toFixed(1);
+
+export function renderGpus(g) { lastGpus = g; drawGpus(); }
+function drawGpus() {
+  const host = $("#gpus"), g = lastGpus;
+  if (!host || !g) return;
+  const html = document.documentElement.dataset.skin === "stowage" ? bayPlans(g) : gpuTiles(g);
+  if (html === lastBays) return;
+  lastBays = html;
+  setHTML(host, html);
+}
+document.addEventListener("lf-skin", drawGpus);
+
+function gpuTiles(g) {
+  if (!g.length || g[0].error) return `<div class="gpu"><div class="stats">GPU telemetry unavailable</div></div>`;
+  return g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
     <div class="meter">${meter(x.used,x.total)}</div>
-    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join(""));
+    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join("");
+}
+
+function bayPlans(g) {
+  if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">GPU telemetry unavailable: nvidia-smi did not answer.</div></div>`;
+  const st = S.STATE || {}, sl = st.slots || {}, fps = sl.footprints || {};
+  const up = modelRows().filter(m => (m.backend || "llamacpp") === "llamacpp" && (m.status === "loaded" || m.status === "sleeping"));
+  const unknown = up.filter(m => !fps[m.id]);          // loaded, but no footprint we can stow
+  // a worker keeps its colour on every GPU it spans
+  const workers = Object.keys(fps).filter(id => id !== sl.main).sort();
+  const hue = id => id === sl.main ? "main" : (workers.indexOf(id) % 2 ? "w2" : "w1");
+  const order = [...(fps[sl.main] ? [sl.main] : []), ...workers];
+  const book = slots.booked(openId);
+  const want = x => book && book.footprint ? +(book.footprint[String(x.index)] || 0) : 0;
+  const evict = new Set(book && book.evict || []);
+  // one scale for every hold, wide enough for any booking that overhangs
+  const maxTotal = Math.max(...g.map(x => Math.max(x.total || 0, (x.used || 0) + want(x)))) || 1;
+  const fresh = new Set(), now = Date.now();
+  let n = [...seenBoxes.values()].filter(v => now - v.t < 1500).length;
+
+  const out = g.map(x => {
+    const key = String(x.index), total = Math.max(x.total || 0, 1), used = Math.min(Math.max(x.used || 0, 0), total);
+    const cells = total / 1024, boxes = [];
+    let at = 0;
+    // g: the size printed on the box (a booking shows all it needs, not just what fits)
+    const put = (cls, id, label, mib, title, g = mib) => {
+      if (mib <= 0) return;
+      const bid = key + ":" + (id || cls);
+      if (!seenBoxes.has(bid)) seenBoxes.set(bid, {t: now, i: n++});
+      const seen = seenBoxes.get(bid), stow = cls !== "sys" && now - seen.t < 1500;
+      fresh.add(bid);
+      if (id && evict.has(id)) { cls += " out"; title += ", unloaded to make room"; }
+      // too narrow to carry its name: the key under the hold names it instead
+      const narrow = mib / maxTotal < 0.16;
+      boxes.push({cls: cls + (narrow ? " nar" : ""), stow, label, mib, g, x: at, title, i: stow ? seen.i : 0});
+      at += mib;
+    };
+    for (const id of order) {
+      const mib = Math.min((fps[id] || {})[key] || 0, used - at);
+      put(hue(id), id, id, mib, `${id}: ${gb(mib)} GiB on GPU ${key}`);
+    }
+    const rest = used - at;
+    if (rest >= 51) {
+      // memory no footprint accounts for: say plainly what it is, or that we can't split it
+      let cls = "sys", label = "In use";
+      if (!unknown.length) label = order.length ? "System + other apps" : "System";
+      else if (unknown.length === 1 && rest >= 1024) { cls = "main"; label = unknown[0].id + " + system"; }
+      put(cls, cls === "main" ? unknown[0].id : "", label, rest,
+        `${label}: ${gb(rest)} GiB` + (cls === "main" ? " (the model's share is not measured separately here)" : ""));
+    }
+    const free = total - used, need = want(x);
+    let bookMib = 0, shortMib = 0, deck = "";
+    if (need > 0) {
+      bookMib = Math.min(need, free); shortMib = need - bookMib;
+      const title = shortMib > 0 ? `${openId} needs ${gb(need)} GiB here, ${gb(shortMib)} GiB more than is free`
+                                 : `${openId} would take ${gb(need)} GiB here`;
+      put(shortMib > 0 ? "booked over" : "booked", "book:" + openId, openId, bookMib, title, need);
+      // the part that doesn't fit hangs past the end of the hold as deck cargo
+      if (shortMib > 0) deck = `<div class="deck" title="${esc(title)}" style="--w:${(shortMib / 1024).toFixed(3)}">
+          <span class="box-n">Short</span><span class="box-g">${esc(gb(shortMib))}</span></div>`;
+    }
+    const usedT = tenth(used), bookT = tenth(bookMib), totT = tenth(total);
+    // a booking that fits comes out of free; one that doesn't is never stowed
+    const freeT = Math.max(0, Math.round((totT - usedT - (shortMib > 0 ? 0 : bookT)) * 10) / 10);
+    const step = cells > 24 ? 8 : 4, ticks = [];
+    for (let v = 0; v <= cells - step / 2; v += step) ticks.push(`<span style="left:${(v / cells * 100).toFixed(3)}%">${v}</span>`);
+    ticks.push(`<span class="end" style="left:100%">${esc(totT.toFixed(totT % 1 ? 1 : 0))} GiB</span>`);
+    const aria = `GPU ${key}: ` + boxes.map(b => `${b.label} ${gb(b.g)} GiB`).join(", ") +
+      (boxes.length ? ", " : "") + `${freeT.toFixed(1)} GiB free of ${totT.toFixed(1)} GiB` +
+      (shortMib > 0 ? `, ${gb(shortMib)} GiB short` : "");
+    const boxHTML = boxes.map(b => `<div class="box ${esc(b.cls + (b.stow ? " stow" : ""))}" title="${esc(b.title)}" style="--x:${(b.x / 1024).toFixed(3)};--w:${(b.mib / 1024).toFixed(3)};--i:${b.i}">
+        <span class="box-n">${esc(b.label)}</span><span class="box-g">${esc(gb(b.g))}</span>${b.cls.split(" ").includes("out") ? `<span class="box-x">Unload</span>` : ""}</div>`).join("");
+    // the key names every box; CSS shows it for narrow boxes only, and for all on a phone
+    const keyHTML = boxes.map(b => `<span class="k ${esc(b.cls)}"><i></i>${esc(b.label)} <b>${esc(gb(b.g))}</b>${b.cls.split(" ").includes("out") ? " <em>unload</em>" : ""}</span>`).join("");
+    return `<section class="bay" aria-label="${esc(x.name)}, GPU ${esc(key)}">
+      <div class="bay-head"><span class="bay-name">${esc(x.name)}</span><span class="bay-idx">GPU ${esc(key)}</span>
+        <span class="bay-tele"><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></span></div>
+      <div class="bay-body">
+        <div class="hold-col" style="--span:${(total / maxTotal).toFixed(4)}">
+          <div class="hold" role="img" aria-label="${esc(aria)}" style="--cells:${cells.toFixed(3)}">${boxHTML}${deck}</div>
+          <div class="hold-scale" aria-hidden="true">${ticks.join("")}</div>
+          ${boxes.length ? `<div class="hold-key" aria-hidden="true">${keyHTML}</div>` : ""}
+        </div>
+        <dl class="ledger">
+          <dd class="unit">GiB</dd>
+          <dt>Used</dt><dd>${usedT.toFixed(1)}</dd>
+          ${need > 0 && !shortMib ? `<dt>Booked</dt><dd>${bookT.toFixed(1)}</dd>` : ""}
+          <dt>Free</dt><dd>${freeT.toFixed(1)}</dd>
+          ${shortMib > 0 ? `<dt>Needs</dt><dd>${gb(need)}</dd><dt class="short">Short</dt><dd class="short">${gb(shortMib)}</dd>` : ""}
+          <dt class="tot">Total</dt><dd class="tot">${totT.toFixed(1)}</dd>
+        </dl>
+      </div></section>`;
+  }).join("");
+  // forget boxes that left, so a model loaded again is stowed again
+  for (const b of [...seenBoxes.keys()]) if (!fresh.has(b)) seenBoxes.delete(b);
+  return out;
 }
 
 /* ---------- knob fields ---------- */
@@ -256,6 +376,7 @@ export function renderModels() {
     (ms.length !== all.length ? ` · ${ms.length} shown` : "");
   document.title = nLoaded ? `▸${nLoaded} LLAMAFORGE` : "LLAMAFORGE";
   slots.renderBanner();
+  drawGpus();                       // the bay plan shows the open row's booking
   const cols = compareMode ? "16px 14px 18px 1fr auto auto auto auto"
                            : "14px 18px 1fr auto auto auto auto";
   const showBackend = backendTagNeeded();
@@ -767,7 +888,7 @@ export async function refresh(silent) {
     if (!S.SCHEMA || S.SCHEMA.error || !(S.SCHEMA.groups||[]).length) S.SCHEMA = await api("/api/schema");
     const s = await api("/api/state");
     S.STATE = s;
-    renderGpus(s.gpus);
+    lastGpus = s.gpus;
     renderModels();
     updateCmpRun();
     emit("state", s);

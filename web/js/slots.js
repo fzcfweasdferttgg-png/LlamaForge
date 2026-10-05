@@ -60,6 +60,13 @@ function planFor(id, rerender) {
   return null;
 }
 
+/** The open row's settled planner verdict while it is still current, for
+ *  the bay plan's "booked" box; null when there is none or it is loaded. */
+export function booked(id) {
+  const p = id && plans[id];
+  return p && p.sig === loadedSig() && p.verdict && !p.verdict.already ? p.verdict : null;
+}
+
 /** Drop what we know about a model's fit (its knobs changed, or a new load starts). */
 export function forget(id) { delete plans[id]; delete refusals[id]; delete dropped[id]; }
 

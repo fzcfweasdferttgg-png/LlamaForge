@@ -397,6 +397,13 @@ class SlotManager:
         with self._lock:
             return {m: list(v.get("devices") or []) for m, v in self._live.items()}
 
+    def footprints(self):
+        """{model: {"gpu index": MiB}} for the models this process loaded: what
+        each measured (or was predicted) on its GPUs, from memory like devices()."""
+        with self._lock:
+            return {m: {str(g): int(n) for g, n in (v.get("footprint") or {}).items()}
+                    for m, v in self._live.items()}
+
     def touch(self, mid):
         """A worker that just did work is the last one to evict."""
         with self._lock:

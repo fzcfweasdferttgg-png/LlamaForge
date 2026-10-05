@@ -138,9 +138,11 @@ class StateSlots(Base):
     def test_roles_and_settings(self):
         self.cfg.update({"slots": {"main": "m1"}, "slot_cap": 4, "slot_headroom_mib": 2048})
         self.slots.devices.return_value = {"m1": [0], "w1": [1]}
+        self.slots.footprints.return_value = {"m1": {"0": 9000}}
         out = routes._slots_state(dict(self.cfg))
         self.assertEqual((out["enabled"], out["main"], out["restart_needed"]), (True, "m1", False))
         self.assertEqual(out["devices"], {"m1": [0], "w1": [1]})
+        self.assertEqual(out["footprints"], {"m1": {"0": 9000}})
         self.assertEqual(out["settings"], {"multi_model": True, "slot_cap": 4,
                                            "slot_headroom_mib": 2048, "slot_autoload": False})
         self.assertEqual(out["cap_range"], [routes.slots.CAP_MIN, routes.slots.CAP_MAX])
@@ -150,8 +152,8 @@ class StateSlots(Base):
     def test_a_single_router_needs_a_restart(self):
         self.pool.return_value = None
         out = routes._slots_state(dict(self.cfg))
-        self.assertEqual((out["enabled"], out["restart_needed"], out["main"], out["devices"]),
-                         (False, True, "", {}))
+        self.assertEqual((out["enabled"], out["restart_needed"], out["main"], out["devices"],
+                          out["footprints"]), (False, True, "", {}, {}))
 
     def test_ik_llama_is_not_a_restart(self):
         self.cfg["active_engine"] = "ikllama"
