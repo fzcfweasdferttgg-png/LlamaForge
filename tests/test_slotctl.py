@@ -350,6 +350,19 @@ class Roles(Base):
         with no_smi:
             self.assertEqual(self.mgr.devices(), {})
 
+    def test_footprints_for_the_poll_never_ask_nvidia_smi(self):
+        self.router.cost["m1"] = {0: 4 * G}
+        self.mgr.load("m1", "main")
+        no_smi = mock.patch.object(self.mgr, "gpus", side_effect=AssertionError("nvidia-smi"))
+        with no_smi:
+            fp = self.mgr.footprints()
+        self.assertEqual(list(fp), ["m1"])
+        self.assertEqual(set(fp["m1"]), {"0"})          # JSON-ready GPU keys
+        self.assertGreater(fp["m1"]["0"], 0)
+        self.mgr.unload("m1")
+        with no_smi:
+            self.assertEqual(self.mgr.footprints(), {})
+
     def test_one_main_at_a_time(self):
         self.mgr.load("m1", "main")
         self.mgr.load("m2", "main")

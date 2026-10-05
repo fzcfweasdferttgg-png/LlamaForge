@@ -1,0 +1,489 @@
+/* Stowage - LlamaForge's default skin.
+   VRAM is cargo space: every GPU is a hold ruled in 1 GB cells and every
+   loaded model is a container stowed in it at its real size (models.js
+   draws the bay plans). The shell around it is a hull-navy rail over a pale
+   chart-grey ground; safety yellow is the one primary action; each section
+   of the panel owns a container colour, which bands the page title.
+
+   Square corners, 1px rules, no glow. Condensed caps for names and headings,
+   Barlow for reading, mono only for what really is code, and every figure
+   tabular so columns of GB and tok/s line up.
+
+   Scoped like hearth.css: every rule sits under :root[data-skin="stowage"],
+   markup and class names are shared with Classic and Hearth. Token order:
+   dark, then light, then colorblind-safe last (the CVD blocks repeat the
+   skin selector so they outrank light). */
+
+/* ---------- tokens: dark (navy hull, not black) ---------- */
+:root[data-skin="stowage"]{
+  --cond:'Barlow Condensed','Arial Narrow','Roboto Condensed',sans-serif;
+  --sans:'Barlow','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
+  --disp:var(--cond);
+
+  --bg:#0f1d33;--panel:#152843;--panel2:#1a3050;--raise:#1f3759;
+  --inset:#0c182b;--seg-bg:#22395a;--code-bg:#0a1526;--code-ink:#cfdbe7;
+  --hair:#2a4466;--hair-hi:#3d5f87;--hair-dim:#1d3352;--led-off:#3d5470;
+  --ink:#dce5ee;--ink-hi:#eaf0f6;--ink-strong:#ffffff;
+  --dim:#a4b6c8;--faint:#91a5ba;--faint-2:#91a5ba;
+  /* "amber" is the shared accent token: here it is safety yellow */
+  --amber:#ffc21a;--amber-text:#ffcf4d;--amber-status:#ffcf4d;--amber-dim:#7a5c0a;
+  --amber-tint:rgba(255,194,26,.12);--on-amber:#14110a;--on-accent:#14110a;
+  --cyan:#6aa6e8;--cyan-text:#8dbcf0;--cyan-border:#2f5683;
+  --green:#5cc595;--green-border:#2b5e48;
+  --red:#ef7a62;--red-tint:rgba(239,122,98,.10);
+  --grid:transparent;
+  --overlay:rgba(6,12,22,.62);--overlay-72:rgba(6,12,22,.74);
+  --shadow:rgba(0,0,0,.45);--shadow-70:rgba(0,0,0,.6);
+  --r-xs:0;--r-sm:2px;--r:2px;--r-lg:2px;--r-pill:2px;
+  --lift:none;
+  --ring:0 0 0 2px var(--focus);
+  --focus:#ffc21a;
+  --topbar-bg:transparent;
+
+  /* the rail is navy in both themes */
+  --rail-bg:#13243f;--rail-ink:#dfe8f1;--rail-dim:#a6bad0;--rail-hair:#2a4268;--rail-hover:#1b3157;--rail-inset:#0e1b31;
+
+  /* containers: the data series. Each pairs a fill with an ink that clears 4.5:1 on it */
+  --c-main:#e8661c;--c-main-ink:#1a0d04;
+  --c-w1:#2c6fb7;--c-w1-ink:#ffffff;
+  --c-w2:#26754f;--c-w2-ink:#ffffff;
+  --c-sys:#4f6176;--c-sys-ink:#ffffff;
+  --c-off:#b8402c;--c-off-ink:#ffffff;
+  --hold-bg:#0b172a;--cell-rule:rgba(164,182,200,.16);--hold-rule:#33527a;
+  --book-fill:rgba(255,194,26,.16);--book-rule:#ffc21a;
+
+  /* section hues: every nav section owns one, the current one bands the title */
+  --s-models:#e8661c;--s-chat:#2c6fb7;--s-embers:#a8476b;--s-stats:#2f8a62;--s-discover:#1d8a99;
+  --s-willrun:#c99a12;--s-build:#5d6f80;--s-setup:#4659a8;--s-context:#9b5a2a;--s-help:#5c8a3a;
+  --sec:var(--s-models);
+}
+
+/* ---------- tokens: light (pale chart grey) ---------- */
+:root[data-skin="stowage"][data-theme="light"]{
+  --bg:#e9eef1;--panel:#f7f9fa;--panel2:#ffffff;--raise:#ffffff;
+  --inset:#dfe6eb;--seg-bg:#d3dce3;--code-bg:#e4eaee;--code-ink:#1d2b3a;
+  --hair:#c2ccd4;--hair-hi:#94a3b0;--hair-dim:#d6dee4;--led-off:#a9b6c1;
+  --ink:#1b2838;--ink-hi:#13243f;--ink-strong:#0a1628;
+  --dim:#46576a;--faint:#536477;--faint-2:#536477;
+  --amber:#ffc21a;--amber-text:#7d5800;--amber-status:#7d5800;--amber-dim:#a87c00;
+  --amber-tint:rgba(255,194,26,.22);--on-amber:#14110a;--on-accent:#14110a;
+  --cyan:#2c6fb7;--cyan-text:#215a96;--cyan-border:#9dbbdc;
+  --green:#23704f;--green-border:#9cc6b2;
+  --red:#a8392a;--red-tint:rgba(168,57,42,.08);
+  --overlay:rgba(19,36,63,.30);--overlay-72:rgba(19,36,63,.45);
+  --shadow:rgba(19,36,63,.16);--shadow-70:rgba(19,36,63,.24);
+  --focus:#2c6fb7;
+  --hold-bg:#ffffff;--cell-rule:rgba(19,36,63,.13);--hold-rule:#8696a5;
+  --book-fill:rgba(255,194,26,.30);--book-rule:#14110a;
+  --c-sys:#5d6b79;
+}
+
+/* ---------- tokens: colorblind-safe (Okabe-Ito), after light on purpose ---------- */
+:root[data-skin="stowage"][data-cvd="safe"]{
+  --green:#009E73;--green-border:#1f5c48;
+  --red:#D55E00;--red-tint:rgba(213,94,0,.12);
+  --cyan:#56B4E9;--cyan-text:#7cc6ef;--cyan-border:#2a5c73;
+  --c-main:#E69F00;--c-main-ink:#1a1200;
+  --c-w1:#0072B2;--c-w1-ink:#ffffff;
+  --c-w2:#00795a;--c-w2-ink:#ffffff;
+  --c-off:#D55E00;--c-off-ink:#1a0b00;
+}
+:root[data-skin="stowage"][data-theme="light"][data-cvd="safe"]{
+  --cyan-text:#1d6c96;--cyan-border:#9fcbe6;
+  --green:#00795a;--red:#b34f00;
+}
+
+/* ---------- canvas & type ---------- */
+:root[data-skin="stowage"],
+:root[data-skin="stowage"] body{font-family:var(--sans);font-size:14.5px;letter-spacing:0}
+:root[data-skin="stowage"] body{background:var(--bg);line-height:1.5;font-variant-numeric:tabular-nums;
+  scrollbar-color:var(--hair-hi) transparent}
+:root[data-skin="stowage"] #content::before{display:none}
+:root[data-skin="stowage"] ::selection{background:var(--amber);color:var(--on-amber)}
+:root[data-skin="stowage"] :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+:root[data-skin="stowage"] ::-webkit-scrollbar{width:10px;height:10px}
+:root[data-skin="stowage"] ::-webkit-scrollbar-thumb{background:var(--hair-hi);border:2px solid var(--bg)}
+:root[data-skin="stowage"] ::-webkit-scrollbar-track{background:transparent}
+:root[data-skin="stowage"] :is(.log,.snip,code,pre,kbd,.ef-raw,.ef-fpath,.flagpill,.metacard .mv,.cmptbl td .mono,.tunebar-results,.ctxpill,.fg-v code){font-family:var(--mono)}
+:root[data-skin="stowage"] .sub{font-family:var(--sans);letter-spacing:.08em}
+
+/* ---------- sidebar: the navy rail ---------- */
+:root[data-skin="stowage"]{--nav-w:228px}
+:root[data-skin="stowage"][data-nav="rail"]{--nav-w:64px}
+:root[data-skin="stowage"] #sidebar{background:var(--rail-bg);border-right:0;padding:18px 12px 14px;gap:2px;color:var(--rail-ink);
+  --ink:var(--rail-ink);--ink-hi:#ffffff;--ink-strong:#ffffff;--dim:var(--rail-dim);--faint:var(--rail-dim);
+  --hair:var(--rail-hair);--hair-hi:#34507a;--inset:var(--rail-inset);--panel:#0f1f38;--panel2:#132642;--raise:#1c3356;--focus:#ffc21a}
+:root[data-skin="stowage"] .side-head{border-bottom:1px solid var(--rail-hair);padding:2px 4px 16px;margin-bottom:12px;gap:11px}
+:root[data-skin="stowage"]:not([data-theme="light"]) #sidebar{border-right:1px solid var(--rail-hair)}
+/* the mark: a hold with three containers stowed, one fixed scale */
+:root[data-skin="stowage"] .logo{width:32px;height:32px;border:0;border-radius:0;box-shadow:none;
+  background:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" fill="none" stroke="%23ffc21a" stroke-width="2"/><rect x="5" y="5" width="14" height="10" fill="%23e8661c"/><rect x="20" y="5" width="7" height="10" fill="%232c6fb7"/><rect x="5" y="17" width="9" height="10" fill="%232f8a62"/><g stroke="%2334507a" stroke-width="1"><path d="M15.5 17.5h11.5v9h-11.5z" fill="none"/></g></svg>') center/contain no-repeat}
+:root[data-skin="stowage"] .logo::before{display:none}
+:root[data-skin="stowage"] .brand-word{font-family:var(--cond);font-weight:700;font-size:21px;letter-spacing:.06em;text-transform:uppercase;
+  color:#ffffff;line-height:1}
+:root[data-skin="stowage"] .brand-word span{color:var(--amber)}
+:root[data-skin="stowage"] .brand-word .brand-ver{font-family:var(--sans);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:none;
+  color:var(--rail-dim);margin-top:5px}
+:root[data-skin="stowage"] .nav-toggle{border-radius:0;width:26px;height:26px;border-color:transparent;color:var(--rail-dim);background:transparent}
+:root[data-skin="stowage"] .nav-toggle:hover{border-color:var(--rail-hair);background:var(--rail-hover);color:#fff}
+:root[data-skin="stowage"] .nav-hint{border-radius:0}
+:root[data-skin="stowage"] .nav-cap{display:block;font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--rail-dim);padding:2px 10px 8px}
+:root[data-skin="stowage"][data-nav="rail"] .nav-cap{display:none}
+:root[data-skin="stowage"] .side-nav{gap:1px}
+:root[data-skin="stowage"] .navitem{font-family:var(--sans);font-weight:500;font-size:14.5px;letter-spacing:0;text-transform:none;
+  color:var(--rail-ink);padding:9px 10px;border-radius:0;border:1px solid transparent;gap:12px}
+/* section marks: the icon sits on a small container in its section's colour */
+:root[data-skin="stowage"] .navitem .ico{width:24px;height:24px;padding:4px;flex:none;color:#ffffff;
+  background:color-mix(in srgb,var(--h,var(--s-models)) 78%,#0a1628);opacity:1}
+:root[data-skin="stowage"] .navitem:hover{background:var(--rail-hover);color:#ffffff}
+:root[data-skin="stowage"] .navitem.active{color:#ffffff;font-weight:600;border-color:transparent;
+  background:color-mix(in srgb,var(--h,var(--s-models)) 30%,var(--rail-bg))}
+:root[data-skin="stowage"] .navitem.active .ico{background:var(--h,var(--s-models))}
+:root[data-skin="stowage"] .navitem.active::before{display:none}
+:root[data-skin="stowage"] .navitem:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+:root[data-skin="stowage"][data-nav="rail"] .navitem{padding:8px 0;justify-content:center}
+:root[data-skin="stowage"] .navitem[data-tab="models"]{--h:var(--s-models)}
+:root[data-skin="stowage"] .navitem[data-tab="chat"]{--h:var(--s-chat)}
+:root[data-skin="stowage"] .navitem[data-tab="embers"]{--h:var(--s-embers)}
+:root[data-skin="stowage"] .navitem[data-tab="stats"]{--h:var(--s-stats)}
+:root[data-skin="stowage"] .navitem[data-tab="discover"]{--h:var(--s-discover)}
+:root[data-skin="stowage"] .navitem[data-tab="willrun"]{--h:var(--s-willrun)}
+:root[data-skin="stowage"] .navitem[data-tab="build"]{--h:var(--s-build)}
+:root[data-skin="stowage"] .navitem[data-tab="setup"]{--h:var(--s-setup)}
+:root[data-skin="stowage"] .navitem[data-tab="context"]{--h:var(--s-context)}
+:root[data-skin="stowage"] .navitem[data-tab="help"]{--h:var(--s-help)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="chat"]){--sec:var(--s-chat)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="embers"]){--sec:var(--s-embers)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="stats"]){--sec:var(--s-stats)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="discover"]){--sec:var(--s-discover)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="willrun"]){--sec:var(--s-willrun)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="build"]){--sec:var(--s-build)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="setup"]){--sec:var(--s-setup)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="context"]){--sec:var(--s-context)}
+:root[data-skin="stowage"]:has(.navitem.active[data-tab="help"]){--sec:var(--s-help)}
+:root[data-skin="stowage"] .side-settings{border-top:1px solid var(--rail-hair);padding-top:14px;gap:9px}
+:root[data-skin="stowage"] .cvd-toggle{font-size:12.5px;color:var(--rail-dim);display:flex;gap:8px;align-items:center;padding:0 2px}
+:root[data-skin="stowage"] .cvd-toggle input{accent-color:var(--amber)}
+:root[data-skin="stowage"] .sicon{border-radius:0;border-color:var(--rail-hair);background:transparent;color:var(--rail-dim)}
+:root[data-skin="stowage"] .sicon:hover,:root[data-skin="stowage"] .sicon.on{color:#ffffff;border-color:#34507a;background:var(--rail-hover)}
+:root[data-skin="stowage"] #rail-skin{color:var(--amber)}
+
+/* segmented toggles (mode / theme / skin) */
+:root[data-skin="stowage"] .mode-toggle{background:var(--rail-inset);border:1px solid var(--rail-hair);border-radius:0;padding:2px;gap:2px}
+:root[data-skin="stowage"] .mode-toggle button{flex:1;font-family:var(--cond);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 8px;color:var(--rail-dim);border-radius:0;border:0;background:transparent}
+:root[data-skin="stowage"] .mode-toggle button:hover{color:#ffffff;background:var(--rail-hover)}
+:root[data-skin="stowage"] .mode-toggle button.active{background:#20395f;color:#ffffff;box-shadow:none}
+:root[data-skin="stowage"] #skin-toggle button.active{background:var(--amber);color:var(--on-amber)}
+
+/* ---------- page header: condensed caps over the section's band ---------- */
+:root[data-skin="stowage"] #content{padding:0 40px 28px}
+:root[data-skin="stowage"] .topbar{position:relative;border-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;
+  padding:30px 0 0;margin-bottom:24px;align-items:flex-end;gap:16px;flex-wrap:wrap}
+/* the band: the current section's container colour, the full width of the page */
+:root[data-skin="stowage"] .topbar::after{content:"";position:absolute;left:0;right:0;bottom:-12px;height:6px;background:var(--sec)}
+:root[data-skin="stowage"] .page-head{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+:root[data-skin="stowage"] #page-title{font-family:var(--cond);font-weight:700;font-size:46px;line-height:.95;letter-spacing:.01em;
+  text-transform:uppercase;color:var(--ink-strong)}
+:root[data-skin="stowage"] #page-title::before{display:none}
+:root[data-skin="stowage"] #page-lede{display:block;color:var(--dim);font-size:15px;max-width:680px;line-height:1.45;margin-top:4px}
+:root[data-skin="stowage"] .topbar #clock{margin-left:auto;font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.06em;color:var(--dim);
+  padding:0 0 2px;border:0;background:transparent;white-space:nowrap}
+:root[data-skin="stowage"] #engine-badge:empty{display:none}
+:root[data-skin="stowage"] #engine-badge{border-radius:0}
+:root[data-skin="stowage"] #content .credit{color:var(--faint);font-size:12px;letter-spacing:0;border-top:1px solid var(--hair);padding-top:14px}
+
+/* ---------- buttons, chips, tags ----------
+   Element rules go through :where() so a component's own class rule still
+   wins, exactly as it does in Classic. */
+:where(:root[data-skin="stowage"]) button{font-family:var(--cond);font-weight:600;font-size:14px;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:0;padding:7px 16px;border:1px solid var(--hair-hi);background:var(--panel2);color:var(--ink-hi)}
+:where(:root[data-skin="stowage"]) button:hover{border-color:var(--ink-hi);color:var(--ink-strong);background:var(--raise)}
+:where(:root[data-skin="stowage"]) button.primary{background:var(--amber);border-color:#c99400;color:var(--on-amber);font-weight:700}
+:where(:root[data-skin="stowage"]) button.primary:hover{background:#ffd24d;border-color:#a87c00;color:var(--on-amber)}
+:where(:root[data-skin="stowage"]) button.ghost{background:transparent}
+:where(:root[data-skin="stowage"]) button.danger,:root[data-skin="stowage"] .qbtn.stop:hover{border-color:var(--red);color:var(--red)}
+:root[data-skin="stowage"] .qbtn{font-family:var(--cond);font-weight:600;font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:0;padding:5px 14px;background:var(--panel2);border:1px solid var(--hair-hi);color:var(--ink-hi)}
+:root[data-skin="stowage"] .qbtn:hover{border-color:var(--ink-hi);color:var(--ink-strong)}
+/* Safety yellow is spent once: at rest only a loaded model's Chat wears it.
+   A row's Load turns yellow when that row is the one you're on. */
+:root[data-skin="stowage"] .qbtn.load{font-weight:700}
+:root[data-skin="stowage"] :is(.qbtn.load[data-quick="chat"],.row:is(:hover,.open,.sel,:focus-within) .qbtn.load){
+  background:var(--amber);border-color:#c99400;color:var(--on-amber)}
+:root[data-skin="stowage"] .qbtn.load:hover{background:#ffd24d;border-color:#a87c00;color:var(--on-amber)}
+:root[data-skin="stowage"] .qbadge{border-radius:0;font-family:var(--cond);letter-spacing:.08em}
+:root[data-skin="stowage"] .chip{font-family:var(--cond);font-weight:600;font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 12px;border-radius:0;background:var(--panel);border-color:var(--hair-hi);color:var(--ink)}
+:root[data-skin="stowage"] .chip:hover{border-color:var(--ink-hi);color:var(--ink-strong)}
+:root[data-skin="stowage"] .chip.on{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}
+:root[data-skin="stowage"] .tag{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em;padding:1px 7px;border-radius:0;
+  background:transparent;color:var(--dim);border-color:var(--hair-hi)}
+/* a row's role is its container colour plus one word */
+:root[data-skin="stowage"] .tag.slot-main{background:var(--c-main);border-color:var(--c-main);color:var(--c-main-ink)}
+:root[data-skin="stowage"] .tag.slot-worker{background:var(--c-w1);border-color:var(--c-w1);color:var(--c-w1-ink)}
+:root[data-skin="stowage"] .presetbar .pchip{font-family:var(--cond);letter-spacing:.06em;font-size:13px;border-radius:0}
+
+/* ---------- surfaces: flat panels, 1px rules ---------- */
+:root[data-skin="stowage"] :is(.card,.gpu,.row,.kgroup,.ef-list,.ef-status,.fg-bp,.stats-vram-card,.rcard,.starter){
+  background:var(--panel);border:1px solid var(--hair);border-radius:0;box-shadow:none}
+:root[data-skin="stowage"] .card{padding:20px 22px;margin-bottom:16px}
+:root[data-skin="stowage"] .card h3{font-family:var(--cond);font-weight:700;font-size:21px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-strong);margin:0 0 14px}
+:root[data-skin="stowage"] .card h3::before{display:none}
+:root[data-skin="stowage"] .tbl-head{margin:6px 0 12px;align-items:baseline}
+:root[data-skin="stowage"] .tbl-head h2{font-family:var(--cond);font-weight:700;font-size:24px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-strong)}
+:root[data-skin="stowage"] .tbl-head h2::before{display:none}
+:root[data-skin="stowage"] .count{font-family:var(--cond);font-weight:600;font-size:14px;letter-spacing:.06em;color:var(--dim);border:0;padding:0}
+:root[data-skin="stowage"] .count:empty{display:none}
+:root[data-skin="stowage"] .note{font-size:13px}
+:root[data-skin="stowage"] .kv{font-size:13.5px;padding:8px 0;border-color:var(--hair-dim)}
+:root[data-skin="stowage"] .kgroup>summary{font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-hi);background:transparent;padding:11px 14px}
+:root[data-skin="stowage"] .kgroup>summary:hover{color:var(--ink-strong);background:var(--inset)}
+:root[data-skin="stowage"] .log{border-radius:0;font-size:11.5px}
+:root[data-skin="stowage"] .snip{padding:13px 84px 13px 14px;border-radius:0;font-size:12px}
+:root[data-skin="stowage"] .snip .scopy{top:8px;right:8px;padding:3px 11px;font-size:12.5px;line-height:1.3;white-space:nowrap;word-break:normal;
+  background:var(--panel2);border-color:var(--hair-hi);color:var(--ink-hi);border-radius:0}
+:root[data-skin="stowage"] :is(.snip .scopy,#agent-connect .scopy){min-width:0;min-height:0}
+:root[data-skin="stowage"] .snip .scopy::after{content:"";position:absolute;inset:-12px -8px}
+:root[data-skin="stowage"] .search{border-radius:0;font-family:var(--sans);font-size:14px;padding:9px 12px 9px 34px;background-position:12px center;
+  background-color:var(--panel2);border-color:var(--hair-hi)}
+:root[data-skin="stowage"] .search:focus{border-color:var(--focus);box-shadow:none}
+
+/* ---------- the bay plan (models.js renders it for this skin only) ---------- */
+:root[data-skin="stowage"] .gpus{display:grid;grid-template-columns:1fr;gap:12px;margin:0 0 30px}
+:root[data-skin="stowage"] .bay{background:var(--panel);border:1px solid var(--hair);padding:12px 16px 10px}
+:root[data-skin="stowage"] .bay-head{display:flex;align-items:baseline;gap:12px;margin-bottom:9px;min-width:0}
+:root[data-skin="stowage"] .bay-name{font-family:var(--cond);font-weight:700;font-size:19px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+:root[data-skin="stowage"] .bay-idx{font-family:var(--cond);font-weight:600;font-size:14px;letter-spacing:.1em;color:var(--dim);flex:none}
+:root[data-skin="stowage"] .bay-tele{margin-left:auto;display:flex;gap:16px;font-size:13px;color:var(--dim);flex:none}
+:root[data-skin="stowage"] .bay-tele b{color:var(--ink-hi);font-weight:600}
+:root[data-skin="stowage"] .bay-body{display:grid;grid-template-columns:minmax(0,1fr) 172px;gap:22px;align-items:start}
+/* one fixed scale: a hold's width is its GB against the largest GPU here */
+:root[data-skin="stowage"] .hold-col{width:calc(var(--span,1) * 100%)}
+:root[data-skin="stowage"] .hold{position:relative;height:62px;background-color:var(--hold-bg);border:1px solid var(--hold-rule);
+  background-image:linear-gradient(90deg,var(--cell-rule) 1px,transparent 1px);background-size:calc(100% / var(--cells)) 100%}
+:root[data-skin="stowage"] .box{position:absolute;top:5px;bottom:5px;
+  left:calc(var(--x) / var(--cells) * 100% + 1px);width:max(3px,calc(var(--w) / var(--cells) * 100% - 2px));
+  background:var(--c);color:var(--ci);padding:5px 7px;overflow:hidden;container-type:inline-size;
+  display:flex;flex-direction:column;justify-content:space-between}
+:root[data-skin="stowage"] .box-n{font-family:var(--cond);font-weight:700;font-size:15px;line-height:1.05;letter-spacing:.03em;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:root[data-skin="stowage"] .box-g{font-family:var(--cond);font-weight:600;font-size:14px;line-height:1;letter-spacing:.02em}
+:root[data-skin="stowage"] .box.nar :is(.box-n,.box-x){display:none}
+:root[data-skin="stowage"] .box.nar{justify-content:flex-end}
+@container (max-width:56px){:root[data-skin="stowage"] .box-n{display:none}:root[data-skin="stowage"] .box{justify-content:flex-end}}
+@container (max-width:30px){:root[data-skin="stowage"] .box-g{display:none}}
+@container (max-width:110px){:root[data-skin="stowage"] .box-x{display:none}}
+:root[data-skin="stowage"] :is(.box,.k).main{--c:var(--c-main);--ci:var(--c-main-ink)}
+:root[data-skin="stowage"] :is(.box,.k).w1{--c:var(--c-w1);--ci:var(--c-w1-ink)}
+:root[data-skin="stowage"] :is(.box,.k).w2{--c:var(--c-w2);--ci:var(--c-w2-ink)}
+:root[data-skin="stowage"] :is(.box,.k).sys{--c:var(--c-sys);--ci:var(--c-sys-ink)}
+/* booked: where the open row's model would go, measured or predicted */
+:root[data-skin="stowage"] :is(.box,.k).booked{--c:var(--book-fill);--ci:var(--ink-strong)}
+:root[data-skin="stowage"] .box.booked{outline:1.5px dashed var(--book-rule);outline-offset:-1.5px}
+/* over: the booking is bigger than the free space; the rest hangs off the end
+   of the hold as deck cargo, hatched oxide, because it can't be stowed */
+:root[data-skin="stowage"] .box.booked.over{outline-color:var(--c-off);outline-width:2px;outline-offset:-2px}
+:root[data-skin="stowage"] .deck{position:absolute;top:5px;bottom:5px;left:calc(100% + 3px);width:calc(var(--w) / var(--cells) * 100%);
+  min-width:30px;color:var(--c-off-ink);padding:5px 7px;overflow:hidden;container-type:inline-size;
+  display:flex;flex-direction:column;justify-content:space-between;
+  background:repeating-linear-gradient(135deg,var(--c-off) 0 7px,color-mix(in srgb,var(--c-off) 72%,#000) 7px 14px)}
+/* out: a container the planner would unload to make room */
+:root[data-skin="stowage"] .box.out{outline:2px dashed var(--c-off);outline-offset:-2px}
+:root[data-skin="stowage"] .box-x{position:absolute;right:5px;bottom:5px;font-family:var(--cond);font-weight:700;font-size:11.5px;
+  letter-spacing:.08em;text-transform:uppercase;line-height:1;padding:2px 4px;background:var(--c-off);color:var(--c-off-ink)}
+/* the key: names the boxes too narrow to carry their own (and all of them on a phone) */
+:root[data-skin="stowage"] .hold-key{display:flex;flex-wrap:wrap;gap:3px 16px;margin-top:2px;font-size:12.5px;color:var(--dim)}
+:root[data-skin="stowage"] .hold-key:not(:has(.nar)){display:none}
+:root[data-skin="stowage"] .hold-key .k{display:none;align-items:center;gap:6px;min-width:0}
+:root[data-skin="stowage"] .hold-key .k.nar{display:inline-flex}
+:root[data-skin="stowage"] .hold-key .k i{flex:none;width:11px;height:11px;background:var(--c)}
+:root[data-skin="stowage"] .hold-key .k.booked i{outline:1.5px dashed var(--book-rule);outline-offset:-1.5px}
+:root[data-skin="stowage"] .hold-key .k.out i{outline:1.5px dashed var(--c-off);outline-offset:-1.5px}
+:root[data-skin="stowage"] .hold-key .k b{color:var(--ink-hi);font-weight:600}
+:root[data-skin="stowage"] .hold-key .k em{font-style:normal;font-family:var(--cond);font-weight:700;font-size:11.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:1px 4px;background:var(--c-off);color:var(--c-off-ink)}
+:root[data-skin="stowage"] .hold-scale{position:relative;height:16px;margin-top:3px;font-size:11.5px;color:var(--faint)}
+:root[data-skin="stowage"] .hold-scale span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+:root[data-skin="stowage"] .hold-scale span:first-child{transform:none}
+:root[data-skin="stowage"] .hold-scale span.end{transform:translateX(-100%)}
+/* the ledger: used + booked + free = total, to the tenth */
+:root[data-skin="stowage"] .ledger{margin:0;display:grid;grid-template-columns:1fr auto;column-gap:14px;row-gap:1px;font-size:14px;align-content:start}
+:root[data-skin="stowage"] .ledger dt{font-family:var(--cond);font-weight:600;font-size:13.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+:root[data-skin="stowage"] .ledger dd{margin:0;text-align:right;color:var(--ink-hi);font-weight:600}
+:root[data-skin="stowage"] .ledger .tot{border-top:1px solid var(--hair-hi);padding-top:2px;margin-top:2px;color:var(--ink-strong)}
+:root[data-skin="stowage"] .ledger dt.tot{color:var(--ink-strong)}
+:root[data-skin="stowage"] .ledger .short{color:var(--red)}
+:root[data-skin="stowage"] .ledger .unit{grid-column:1/-1;text-align:right;font-family:var(--cond);font-size:12px;letter-spacing:.12em;color:var(--faint);margin-bottom:1px}
+:root[data-skin="stowage"] .bay-off{color:var(--dim);font-size:13px}
+
+/* the old GPU tiles still appear in Stats; flat, with a solid meter */
+:root[data-skin="stowage"] .gpu{padding:14px 16px}
+:root[data-skin="stowage"] .gpu .name{font-family:var(--cond);font-weight:700;font-size:17px;letter-spacing:.04em;text-transform:uppercase}
+:root[data-skin="stowage"] .gpu .idx{border-radius:0;letter-spacing:.1em;font-size:11px;color:var(--dim);border-color:var(--hair-hi)}
+:root[data-skin="stowage"] .gpu .stats b{color:var(--ink-hi)}
+:root[data-skin="stowage"] .meter{height:12px;padding:0;gap:0;border:1px solid var(--hold-rule);border-radius:0;background:var(--hold-bg)}
+:root[data-skin="stowage"] .seg{border-radius:0;background:transparent}
+:root[data-skin="stowage"] .seg.on{background:var(--c-main);box-shadow:1px 0 0 var(--c-main)}
+:root[data-skin="stowage"] .seg.hot{background:var(--c-off);box-shadow:1px 0 0 var(--c-off)}
+:root[data-skin="stowage"] .token-scale{font-family:var(--sans);letter-spacing:0;border-radius:0;padding:12px 16px;border-color:var(--hair-hi)}
+:root[data-skin="stowage"] .token-scale-fact{font-family:var(--cond);font-size:18px;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
+
+:root[data-skin="stowage"] .stats-vram-head{font-family:var(--cond);font-weight:700;font-size:15px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-strong)}
+:root[data-skin="stowage"] .stats-vram-head span+span{font-weight:600;font-size:12.5px;color:var(--dim);letter-spacing:.1em}
+:root[data-skin="stowage"] .stats-vram-card .stats{font-size:12.5px}
+:root[data-skin="stowage"] .stats-vram-card .stats b{font-size:inherit;color:var(--ink-hi)}
+:root[data-skin="stowage"] .token-scale-label{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.1em}
+:root[data-skin="stowage"] :is(.formrow .lbl,.ef-flabel,.ef-flink){font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em}
+
+/* ---------- model rows: a dense table ---------- */
+:root[data-skin="stowage"] .list{gap:0;border-top:1px solid var(--hair)}
+:root[data-skin="stowage"] .row{border-top:0;background:var(--panel)}
+:root[data-skin="stowage"] .rhead{padding:11px 16px;border-radius:0}
+:root[data-skin="stowage"] .row:hover{background:var(--panel2);border-color:var(--hair)}
+:root[data-skin="stowage"] .row.open{border-color:var(--ink-hi);box-shadow:inset 0 0 0 1px var(--ink-hi);background:var(--panel2);position:relative;z-index:1}
+:root[data-skin="stowage"] .row.sel:not(.open){box-shadow:inset 0 0 0 2px var(--focus)}
+:root[data-skin="stowage"] .mid{font-weight:600;font-size:15px;color:var(--ink-strong)}
+:root[data-skin="stowage"] .stat{font-family:var(--cond);font-weight:600;font-size:14px;letter-spacing:.08em;color:var(--dim)}
+:root[data-skin="stowage"] .stat.loaded{color:var(--green)}
+:root[data-skin="stowage"] .ctxpill{border-radius:0;font-size:12px}
+/* the LED is a container end: filled in its role colour when stowed */
+:root[data-skin="stowage"] .led{width:11px;height:11px;border-radius:0;background:transparent;box-shadow:inset 0 0 0 1.5px var(--led-off)}
+:root[data-skin="stowage"] .led.loaded{background:var(--c-main);box-shadow:none}
+:root[data-skin="stowage"] .rhead:has(.tag.slot-worker) .led.loaded{background:var(--c-w1)}
+:root[data-skin="stowage"] .led.loading{background:var(--amber);box-shadow:none}
+:root[data-skin="stowage"] .led.failed{background:var(--c-off);box-shadow:none}
+/* drawn marks instead of text glyphs (star, chevron, menu), at the nav icons' weight */
+:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu){font-size:0;line-height:0}
+:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu)::before{content:"";display:inline-block;width:14px;height:14px;background:currentColor;
+  -webkit-mask:var(--glyph) center/contain no-repeat;mask:var(--glyph) center/contain no-repeat}
+:root[data-skin="stowage"] .fav{color:var(--faint);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z'/%3E%3C/svg%3E")}
+:root[data-skin="stowage"] .fav:hover{color:var(--ink-hi)}
+:root[data-skin="stowage"] .fav.on{color:#d99a00;text-shadow:none}
+:root[data-skin="stowage"] .chev{color:var(--dim);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5.5 2.5L11 8l-5.5 5.5' fill='none' stroke='black' stroke-width='2.2'/%3E%3C/svg%3E")}
+:root[data-skin="stowage"] .chev::before{width:12px;height:12px}
+:root[data-skin="stowage"] .row.open .chev{color:var(--ink-strong)}
+:root[data-skin="stowage"] #nav-menu{--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 3.5h13M1.5 8h13M1.5 12.5h13' stroke='black' stroke-width='2'/%3E%3C/svg%3E")}
+:root[data-skin="stowage"] #nav-menu::before{width:16px;height:16px}
+/* yellow is only the primary action; preset and recipe chips are plain controls */
+:root[data-skin="stowage"] .presetbar .pchip{color:var(--ink-hi);border-color:var(--hair-hi);background:var(--panel)}
+:root[data-skin="stowage"] .presetbar .pchip:hover{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}
+:root[data-skin="stowage"] .presetbar .pchip:hover :is(.px,.pbind){color:var(--bg)}
+:root[data-skin="stowage"] .presetbar .pchip.bound{border-color:var(--ink-hi);background:var(--inset)}
+:root[data-skin="stowage"] .presetbar .pchip.bound .pbind{color:var(--ink-hi)}
+:root[data-skin="stowage"] .edit{padding:18px 20px 20px;border-top:1px solid var(--hair)}
+:root[data-skin="stowage"] .fld label{font-family:var(--cond);font-weight:600;font-size:13px;letter-spacing:.07em}
+:root[data-skin="stowage"] .slotnote{border-radius:0}
+/* a refusal is a failure, so it takes the bay plan's oxide, not the action yellow */
+:root[data-skin="stowage"] .slotnote.warn{border:1px solid var(--c-off);background:var(--red-tint);color:var(--ink-hi)}
+:root[data-skin="stowage"] .slotnote.warn b{color:var(--red)}
+/* the editor's small print stays readable: nothing under 11px */
+:root[data-skin="stowage"] .metacard .mk{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+:root[data-skin="stowage"] .tunebar-label{font-family:var(--cond);font-weight:600;font-size:12.5px;letter-spacing:.08em}
+:root[data-skin="stowage"] .fld .hint{font-size:12px;line-height:1.4}
+
+/* inputs: square, values stay mono */
+:where(:root[data-skin="stowage"]) :where(input:not([type=checkbox]):not([type=radio]),select,textarea){border-radius:0;padding:7px 10px}
+:root[data-skin="stowage"] .fld input,:root[data-skin="stowage"] .fld select{border-radius:0;padding:7px 10px}
+:root[data-skin="stowage"] :is(input,select,textarea):focus{border-color:var(--focus)}
+:root[data-skin="stowage"] input[type=checkbox],:root[data-skin="stowage"] input[type=radio]{accent-color:var(--c-w1)}
+
+/* ---------- modals, wizard, toast ---------- */
+:root[data-skin="stowage"] :is(.modal,.wizard-card){border-radius:0;border:1px solid var(--hair-hi);background:var(--panel);
+  box-shadow:0 24px 60px -24px var(--shadow-70)}
+:root[data-skin="stowage"] :is(.modal h3,.wizard-step h2){font-family:var(--cond);font-weight:700;font-size:26px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-strong)}
+:root[data-skin="stowage"] :is(.modal-dialog,#net-confirm)::backdrop{background:rgba(10,22,40,.6)}
+:root[data-skin="stowage"] #toast{border-radius:0;border:1px solid var(--hair-hi);border-left-width:1px;padding:10px 18px;font-size:13.5px;background:var(--panel2);color:var(--ink-hi)}
+:root[data-skin="stowage"] #toast.ok{border-color:var(--green)}
+:root[data-skin="stowage"] #toast.err{border-color:var(--red)}
+:root[data-skin="stowage"]:not([data-cvd="safe"]) #toast:is(.ok,.err)::before{content:"";display:inline-block;width:10px;height:10px;margin-right:10px;
+  vertical-align:-1px;background:var(--green)}
+:root[data-skin="stowage"]:not([data-cvd="safe"]) #toast.err::before{background:var(--red)}
+:root[data-skin="stowage"] .cmptbl th{font-family:var(--cond);font-weight:600;letter-spacing:.06em}
+:root[data-skin="stowage"] .skel{font-family:var(--cond);font-weight:600;letter-spacing:.1em;font-size:15px;color:var(--dim)}
+:root[data-skin="stowage"] :is(.docs-body h1,.docs-body h2,.docs-body h3){font-family:var(--cond);font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+:root[data-skin="stowage"] .docs-body{font-size:15.5px;line-height:1.65}
+
+/* ---------- embers & forge: same world, no flame ---------- */
+:root[data-skin="stowage"] .ef-flame{display:none}
+:root[data-skin="stowage"] .ef-list{padding:0}
+:root[data-skin="stowage"] .ef-row{border-radius:0;border-left:0;padding:10px 12px}
+:root[data-skin="stowage"] .ef-row:hover{background:var(--panel2)}
+:root[data-skin="stowage"] .ef-row.sel{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--ink-hi)}
+:root[data-skin="stowage"] .ef-name{font-family:var(--cond);font-weight:700;font-size:16.5px;letter-spacing:.03em;text-transform:uppercase}
+:root[data-skin="stowage"] .ef-title{font-family:var(--cond);font-weight:700;font-size:34px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
+:root[data-skin="stowage"] .ef-tab{font-family:var(--cond);font-weight:600;font-size:14.5px;letter-spacing:.06em;text-transform:uppercase;border-radius:0}
+:root[data-skin="stowage"] #ef-detail .ef-tab.on{color:var(--ink-strong);border-bottom-color:var(--sec)}
+:root[data-skin="stowage"] .ef-forgerow{border-radius:0;border-color:var(--hair-hi);background:var(--panel2)}
+:root[data-skin="stowage"] :is(.ef-doc,.ef-answer){border-radius:0;border:1px solid var(--hair);background:var(--panel2);padding:28px 32px;font-size:15.5px;line-height:1.65}
+:root[data-skin="stowage"] .ef-doc :is(h1,h2,h3){font-family:var(--cond);font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+:root[data-skin="stowage"] .ef-pg{border-radius:0}
+:root[data-skin="stowage"] .ef-pg.on{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--hair-hi)}
+:root[data-skin="stowage"] .ef-tpl{border-radius:0;background:var(--panel)}
+:root[data-skin="stowage"] .ef-tpltitle{font-family:var(--cond);font-weight:700;letter-spacing:.04em;font-size:17px}
+:root[data-skin="stowage"] .ef-blank{border-radius:0;font-family:var(--cond);font-weight:600;letter-spacing:.06em}
+:root[data-skin="stowage"] .ef-status{border-radius:0}
+:root[data-skin="stowage"] .fg-log{border-radius:0;background:var(--inset)}
+:root[data-skin="stowage"] .fg-who{font-family:var(--cond);font-weight:700;letter-spacing:.1em}
+:root[data-skin="stowage"] .fg-bphead{font-family:var(--cond);font-weight:700;font-size:18px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-strong)}
+:root[data-skin="stowage"] .fg-form textarea{border-radius:0;font-family:var(--sans);font-size:14px}
+
+/* ---------- rail and small screens ---------- */
+@media (max-width:900px){
+  :root[data-skin="stowage"]{--nav-w:64px}
+  :root[data-skin="stowage"] #content{padding:0 22px 22px}
+  :root[data-skin="stowage"] #page-title{font-size:38px}
+  :root[data-skin="stowage"] .nav-cap{display:none}
+  :root[data-skin="stowage"] body.drawer-open .nav-cap{display:block}
+  :root[data-skin="stowage"] .navitem{justify-content:center}
+  :root[data-skin="stowage"] body.drawer-open .navitem{justify-content:flex-start}
+}
+@media (max-width:760px){
+  :root[data-skin="stowage"] .topbar{padding:20px 0 0}
+  :root[data-skin="stowage"] #page-title{font-size:32px}
+  :root[data-skin="stowage"] #page-lede{font-size:14px}
+  :root[data-skin="stowage"] .topbar #clock{display:none}
+  :root[data-skin="stowage"] .bay-body{grid-template-columns:1fr;gap:10px}
+  :root[data-skin="stowage"] .ledger{grid-template-columns:repeat(4,auto);grid-auto-flow:column;grid-template-rows:auto auto;column-gap:18px;justify-content:start}
+  :root[data-skin="stowage"] .ledger .unit{display:none}
+  :root[data-skin="stowage"] .ledger dd{text-align:left}
+  :root[data-skin="stowage"] .ledger .tot{border-top:0;padding-top:0;margin-top:0}
+  :root[data-skin="stowage"] .bay-tele{gap:10px}
+  :root[data-skin="stowage"] .hold{height:54px}
+  /* on a phone the boxes carry sizes and the key carries every name */
+  :root[data-skin="stowage"] .box :is(.box-n,.box-x){display:none}
+  :root[data-skin="stowage"] .box{justify-content:flex-end}
+  :root[data-skin="stowage"] .hold-key{display:flex}
+  :root[data-skin="stowage"] .hold-key .k{display:inline-flex}
+}
+@media (max-width:600px){
+  :root[data-skin="stowage"] #content{padding:0 14px 18px}
+  :root[data-skin="stowage"] .topbar{align-items:flex-start;column-gap:12px}
+  :root[data-skin="stowage"] #nav-menu{width:34px;height:34px;margin-top:0;border-radius:0;border-color:var(--hair-hi);color:var(--ink-hi);background:var(--panel)}
+  :root[data-skin="stowage"] #engine-badge{margin-top:4px}
+  :root[data-skin="stowage"] body.drawer-open #sidebar{width:248px}
+  :root[data-skin="stowage"] .bay{padding:10px 12px 8px}
+  :root[data-skin="stowage"] .bay-head{flex-wrap:wrap;row-gap:2px}
+  :root[data-skin="stowage"] .bay-tele{margin-left:0;width:100%}
+}
+
+/* ---------- motion: one authored moment ----------
+   A container is stowed: when a model first appears in a hold it is lowered
+   in from above and settles (models.js marks it .stow once; the next poll
+   redraws it without the class, so nothing replays). Everything else is a
+   plain, quick state change. Off when reduced motion is asked for. */
+:root[data-skin="stowage"]{--ease-out:cubic-bezier(.2,.9,.25,1)}
+@keyframes stowage-stow{0%{transform:translateY(-120%);opacity:0}55%{transform:translateY(4%);opacity:1}78%{transform:translateY(-1.5%)}100%{transform:none}}
+@keyframes stowage-blink{0%,49%{opacity:1}50%,100%{opacity:.35}}
+@media (prefers-reduced-motion:no-preference){
+  :root[data-skin="stowage"] .box.stow{animation:stowage-stow .7s var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 90ms)}
+  :root[data-skin="stowage"] .led.loading{animation:stowage-blink 1s steps(1,end) infinite}
+  :root[data-skin="stowage"] :is(.row,.navitem,.qbtn,.chip),
+  :where(:root[data-skin="stowage"]) button{transition:background-color .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease}
+  :root[data-skin="stowage"] .row.open .edit{animation:stowage-drop .2s ease-out backwards}
+}
+@keyframes stowage-drop{from{opacity:0}to{opacity:1}}

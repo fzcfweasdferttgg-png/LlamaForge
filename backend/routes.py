@@ -1444,6 +1444,7 @@ def _slots_state(c):
     return {"enabled": on, "engine_ok": llama, "main": main,
             "restart_needed": bool(c.get("multi_model")) and llama and not on,
             "devices": SLOTS.devices() if on else {},
+            "footprints": SLOTS.footprints() if on else {},
             "settings": {"multi_model": bool(c.get("multi_model")),
                          "slot_cap": cap if _v_int(slots.CAP_MIN, slots.CAP_MAX)(cap)
                          is not None else slots.CAP_DEFAULT,
@@ -1915,7 +1916,7 @@ def _v_str(v):   return v if isinstance(v, str) else None
 def _v_port(v):  return v if isinstance(v, int) and 1 <= v <= 65535 else None
 def _v_mode(v):  return v if v in ("lite", "advanced") else None
 def _v_theme(v): return v if v in ("", "light", "dark") else None
-def _v_skin(v): return v if v in ("", "hearth", "classic") else None
+def _v_skin(v): return v if v in ("", "stowage", "hearth", "classic") else None
 def _v_dirs(v):
     return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
 def _v_int(lo, hi):

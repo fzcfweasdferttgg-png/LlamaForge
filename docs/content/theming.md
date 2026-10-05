@@ -6,17 +6,21 @@ order: 9
 
 # Theming & Accessibility
 
-Two skins (**Hearth**, the default, and **Classic**), each with light and dark appearance and a colorblind-safe mode. All three choices are persisted per browser and applied before first paint, so the dashboard never flashes the wrong look.
+Three skins (**Stowage**, the default, **Hearth** and **Classic**), each with light and dark appearance and a colorblind-safe mode. All three choices are persisted per browser and applied before first paint, so the dashboard never flashes the wrong look.
 
 ## What it does
 
 ### Skins
 
-**Hearth** is the default: warm paper and ember tones, Fraunces headings over Inter, a serif page title with a one-line lede. **Classic** is the original terminal look (monospace, phosphor colors, CRT scanlines in dark mode). Both skins render the same markup; only the styling differs.
+**Stowage** is the default. It is built like a ship's stowage plan: a hull-navy sidebar, a pale chart-grey page, Barlow Condensed headings, a coloured band under each page title in that section's hue, and a safety-yellow primary action. Its centrepiece is the **bay plan** on the Models page: each GPU is drawn as a cargo hold ruled in 1 GB cells, all on one shared scale, with every loaded model stowed in it as a container at its real size (orange for the main model, blue and green for workers, slate for system and other apps). When you open a model that is not loaded, its predicted footprint appears as a dashed **booked** box; if it would not fit, the overflow is drawn hatched as **Short X GB**. The ledger beside each hold adds up exactly: used + booked + free = total.
 
-The skin is a `data-skin` attribute on `<html>`, `"hearth"` or `"classic"`. Classic is the base stylesheet in `web/index.html`; Hearth lives in `web/css/hearth.css`, where every rule is scoped to `:root[data-skin="hearth"]`. That file defines its own token blocks in order (dark, then `[data-theme="light"]`, then `[data-cvd="safe"]` for each), so every skin × theme × CVD combination works. In Hearth, ok/error toasts carry a small colored dot; in CVD-safe mode they keep the `✓`/`✗` glyphs instead.
+Per-model sizes come from the footprints of models this panel loaded in multi-model mode. Memory nothing accounts for is shown as one honest remainder block: "System + other apps", "System", or, when exactly one loaded model has no measured footprint, "*model* + system", since the two cannot be told apart there.
 
-Switch skins with the **Hearth / Classic** toggle in the header, or the flame button in the collapsed sidebar rail.
+**Hearth** is warm paper and ember tones, Fraunces headings over Inter, a serif page title with a one-line lede. **Classic** is the original terminal look (monospace, phosphor colors, CRT scanlines in dark mode). All skins render the same markup; only the styling differs, except that Hearth and Classic draw GPUs as a tile with a segment meter instead of the bay plan.
+
+The skin is a `data-skin` attribute on `<html>`: `"stowage"`, `"hearth"` or `"classic"`. Classic is the base stylesheet in `web/index.html`; Stowage lives in `web/css/stowage.css` and Hearth in `web/css/hearth.css`, with every rule scoped to `:root[data-skin="stowage"]` or `:root[data-skin="hearth"]`. Each file defines its own token blocks in order (dark, then `[data-theme="light"]`, then `[data-cvd="safe"]`), so every skin × theme × CVD combination works. In Hearth, ok/error toasts carry a small colored dot; in CVD-safe mode they keep the `✓`/`✗` glyphs instead.
+
+Switch skins with the **Stowage / Hearth / Classic** toggle in the sidebar, or the skin button in the collapsed sidebar rail, which cycles through them.
 
 ### Light, dark and colorblind-safe
 
@@ -49,7 +53,7 @@ Resolution order, most specific first:
 
 ## How to use it
 
-1. Pick a skin with the **Hearth** / **Classic** toggle in the header.
+1. Pick a skin with the **Stowage** / **Hearth** / **Classic** toggle in the sidebar.
 2. Open the theme toggle (**Light** / **Dark** buttons) anywhere it appears in the header — click one to switch immediately.
 3. Toggle the colorblind-safe checkbox to switch the status palette to Okabe–Ito colors and enable the non-color status cues, independent of the light/dark choice.
 4. Your choices are remembered on this device via `localStorage`, and also saved to LlamaForge's config so a fresh browser profile on the same machine picks it up as the default.
@@ -58,10 +62,12 @@ Resolution order, most specific first:
 
 | Concept | Source | Behavior |
 |---|---|---|
-| Skin | `<html data-skin>` | `"hearth"` (default) or `"classic"`. |
+| Skin | `<html data-skin>` | `"stowage"` (default), `"hearth"` or `"classic"`. |
+| Stowage stylesheet | `web/css/stowage.css` | Every rule scoped to `:root[data-skin="stowage"]`; own dark, light and CVD token blocks. |
 | Hearth stylesheet | `web/css/hearth.css` | Every rule scoped to `:root[data-skin="hearth"]`; own dark, light and CVD token blocks. |
-| Apply skin | `web/js/ui.js` `applySkin(k)` | Sets `data-skin` (anything but `"classic"` means Hearth), syncs `#skin-toggle`. |
-| Persist skin | `web/js/ui.js` `setSkin(k)` | `applySkin` + `localStorage.setItem("skin", k)` + `POST /api/config` (`skin` key: `""` = Hearth default, `"hearth"`, `"classic"`). |
+| Bay plan | `web/js/models.js` `bayPlans()` | Stowage's GPU view; sizes from `slots.footprints` in `/api/state`, the booked box from the open row's fit verdict. |
+| Apply skin | `web/js/ui.js` `applySkin(k)` | Sets `data-skin` (anything unknown means Stowage), syncs `#skin-toggle`, fires an `lf-skin` event so the GPU view redraws. |
+| Persist skin | `web/js/ui.js` `setSkin(k)` | `applySkin` + `localStorage.setItem("skin", k)` + `POST /api/config` (`skin` key: `""` = Stowage default, `"stowage"`, `"hearth"`, `"classic"`). |
 | Dark palette (Classic) | `web/index.html` `:root{...}` | Base CSS custom properties for all colors, fonts, and surfaces. |
 | Light palette | `web/index.html` `:root[data-theme="light"]{...}` | Overrides the same variable names; also disables scanlines and glow effects. |
 | Colorblind-safe palette | `web/index.html` `:root[data-cvd="safe"]{...}` | Overrides `--green`/`--red`/`--amber`/`--cyan` (and related border/tint tokens) with Okabe–Ito hex values. |
