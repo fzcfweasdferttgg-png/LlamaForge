@@ -75,12 +75,12 @@ class ForModel(unittest.TestCase):
 
     def test_reads_the_file(self):
         out = compat.for_model(self.gguf([0, 30, 142, 142]))
-        self.assertEqual(out, {"class": "ik-only", "types": ["PQ2_0"]})
+        self.assertEqual(out, {"class": "ik-only", "types": ["PQ2_0"], "ids": [0, 30, 142]})
 
     def test_unreadable_is_unknown(self):
-        self.assertEqual(compat.for_model(os.path.join(self.dir, "gone.gguf")),
-                         {"class": "unknown", "types": []})
-        self.assertEqual(compat.for_model(""), {"class": "unknown", "types": []})
+        gone = {"class": "unknown", "types": [], "ids": []}
+        self.assertEqual(compat.for_model(os.path.join(self.dir, "gone.gguf")), gone)
+        self.assertEqual(compat.for_model(""), gone)
 
     def test_cached_until_the_file_changes(self):
         p = self.gguf([0, 12])
@@ -106,6 +106,71 @@ class Advice(unittest.TestCase):
     def test_nothing_to_say(self):
         self.assertEqual(compat.advice("any", [], "llamacpp"), "")
         self.assertEqual(compat.advice("unknown", [], "llamacpp"), "")
+
+    def test_the_fix_is_a_per_model_build_when_ik_is_there(self):
+        a = compat.advice("ik-only", ["PQ2_0"], "llamacpp", ik_built=True)
+        self.assertIn("this model's build", a)
+        self.assertNotIn("Build / Update", a)
+        a = compat.advice("ik-only", ["PQ2_0"], "llamacpp")
+        self.assertIn("Build / Update", a)
+        self.assertIn("this model's build", a)
+
+    def test_the_models_own_build_is_what_counts(self):
+        self.assertEqual(compat.advice("ik-only", ["PQ2_0"], "llamacpp", build="ik_llama"), "")
+        a = compat.advice("mainline-only", ["NVFP4"], "llamacpp", build="ik_llama")
+        self.assertIn("NVFP4", a)
+        self.assertIn("llama.cpp build", a)
+        # pinned to a mainline install while the router runs ik
+        self.assertEqual(compat.advice("mainline-only", ["NVFP4"], "ikllama", build="b8000-cuda"), "")
+
+    def test_an_ik_build_older_than_the_file(self):
+        """ik retired id 142 and later reused it for PQ2_0; an ik built in between
+        crashes on a PQ2_0 file instead of refusing it."""
+        for kw in ({"build": "ik_llama"}, {}):
+            engine = "llamacpp" if kw else "ikllama"
+            a = compat.advice("ik-only", ["PQ2_0"], engine, ik_missing=["PQ2_0"], **kw)
+            self.assertIn("PQ2_0", a)
+            self.assertIn("Update ik_llama.cpp", a)
+        a = compat.advice("ik-only", ["PQ2_0"], "llamacpp", ik_built=True, ik_missing=["PQ2_0"])
+        self.assertIn("Build / Update", a)
+        self.assertIn("this model's build", a)
+
+
+class BuildTypes(unittest.TestCase):
+    """The ggml.h of the checkout a build came from says what that build knows,
+    which today's upstream table can't."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        compat._SRC_CACHE.clear()
+
+    def header(self, body):
+        inc = os.path.join(self.dir, "ggml", "include")
+        os.makedirs(inc, exist_ok=True)
+        with open(os.path.join(inc, "ggml.h"), "w", encoding="utf-8") as f:
+            f.write(body)
+
+    def test_reads_the_enum_without_retired_ids(self):
+        # this machine's ik checkout of 2026-07-29, trimmed
+        self.header("    enum ggml_type {\n"
+                    "        GGML_TYPE_F32     = 0,\n"
+                    "        GGML_TYPE_BF16    = 30,\n"
+                    "        GGML_TYPE_IQ6_K   = 141,\n"
+                    "        // depricated: GGML_TYPE_IQ2_TN  = 142,\n"
+                    "        GGML_TYPE_IQ4_KS  = 144,\n"
+                    "        GGML_TYPE_COUNT,\n"
+                    "    };\n")
+        known = compat.build_types(self.dir)
+        self.assertEqual(known, {0, 30, 141, 144})
+        self.assertEqual(compat.missing(sorted(BONSAI), known), ["PQ2_0"])
+
+    def test_unknown_when_it_cant_tell(self):
+        self.assertIsNone(compat.build_types(""))
+        self.assertIsNone(compat.build_types(self.dir))           # no header
+        self.header("int nothing_here;\n")
+        self.assertIsNone(compat.build_types(self.dir))
+        self.assertEqual(compat.missing(sorted(BONSAI), None), [])
 
 
 # Verbatim from this machine's llama-server on the Ternary-Bonsai file (2026-10-05).
@@ -144,7 +209,8 @@ class Route(unittest.TestCase):
                           return_value={"bonsai": {"model": "D:/m/b.gguf"}}).start()
         mock.patch.object(routes.gguf, "metadata", return_value={"architecture": "qwen3"}).start()
         self.for_model = mock.patch.object(routes.compat, "for_model",
-                                           return_value={"class": "ik-only", "types": ["PQ2_0"]}).start()
+                                           return_value={"class": "ik-only", "types": ["PQ2_0"],
+                                                         "ids": sorted(BONSAI)}).start()
         self.addCleanup(mock.patch.stopall)
 
     def test_metadata_carries_the_verdict_and_advice(self):
@@ -161,7 +227,26 @@ class Route(unittest.TestCase):
 
     def test_unknown_model(self):
         status, out = self.routes.get_model_metadata(self.routes.Req(qs={"model": "nope"}))
-        self.assertEqual(out, {"metadata": {}, "compat": {"class": "unknown", "types": [], "advice": ""}})
+        self.assertEqual(out["metadata"], {})
+        self.assertEqual(out["compat"], {"class": "unknown", "types": [], "ids": [], "advice": ""})
+
+    def test_advice_knows_the_models_pin_and_whether_ik_is_built(self):
+        self.cfg["model_builds"] = {"bonsai": "ik_llama"}
+        with mock.patch.object(self.routes.builds, "options", return_value=[
+                {"ref": "ik_llama", "label": "ik_llama.cpp", "server_bin": "/ik", "router": False}]):
+            status, out = self.routes.get_model_metadata(self.routes.Req(qs={"model": "bonsai"}))
+        self.assertEqual(out["compat"]["advice"], "")
+        self.assertEqual(out["builds"]["pinned"], "ik_llama")
+        self.assertEqual([o["ref"] for o in out["builds"]["options"]], ["ik_llama"])
+
+    def test_advice_reads_the_ik_checkout(self):
+        self.cfg.update(model_builds={"bonsai": "ik_llama"}, ik_llama_src="D:/ik")
+        with mock.patch.object(self.routes.builds, "options", return_value=[
+                {"ref": "ik_llama", "label": "ik_llama.cpp", "server_bin": "/ik", "router": False}]), \
+             mock.patch.object(self.routes.compat, "build_types", return_value=frozenset({0, 30})) as bt:
+            status, out = self.routes.get_model_metadata(self.routes.Req(qs={"model": "bonsai"}))
+        bt.assert_called_once_with("D:/ik")
+        self.assertIn("Update ik_llama.cpp", out["compat"]["advice"])
 
 
 if __name__ == "__main__":

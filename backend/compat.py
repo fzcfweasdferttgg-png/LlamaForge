@@ -11,9 +11,14 @@ llama.cpp fork also calls 142 PQ2_0), and LlamaForge can't tell which fork a
 binary is. The enums below are from each project's ggml/include/ggml.h,
 checked 2026-10-05; an id this table doesn't know reads as "unknown".
 
+Ids also move with time: ik retired 142 (IQ2_TN) and later reused it for
+PQ2_0, and an ik built in between crashes on a PQ2_0 file instead of refusing
+it. So build_types() reads the enum of the ik checkout that's installed here.
+
 Pure stdlib; for_model() reads only the GGUF header, via gguf.layout().
 """
 import os
+import re
 
 import gguf
 
@@ -51,8 +56,11 @@ _SHARED_N, _MAIN_N, _IK_N = _table(_NAMES_SHARED), _table(_NAMES_MAINLINE), _tab
 MAINLINE = SHARED | frozenset(_MAIN_N)
 IK = SHARED | frozenset(_IK_N)
 
-UNKNOWN = {"class": "unknown", "types": []}
+UNKNOWN = {"class": "unknown", "types": [], "ids": []}
 _CACHE = {}       # normcased path -> ((path, mtime_ns, size), verdict)
+_SRC_CACHE = {}   # ggml.h path -> (mtime_ns, ids)
+# a live enum line; a retired one is commented out ("// depricated: GGML_TYPE_IQ2_TN = 142,")
+_ENUM_RE = re.compile(r"^\s*GGML_TYPE_\w+\s*=\s*(\d+)", re.M)
 
 
 def type_name(t):
@@ -80,7 +88,7 @@ def deciding(types):
 
 
 def for_model(path):
-    """{"class", "types"} for a model file (all its shards); unknown when it
+    """{"class", "types", "ids"} for a model file (all its shards); unknown when it
     can't be read. Cached until the file's mtime or size changes."""
     if not path:
         return dict(UNKNOWN)
@@ -98,22 +106,67 @@ def for_model(path):
         out = dict(UNKNOWN)
     else:
         types = {t for _, t, _ in lay["tensors"]}
-        out = {"class": classify(types), "types": deciding(types)}
+        out = {"class": classify(types), "types": deciding(types), "ids": sorted(types)}
     _CACHE[key] = (stamp, out)
     return dict(out)
 
 
-def advice(cls, types, engine):
-    """One line for the model editor when the active engine can't load this
-    file, else "". `engine` is config's active_engine."""
+def build_types(src):
+    """The type ids a checkout's ggml.h defines (retired slots excluded), or
+    None when it can't tell. Cached until the header changes."""
+    if not src:
+        return None
+    path = os.path.join(src, "ggml", "include", "ggml.h")
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    hit = _SRC_CACHE.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            ids = frozenset(int(m) for m in _ENUM_RE.findall(f.read())) or None
+    except OSError:
+        return None
+    _SRC_CACHE[path] = (mtime, ids)
+    return ids
+
+
+def missing(ids, known):
+    """Names of the file's types a build doesn't define; [] when unknown."""
+    return [type_name(t) for t in ids if t not in known] if known else []
+
+
+def advice(cls, types, engine, build="", ik_built=False, ik_missing=()):
+    """One line for the model editor when the build this model runs on can't
+    load the file, else "". `engine` is config's active_engine; `build` the
+    model's own pin (builds.py; "ik_llama" is ik), which wins over the engine;
+    `ik_built` says ik_llama.cpp is there to pick; `ik_missing` names the
+    file's types the ik checkout here predates (missing())."""
     names = ", ".join(types) or "a quant type"
-    if cls == "ik-only" and engine != "ikllama":
-        return (f"Uses {names}, which mainline llama.cpp can't load (it stops with "
-                f"\"invalid ggml type\"). ik_llama.cpp defines it, and so may the llama.cpp "
-                f"fork the model was published for.")
-    if cls == "mainline-only" and engine == "ikllama":
+    on_ik = build == "ik_llama" if build else engine == "ikllama"
+    stale = ", ".join(ik_missing)
+    if cls == "ik-only" and not on_ik:
+        head = (f"Uses {names}, which mainline llama.cpp can't load (it stops with "
+                f"\"invalid ggml type\").")
+        if ik_built and stale:
+            return head + (f" ik_llama.cpp does, but the build here predates {stale}: update "
+                           f"it in Build / Update, then pick it as this model's build.")
+        if ik_built:
+            return head + " ik_llama.cpp can: pick it as this model's build."
+        return head + (" ik_llama.cpp defines it, and so may the llama.cpp fork the model "
+                       "was published for. Build ik_llama.cpp in Build / Update, then pick "
+                       "it as this model's build.")
+    if cls == "mainline-only" and on_ik:
+        if build:
+            return (f"Uses {names}, which ik_llama.cpp doesn't have. Pick a llama.cpp "
+                    f"build for this model.")
         return (f"Uses {names}, which ik_llama.cpp doesn't have. Switch the engine to "
                 f"llama.cpp to load it.")
+    if on_ik and stale:
+        return (f"Uses {stale}, newer than the ik_llama.cpp build here: it can crash loading "
+                f"the file instead of saying why. Update ik_llama.cpp in Build / Update.")
     return ""
 
 

@@ -19,6 +19,19 @@ ROUTER_HELP = "usage: llama-server\n  --models-preset PATH  ini\n  --models-max 
 PLAIN_HELP  = "usage: llama-server\n  -m, --model FNAME  path\n  --port N  port\n"
 
 
+def _ran(stdout="", stderr="", rc=0):
+    return mock.Mock(stdout=stdout, stderr=stderr, returncode=rc)
+
+
+def _real_run(stdout="", stderr="", rc=0):
+    """A fake subprocess.run that, like the real one, raises on check=True."""
+    def run(argv, **kw):
+        if kw.get("check") and rc:
+            raise router_ctl.subprocess.CalledProcessError(rc, argv, stdout, stderr)
+        return _ran(stdout, stderr, rc)
+    return run
+
+
 class SupportsCorsOriginsTest(unittest.TestCase):
     def setUp(self):
         router_ctl.clear_router_mode_cache()
@@ -26,16 +39,16 @@ class SupportsCorsOriginsTest(unittest.TestCase):
 
     def test_detects_flag_and_shares_one_probe_with_router_mode(self):
         text = ROUTER_HELP + "  --cors-origins ORIGINS  allowed origins\n"
-        with mock.patch.object(router_ctl.subprocess, "check_output",
-                               return_value=text) as probe, \
+        with mock.patch.object(router_ctl.subprocess, "run",
+                               return_value=_ran(text)) as probe, \
              mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
             self.assertTrue(router_ctl.supports_cors_origins("/bin/x"))
             self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
         probe.assert_called_once()
 
     def test_false_for_builds_without_the_flag(self):
-        with mock.patch.object(router_ctl.subprocess, "check_output",
-                               return_value=ROUTER_HELP), \
+        with mock.patch.object(router_ctl.subprocess, "run",
+                               return_value=_ran(ROUTER_HELP)), \
              mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
             self.assertFalse(router_ctl.supports_cors_origins("/bin/x"))
 
@@ -46,7 +59,7 @@ class SupportsRouterModeTest(unittest.TestCase):
         self.addCleanup(router_ctl.clear_router_mode_cache)
 
     def _probe(self, help_text, mtime=1.0):
-        with mock.patch.object(router_ctl.subprocess, "check_output", return_value=help_text), \
+        with mock.patch.object(router_ctl.subprocess, "run", return_value=_ran(help_text)), \
              mock.patch.object(router_ctl.os.path, "getmtime", return_value=mtime):
             return router_ctl.supports_router_mode("/bin/llama-server")
 
@@ -57,27 +70,52 @@ class SupportsRouterModeTest(unittest.TestCase):
         self.assertFalse(self._probe(PLAIN_HELP))
 
     def test_false_when_the_binary_cannot_be_run(self):
-        with mock.patch.object(router_ctl.subprocess, "check_output",
+        with mock.patch.object(router_ctl.subprocess, "run",
                                side_effect=OSError("nope")), \
              mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
             self.assertFalse(router_ctl.supports_router_mode("/bin/missing"))
+
+    def test_help_counts_even_when_the_binary_exits_nonzero(self):
+        """ik_llama.cpp prints its full --help and then exits 1. Treating that
+        as a failure hid every ik flag from the slot translator."""
+        with mock.patch.object(router_ctl.subprocess, "run",
+                               side_effect=_real_run(ROUTER_HELP, rc=1)), \
+             mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
+            self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
+
+    def test_help_printed_on_stderr_is_read(self):
+        with mock.patch.object(router_ctl.subprocess, "run",
+                               return_value=_ran("", ROUTER_HELP)), \
+             mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
+            self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
+            self.assertIn("--models-max", router_ctl.help_text("/bin/x"))
+
+    def test_empty_output_is_not_cached(self):
+        with mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
+            with mock.patch.object(router_ctl.subprocess, "run",
+                                   return_value=_ran("", "", rc=1)):
+                self.assertFalse(router_ctl.supports_router_mode("/bin/x"))
+            with mock.patch.object(router_ctl.subprocess, "run",
+                                   return_value=_ran(ROUTER_HELP)) as ok:
+                self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
+                ok.assert_called_once()
 
     def test_a_failed_probe_is_not_cached(self):
         """Same rule the knob schema follows: never cache a failure, so fixing
         the binary takes effect without restarting the backend."""
         with mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
-            with mock.patch.object(router_ctl.subprocess, "check_output",
+            with mock.patch.object(router_ctl.subprocess, "run",
                                    side_effect=OSError("nope")):
                 self.assertFalse(router_ctl.supports_router_mode("/bin/x"))
-            with mock.patch.object(router_ctl.subprocess, "check_output",
-                                   return_value=ROUTER_HELP) as ok:
+            with mock.patch.object(router_ctl.subprocess, "run",
+                                   return_value=_ran(ROUTER_HELP)) as ok:
                 self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
                 ok.assert_called_once()
 
     def test_a_success_is_cached_per_binary_mtime(self):
         with mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
-            with mock.patch.object(router_ctl.subprocess, "check_output",
-                                   return_value=ROUTER_HELP) as first:
+            with mock.patch.object(router_ctl.subprocess, "run",
+                                   return_value=_ran(ROUTER_HELP)) as first:
                 self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
                 self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
                 first.assert_called_once()

@@ -28,6 +28,7 @@ const cmpSet = new Set();         // model ids picked for compare
 const diagCache = {};             // failure diagnosis per model id
 const metaCache = {};             // GGUF metadata per model id
 const compatCache = {};           // which llama.cpp family can load it (compat.py), per model id
+const buildsCache = {};           // {options, pinned}: the builds a model can be pinned to (builds.py)
 const loadQ = [];                 // sequential load queue
 const favs = new Set(JSON.parse(localStorage.getItem("lf_favs") || "[]"));
 const loadingSince = {};
@@ -108,7 +109,7 @@ function knobGroups(m, schema) {
 function editorLive(m) {
   return m.backend === "vllm"
     ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${presetBar(m)}${autoTuneBar(m)}`;
+    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
   if (m.backend === "vllm") {
@@ -220,7 +221,7 @@ function rowHead(m, showBackend) {
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="qbtns">${quickBtn(m)}</span>
@@ -229,7 +230,7 @@ function rowHead(m, showBackend) {
 // Everything rowHead() reads. Compared as a string so an unchanged row is left
 // in the DOM untouched - which is what keeps focus, selection and scroll alive.
 function headSig(m, cols, showBackend) {
-  return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.eff_ctx,
+  return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.build, m.eff_ctx,
     m.modalities, m.in_ini, favs.has(m.id), compareMode, cmpSet.has(m.id),
     loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, cols, showBackend,
     slots.chipSig(m)]);
@@ -581,9 +582,70 @@ function compatNote(id) {
   return c && c.advice ? `<div class="slotnote warn"><b>Quant:</b> ${esc(c.advice)}</div>` : "";
 }
 async function fetchMeta(id) {
-  try { const r = await api("/api/model/metadata?model=" + encodeURIComponent(id)); metaCache[id] = r.metadata || {}; compatCache[id] = r.compat || null; }
-  catch (e) { metaCache[id] = {}; }
+  try {
+    const r = await api("/api/model/metadata?model=" + encodeURIComponent(id));
+    metaCache[id] = r.metadata || {}; compatCache[id] = r.compat || null; buildsCache[id] = r.builds || null;
+  } catch (e) { metaCache[id] = {}; }
   if (openId === id) renderModels();
+}
+
+/* ---------- per-model build ----------------------------------------------
+   A model pinned to a build other than the router's runs in its own
+   llama-server process (slotproc.py), on its own port. That is how a model
+   whose quant only ik_llama.cpp has can run at all: ik has no router mode. */
+function buildTag(m) {
+  if (!m.build) return "";
+  const tip = m.process
+    ? `runs on build ${m.build}, in its own llama-server process`
+    : `pinned to build ${m.build}`;
+  return `<span class="tag build" title="${esc(tip)}">${esc(m.build)}</span>`;
+}
+function buildBar(m) {
+  const b = buildsCache[m.id];
+  if (!b || !Array.isArray(b.options)) return "";
+  const pinned = b.pinned || "", opts = b.options;
+  const cur = opts.find(o => o.ref === pinned);
+  if (opts.length < 2 && !pinned) return "";          // nothing to choose between
+  const router = opts.find(o => o.router);
+  const opt = (v, label) => `<option value="${esc(v)}"${v === pinned ? " selected" : ""}>${esc(label)}</option>`;
+  const items = [opt("", `follow the router${router ? " (" + router.label + ")" : ""}`)]
+    .concat(opts.map(o => opt(o.ref, o.label + (o.router ? " · the router's build now" : ""))));
+  if (pinned && !cur) items.push(opt(pinned, `${pinned} (not installed)`));
+  let note = "";
+  if (pinned && !cur)
+    note = `<div class="slotnote warn"><b>Build gone:</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Build / Update.</div>`;
+  else if (cur && cur.router)
+    note = `<div class="slotnote dim">Pinned: it stays on ${esc(cur.label)} when the router moves to another build.</div>`;
+  else if (cur)
+    note = `<div class="slotnote dim">Runs in its own llama-server${m.process ? " on port " + esc(m.process.port) : ""}, not the router: clients reach it at its own endpoint, and Embers can't use it.</div>`;
+  return `<div class="tunebar">
+    <span class="tunebar-label" title="Which llama.cpp build runs this model. Follow the router, or keep it on one build whatever the router runs. A build other than the router's runs the model in its own process.">Build</span>
+    <select data-build-pick="${esc(m.id)}">${items.join("")}</select>
+  </div>${note}${slots.droppedNote(m.id)}`;
+}
+async function setBuild(sel) {
+  const id = sel.dataset.buildPick, ref = sel.value;
+  const row = sel.closest(".row"), msg = row && $("[data-msg]", row);
+  const m = modelRows().find(x => x.id === id);
+  const up = m && (m.status === "loaded" || m.status === "loading" || m.status === "sleeping");
+  if (up && !confirm(`Switching the build unloads ${id}. Continue?`)) {
+    if (row) row._live = null;                         // put the select back
+    renderModels(); return;
+  }
+  sel.disabled = true;
+  try {
+    const r = await api("/api/model/build", {model: id, build: ref});
+    if (r && r.ok) {
+      if (buildsCache[id]) buildsCache[id].pinned = r.build;
+      delete diagCache[id]; slots.forget(id);
+      if (msg) { msg.className = "msg ok"; msg.textContent = r.was_running ? "build saved - unloaded to apply" : "build saved - used on the next load"; }
+      toast(ref ? `${id} now runs on ${ref}` : `${id} follows the router's build`, "ok");
+    } else {
+      toast((r && r.error) || "could not change the build", "err");
+      if (row) row._live = null;
+    }
+  } catch (e) { toast("could not change the build: " + e, "err"); if (row) row._live = null; }
+  await refresh(true);
 }
 
 /* ---------- autotune bar ---------- */
@@ -733,6 +795,11 @@ export function initModels() {
   const vllmLog = $("#vllm-log-details");
   if (vllmLog) vllmLog.addEventListener("toggle", () => {
     if (vllmLog.open) refreshVllmLog();
+  });
+
+  document.addEventListener("change", e => {
+    const pick = e.target.closest("#view-models [data-build-pick]");
+    if (pick) setBuild(pick);
   });
 
   document.addEventListener("input", e => {

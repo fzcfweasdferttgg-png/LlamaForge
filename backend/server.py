@@ -391,7 +391,7 @@ def _auto_load(model_id):
             known = {m.get("id") for m in data.get("data", [])}
             if model_id not in known and model_id not in config.read_sections():
                 return                          # unknown model id - nothing to load
-            if routes._slots_on():
+            if routes._slotted(model_id):     # a pool, or a model on its own build
                 routes.SLOTS.load(model_id, "main", wait=False)
             else:
                 routes.router("/models/load", "POST", {"model": model_id})
@@ -436,6 +436,10 @@ def main():
             print("  removed the old [*] ctx-size = 150000 pin; llama.cpp's --fit sizes context now")
         if config.apply_ctx_defaults().get("changed") or released:
             routes.router("/models?reload=1")
+    except Exception:
+        pass
+    try:                    # adopt the model processes a previous panel left running
+        routes.PROCS.reconcile()
     except Exception:
         pass
     stats.TRACKER.start()   # background usage poller

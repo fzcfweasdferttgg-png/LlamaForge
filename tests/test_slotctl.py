@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import argspec
 import config
 import slotctl
 import slots
@@ -378,6 +379,168 @@ class Roles(Base):
         self.use(0, 500)
         self.mgr.unload("m1")
         self.assertEqual(self.mgr.store.measured(self.mgr.key("m1")), {(0,): {0: 4 * G + 500}})
+
+
+# ---------------------------------------------------------------- process slots
+
+IK_HELP = """\
+  -c,    --ctx-size N             size of the prompt context
+  -ngl,  --gpu-layers N           number of layers to store in VRAM
+  -sm,   --split-mode SPLIT_MODE  how to split the model across multiple GPUs
+  -dev,   --device dev1,dev2      comma-separated list of devices to use for offloading
+  -mg,   --main-gpu i             the GPU to use for the model
+         --api-key KEY            API key to use for authorization
+         --metrics                enable prometheus compatible metrics endpoint
+  -m,    --model FNAME            model path
+"""
+MAIN_HELP = IK_HELP + "--spec-type [none|draft-mtp]            type of speculative decoding\n"
+
+
+class FakeProcs:
+    """slotproc.Manager's surface; a started process takes its cost from smi."""
+
+    def __init__(self, smi):
+        self.smi, self.cost = smi, {}
+        self.recs, self.started, self.stopped, self.fail = {}, [], [], set()
+        self.rc = {}                           # mid -> the exit code a failed start reports
+
+    def _move(self, mid, sign):
+        for g, mib in self.cost.get(mid, {}).items():
+            self.smi[g]["used_mib"] += sign * mib
+            self.smi[g]["free_mib"] -= sign * mib
+
+    def status(self):
+        return {m: {"state": r["state"], "port": r["port"], "pid": 4242,
+                    "endpoint": f"http://127.0.0.1:{r['port']}", "exit_code": r["rc"],
+                    "bin": r["bin"], "started_at": 1} for m, r in self.recs.items()}
+
+    def has(self, mid):
+        return mid in self.recs
+
+    def start(self, mid, argv, port_base=8100):
+        self.started.append((mid, list(argv)))
+        failed = mid in self.fail
+        port = port_base + len(self.recs)
+        self.recs[mid] = {"state": "failed" if failed else "ready", "port": port,
+                          "bin": argv[0], "rc": self.rc.get(mid, 1) if failed else None}
+        if not failed:
+            self._move(mid, +1)
+        return True, "", port
+
+    def stop(self, mid, timeout=15):
+        self.stopped.append(mid)
+        r = self.recs.pop(mid, None)
+        if r and r["state"] == "ready":
+            self._move(mid, -1)
+        return True, ""
+
+
+class ProcBase(Base):
+    def setUp(self):
+        super().setUp()
+        self.procs = FakeProcs(self.smi)
+        self.mgr._d.PROCS = self.procs        # make() runs inside super().setUp()
+        self.pins = {"m1": "/bin/ik/llama-server"}
+        self.mgr.build_id = lambda sbin: "ik" if "ik" in sbin else "b1"
+
+    def make(self):
+        mgr = super().make()
+        # a pin starting with "!" stands for a pin that can't be honoured
+        mgr._d.pinned_bin = lambda mid: (self.pins.get(mid), "") if not str(
+            self.pins.get(mid, "")).startswith("!") else (None, self.pins[mid][1:])
+        mgr.help_items = lambda sbin: (argspec.parse_help(IK_HELP) if "ik" in sbin
+                                       else argspec.parse_help(MAIN_HELP))
+        return mgr
+
+
+class ProcSlots(ProcBase):
+    def test_a_pinned_model_runs_as_its_own_process(self):
+        self.use(0, 8 * G)
+        self.procs.cost["m1"] = {0: 4 * G}
+        status, out = self.mgr.load("m1", "worker")
+        self.assertEqual(status, 200, out)
+        self.assertEqual(self.router.loads(), [])
+        (mid, argv), = self.procs.started
+        self.assertEqual(argv[:3], ["/bin/ik/llama-server", "-m", "/m/one.gguf"])
+        # placed like a router slot, and the process is told so
+        self.assertEqual(self.section("m1")["device"], "CUDA0")
+        self.assertEqual(argv[argv.index("--device") + 1], "CUDA0")
+        self.assertEqual(argv[argv.index("--ctx-size") + 1], "8192")      # from [*]
+        self.assertEqual(out["process"]["port"], 8100)
+
+    def test_its_footprint_is_keyed_by_its_own_build(self):
+        self.procs.cost["m1"] = {1: 4100}
+        self.use(0, 12 * G)
+        self.mgr.load("m1", "main")
+        self.assertEqual(self.mgr.store.measured(self.mgr.key("m1", sbin="/bin/ik/llama-server")),
+                         {(1,): {1: 4100}})
+        self.assertEqual(self.mgr.store.measured(self.mgr.key("m1")), {})
+
+    def test_the_planner_counts_process_slots(self):
+        self.procs.cost["m1"] = {0: 4 * G}
+        self.mgr.load("m1", "main")
+        self.assertEqual([(r["model"], r["devices"]) for r in self.mgr.loaded()], [("m1", [0])])
+        status, _ = self.mgr.load("m1", "main")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self.procs.started), 1)              # already up
+
+    def test_what_the_build_lacks_is_reported(self):
+        self.write_ini("[*]\nctx-size = 8192\n\n[m1]\nmodel = /m/one.gguf\nspec-type = draft-mtp\n")
+        status, out = self.mgr.load("m1", "worker")
+        self.assertEqual(status, 200, out)
+        self.assertEqual(out["dropped"], ["spec-type"])
+        self.assertNotIn("--spec-type", self.procs.started[0][1])
+
+    def test_a_process_that_exits_is_a_failed_load(self):
+        self.procs.fail.add("m1")
+        status, out = self.mgr.load("m1", "worker")
+        self.assertEqual(status, 500)
+        self.assertIn("exit", out["error"])
+        self.assertIn("log", out["error"])
+        self.assertEqual(self.mgr.store.measured(self.mgr.key("m1", sbin="/bin/ik/llama-server")), {})
+
+    def test_a_crash_is_named(self):
+        """An ik built before PQ2_0 dies dividing by zero, with nothing in its log."""
+        self.procs.fail.add("m1")
+        self.procs.rc["m1"] = 0xC0000094
+        status, out = self.mgr.load("m1", "worker")
+        self.assertIn("integer divide by zero", out["error"])
+
+    def test_unload_stops_the_process(self):
+        self.procs.cost["m1"] = {0: 4 * G}
+        self.mgr.load("m1", "main")
+        status, out = self.mgr.unload("m1")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.procs.stopped, ["m1"])
+        self.assertNotIn(("/models/unload", "POST", "m1"), self.router.calls)
+        self.assertEqual(out["freed"], {0: 4 * G})
+        self.assertEqual(self.mgr.loaded(), [])
+
+    def test_a_pin_that_cannot_be_honoured_refuses(self):
+        self.pins["m1"] = "!build b6000 is no longer installed"
+        status, out = self.mgr.load("m1", "worker")
+        self.assertEqual(status, 409)
+        self.assertIn("b6000", out["reason"])
+        self.assertEqual((self.procs.started, self.router.loads()), ([], []))
+        self.assertIn("b6000", self.mgr.plan("m1")["reason"])
+
+    def test_unpinned_models_still_go_to_the_router(self):
+        status, _ = self.mgr.load("m2", "worker")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.router.loads(), ["m2"])
+        self.assertEqual(self.procs.started, [])
+
+    def test_single_model_mode_swaps_like_the_router_does(self):
+        """No pool: one model at a time, the ini as the user wrote it."""
+        self.mgr.pool = lambda: None
+        self.router.status["m2"] = {"value": "loaded"}
+        before = self.raw()
+        status, out = self.mgr.load("m1", "main")
+        self.assertEqual(status, 200, out)
+        self.assertIn(("/models/unload", "POST", "m2"), self.router.calls)
+        self.assertEqual(out["evicted"], ["m2"])
+        self.assertEqual(self.raw(), before)                       # nothing placed
+        self.assertNotIn("--device", self.procs.started[0][1])
 
 
 if __name__ == "__main__":

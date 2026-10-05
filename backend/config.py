@@ -75,6 +75,10 @@ DEFAULTS = {
     "slot_headroom_mib": 1536,                  # per GPU, kept free beyond every plan
     "slot_autoload":     False,                 # let client requests load models (bypasses the planner)
     "slots":             {"main": "", "placed": {}},  # main model id; {model: keys LlamaForge wrote}
+    # Per-model builds (builds.py): {model id: install dir name | "ik_llama"}.
+    # A pin other than the router's own build runs the model in its own process.
+    "model_builds":      {},
+    "slot_port_base":    8100,                  # first port for those processes (slotproc)
 }
 
 def load():

@@ -16,6 +16,10 @@ RESERVED = {
 }
 
 SECTION_RE = re.compile(r"^-+\s*(.+?)\s*-+\s*$")
+# a values line under an option: ik's "types: none, draft, mtp", mainline's
+# "allowed values: f32, f16, q8_0". Only a bare list: "types: int, str. example: ..." is prose
+VALUES_RE = re.compile(r"(?:types|allowed values):\s*([\w.-]+(?:,\s*[\w.-]+)+)")
+CONT_INDENT = 20        # flags start by column 9 (ik) or 0 (mainline); descriptions at 34 / 40
 
 def _balance_parens(s):
     """Drop orphan ')' left over after trimming a '(default:/env:...)' tail.
@@ -32,7 +36,9 @@ def _balance_parens(s):
         out.append(ch)
     return "".join(out).strip()
 
-# curated types/options for common knobs (help text lacks enum values for these)
+# curated types/options for knobs whose help can lack them. An enum here yields
+# to one the build prints itself: these lists are mainline's, and ik spells some
+# values differently (spec-type mtp, not draft-mtp).
 OVERRIDES = {
     "cache-type-k": ("enum", ["f16", "bf16", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0", "iq4_nl"]),
     "cache-type-v": ("enum", ["f16", "bf16", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0", "iq4_nl"]),
@@ -50,13 +56,15 @@ def _classify(placeholder, default):
     p = (placeholder or "").strip()
     if not p:
         return "bool", None
-    # enum: bracketed [a|b|c] / <0|1> / {none,mean,cls}  OR bare word list a,b,c
-    m = re.search(r"[\[<{]([^\]>}]*[|,][^\]>}]*)[\]>}]", p)
+    # enum: bracketed [a|b|c] / <0|1> / {none,mean,cls} / (auto|on|off)  OR bare word list a,b,c
+    m = re.search(r"[\[<{(]([^\]>})]*[|,][^\]>})]*)[\]>})]", p)
     body = m.group(1) if m else (p if ("," in p or "|" in p) else "")
-    if body and "..." not in body:
+    if body and ".." not in body:
         opts = [o.strip() for o in re.split(r"[|,]", body) if o.strip()]
-        # numeric placeholder list (N0,N1,...) is a free string, not an enum
-        if opts and not any(re.match(r"^[NM]\d*$", o) for o in opts):
+        # a numbered list's shape (N0,N1 / dev1,dev2) is a free string, not an enum
+        numbered = all(re.search(r"[A-Za-z]\d+$", o) for o in opts) and \
+            len({re.sub(r"\d+$", "", o) for o in opts}) == 1
+        if opts and not numbered and not any(re.match(r"^[NM]\d*$", o) for o in opts):
             return "enum", opts
     if re.fullmatch(r"[NM]", p) or re.search(r"<[\d.\s\-]+\.\.\.?[\d.\s]*>", p):
         return ("float" if re.search(r"\d\.\d", default or "") else "int"), None
@@ -81,13 +89,21 @@ def parse_help(text):
         if sm and "params" in sm.group(1).lower() or (sm and len(sm.group(1)) < 40 and not line.startswith(" ")):
             flush(); section = sm.group(1).strip(); continue
 
-        # continuation line (indented, no flag) -> append to current desc
-        if pending and (raw.startswith("   ") and not raw.lstrip().startswith("-")):
+        # continuation line (indented, no flag) -> append to current desc. Deep in
+        # the description column it's one even when it starts with a flag (ik's
+        # "examples: --spec-type mtp:..." lines, mainline's wrapped "--hf-repo")
+        indent = len(raw) - len(raw.lstrip())
+        if pending and raw.startswith("   ") and (indent >= CONT_INDENT or not raw.lstrip().startswith("-")):
             extra = raw.strip()
             env = re.search(r"\(env:\s*([A-Z0-9_]+)\)", extra)
             if env: pending["env"] = env.group(1)
             dflt = re.search(r"\(default:\s*(.*?)\)", extra)
             if dflt and not pending.get("default"): pending["default"] = dflt.group(1)
+            vals = VALUES_RE.fullmatch(extra)
+            if vals and pending["values"] is None and pending["type"] != "bool":
+                pending["values"] = [v.strip() for v in vals.group(1).split(",")]
+                if pending["curated"]:            # the build's own list beats ours
+                    pending.update(options=pending["values"], curated=False)
             continue
 
         if not line.lstrip().startswith("-"):
@@ -108,7 +124,11 @@ def parse_help(text):
             toks = fp.split()
             j = 0
             while j < len(toks) and toks[j].rstrip(",").startswith("-"):
-                flags.append(toks[j].rstrip(",")); j += 1
+                flag = toks[j].rstrip(",")
+                plural = re.fullmatch(r"(--?[\w-]+)\((\w+)\)", flag)
+                # ik: --embedding(s) is --embedding and --embeddings
+                flags += [plural.group(1), plural.group(1) + plural.group(2)] if plural else [flag]
+                j += 1
             if j < len(toks):
                 placeholder = " ".join(toks[j:])
         longs = [f[2:] for f in flags if f.startswith("--")]
@@ -116,15 +136,27 @@ def parse_help(text):
             continue
         key = longs[0]                        # ini key = first long flag w/o --
         desc = "  ".join(desc_parts)
+        glued = not placeholder and re.match(r"([\[<{][^\]>}\s]*[|,][^\]>}\s]*[\]>}])\s*(.*)", desc)
+        if glued:                             # ik: `--reasoning   [on|off|auto]Use reasoning...`
+            placeholder, desc = glued.group(1), glued.group(2)
         env = re.search(r"\(env:\s*([A-Z0-9_]+)\)", desc)
         dflt = re.search(r"\(default:\s*(.*?)\)", desc)
         default_val = dflt.group(1) if dflt else ""
-        typ, opts = OVERRIDES.get(key, _classify(placeholder, default_val))
+        typ, opts = _classify(placeholder, default_val)
+        cur = OVERRIDES.get(key)
+        # ...nor to a value with a payload (ik: SPEC[:k=v,...]), which no select can hold
+        curated = bool(cur) and cur[0] == "enum" and typ != "enum" and not re.search(r"[:=]", placeholder)
+        if cur and (curated or cur[0] != "enum"):
+            typ, opts = cur
         # canonical default: the value before any ", explanation" tail
         clean_default = re.split(r",\s", default_val)[0].strip() if default_val else ""
         pending = {
             "key": key, "flags": flags, "aliases": longs, "section": section,
             "type": typ, "options": opts,
+            # what the build itself says it takes (a continuation line can add
+            # them); None when it doesn't say, `curated` when options are ours
+            "values": opts if typ == "enum" and not curated else None,
+            "curated": curated,
             "placeholder": placeholder,
             "desc": _balance_parens(re.sub(r"\s*\((env|default):.*", "", desc)),
             "default": clean_default,

@@ -111,7 +111,8 @@ class Scheduler:
         """pool: the multi-model pool, or None. active() says whether loads go
         through the planner right now; plan(mid) and load(mid) are a worker's,
         load returning (HTTP status, body) like slotctl's; also unload(mid),
-        touch(mid) and main()."""
+        touch(mid) and main(). An optional own_build(mid) names why a model
+        pinned to another build can't serve embers (they go through the router)."""
         self.cfg_fn, self.router_cls, self.pool = cfg_fn, router_cls, pool
         self._stop = threading.Event()
         # The default sleep is the stop event, so stop() cuts short a wait for a model load.
@@ -212,6 +213,10 @@ class Scheduler:
             key = (c["id"], c["job"])
             w = self._waiting.get(key)
             waited = self.clock() - w["since"] if w and w["since"] is not None else 0
+            why = self._own_build(c["model"])
+            if why:                            # a setting, not a busy GPU: waits, never skips
+                self._wait(result, c, why, count=False)
+                continue
             if on_pool:
                 plan = self._plan(c["model"], loaded, busy, swap_ok)
                 action, arg = decide_pool(c["model"], loaded, busy, waited, swap_ok, plan)
@@ -287,6 +292,18 @@ class Scheduler:
         except Exception as e:
             self._error(f"pool: {_msg(e)}")
             return False
+
+    def _own_build(self, model):
+        """Why `model` can't serve an ember: it runs on a build of its own, in a
+        process the router doesn't front. '' when it can (or there's no pool)."""
+        probe = getattr(self.pool, "own_build", None)
+        if not model or probe is None:
+            return ""
+        try:
+            return probe(model) or ""
+        except Exception as e:
+            self._error(f"pool: {_msg(e)}")
+            return ""
 
     def _observe_pool(self, cfg):
         """(router|None, [ids up, the main first], {id: busy}|None) once per tick.

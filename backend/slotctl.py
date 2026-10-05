@@ -13,6 +13,12 @@ dropped, and nothing is ever "restored" over their edit.
 
 One load at a time: while a model loads its memory is still climbing, so a
 second plan against the same snapshot would book the same free memory twice.
+
+A model pinned to another build (config.json model_builds) is planned, placed
+and measured the same way but runs as its own llama-server (slotproc): the
+router can only run its own binary, and ik_llama.cpp has no router mode.
+Without a pool (single-model mode) such a load swaps out whatever is up, as a
+router load would, and the section is used as written.
 """
 import hashlib
 import os
@@ -20,11 +26,14 @@ import subprocess
 import threading
 import time
 
+import argspec
 import config
 import footprint
 import gguf
+import network_policy
 import osplat
 import router_ctl
+import slotproc
 import slots
 
 MIB = 1024 * 1024
@@ -58,6 +67,15 @@ def _unknown(mid):
 def _refuse(reason):
     return {"ok": False, "reason": reason, "devices": [], "place": None, "footprint": {},
             "source": None, "evict": [], "already": False}
+
+
+def proc_status(p):
+    """A process slot's state in the router's /models terms."""
+    if p.get("state") == "ready":
+        return {"value": "loaded", "proc": True}
+    if p.get("state") == "loading":
+        return {"value": "loading", "proc": True}
+    return {"value": "unloaded", "failed": True, "exit_code": p.get("exit_code"), "proc": True}
 
 
 def smi_snapshot():
@@ -132,6 +150,19 @@ class SlotManager:
 
     def pool(self):
         return router_ctl.running_pool(self._d.LOGDIR)
+
+    def procs(self):
+        """The slotproc.Manager for pinned models; None runs none."""
+        return getattr(self._d, "PROCS", None)
+
+    def pinned(self, mid):
+        """(server_bin, error) of a model pinned to another build; (None, "")
+        when the router serves it."""
+        f = getattr(self._d, "pinned_bin", None)
+        return f(mid) if f else (None, "")
+
+    def help_items(self, sbin):
+        return argspec.parse_help(router_ctl.help_text(sbin)) if sbin else []
 
     def predict(self, mid, settings):
         path = settings.get("model") or ""
@@ -243,6 +274,9 @@ class SlotManager:
         for m in (out or {}).get("data") or []:
             s = m.get("status")
             res[m.get("id")] = {"value": s} if isinstance(s, str) else (s or {})
+        procs = self.procs()
+        for m, p in (procs.status() if procs else {}).items():
+            res[m] = proc_status(p)
         return res
 
     def _used(self):
@@ -300,10 +334,14 @@ class SlotManager:
             devices = ((slots.to_smi(p, cmap) or {}).get("devices") if cmap else None) or []
         if not devices:
             return [], {}
-        return devices, dict(self.store.measured(self.key(m)).get(tuple(devices)) or {})
+        k = self.key(m, sbin=self.pinned(m)[0] or None)
+        return devices, dict(self.store.measured(k).get(tuple(devices)) or {})
 
-    def _plan(self, mid, role, st):
-        """(verdict, footprint key) for loading `mid` next to what `st` shows up."""
+    def _plan(self, mid, role, st, fbin=None):
+        """(verdict, footprint key) for loading `mid` next to what `st` shows up.
+        fbin: the build `mid` is pinned to, which its footprint is measured on.
+        CUDA devices are still matched through the router's binary (ik_llama.cpp
+        has no --list-devices)."""
         c = config.load()
         sbin = self._d._active_server_bin(c)
         settings = self._effective(mid)
@@ -314,7 +352,7 @@ class SlotManager:
                            "reports, so LlamaForge can't tell which CUDA device is which "
                            "GPU"), None
         pred = self.predict(mid, settings)
-        k = self.key(mid, settings, sbin)
+        k = self.key(mid, settings, fbin or sbin)
         p = slots.pins(settings)
         cand = {"model": mid, "need_mib": pred.get("need_mib") or 0,
                 "first_gpu_mib": pred.get("first_gpu_mib") or 0,
@@ -344,7 +382,10 @@ class SlotManager:
                 return _unknown(mid)
             if (st.get(mid) or {}).get("value") in RUNNING + ("loading",):
                 return dict(_refuse(""), ok=True, already=True, reason="already loaded")
-            return self._plan(mid, role, st)[0]
+            fbin, err = self.pinned(mid)
+            if err:
+                return _refuse(err)
+            return self._plan(mid, role, st, fbin)[0]
 
     def loaded(self):
         with self._lock:
@@ -389,32 +430,75 @@ class SlotManager:
             busy = [m for m, s in st.items() if s.get("value") == "loading"]
             if busy:
                 return 409, _refuse(f"{busy[0]} is still loading")
-            verdict, k = self._plan(mid, role, st)
+            fbin, err = self.pinned(mid)
+            if err:
+                return 409, _refuse(err)
             evicted = []
-            if not verdict["ok"] and verdict["evict"] and evict:
-                for m in verdict["evict"]:
-                    code, out = self._unload_locked(m)
-                    if code != 200:
-                        return code, {"ok": False, "error": out.get("error"), "evicted": evicted}
-                    evicted.append(m)
-                st = self._statuses() or {}
-                verdict, k = self._plan(mid, role, st)
-            if not verdict["ok"]:
-                return 409, dict(verdict, evicted=evicted)
+            if fbin and self.pool() is None:
+                # single-model mode: a swap, and the section as the user wrote it
+                for m, s in st.items():
+                    if m != mid and s.get("value") in RUNNING:
+                        code, out = self._unload_locked(m)
+                        if code != 200:
+                            return code, {"ok": False, "error": out.get("error"), "evicted": evicted}
+                        evicted.append(m)
+                verdict, k = dict(_refuse(""), ok=True), None
+            else:
+                verdict, k = self._plan(mid, role, st, fbin)
+                if not verdict["ok"] and verdict["evict"] and evict:
+                    for m in verdict["evict"]:
+                        code, out = self._unload_locked(m)
+                        if code != 200:
+                            return code, {"ok": False, "error": out.get("error"), "evicted": evicted}
+                        evicted.append(m)
+                    st = self._statuses() or {}
+                    verdict, k = self._plan(mid, role, st, fbin)
+                if not verdict["ok"]:
+                    return 409, dict(verdict, evicted=evicted)
             self._apply(mid, verdict["place"])
-            self._d.router("/models?reload=1")
-            before = (self._used(), self._unloads)
-            code, out = self._d.router("/models/load", "POST", {"model": mid})
-            if code != 200:
-                return (code if code >= 400 else 502), {
-                    "ok": False, "error": (out or {}).get("error") or "load failed",
-                    "evicted": evicted}
+            extra = {"evicted": evicted}
+            if fbin:
+                before = (self._used(), self._unloads)
+                ok, err, port, dropped = self._start_proc(mid, fbin)
+                if not ok:
+                    return 500, {"ok": False, "error": err, "evicted": evicted}
+                extra.update(process={"port": port, "build": fbin}, dropped=dropped)
+            else:
+                self._d.router("/models?reload=1")
+                before = (self._used(), self._unloads)
+                code, out = self._d.router("/models/load", "POST", {"model": mid})
+                if code != 200:
+                    return (code if code >= 400 else 502), {
+                        "ok": False, "error": (out or {}).get("error") or "load failed",
+                        "evicted": evicted}
             self._loading = mid
-        job = (mid, role, verdict, k, before, evicted)
+        job = (mid, role, verdict, k, before, extra)
         if wait:
             return self._finish(*job)
         threading.Thread(target=self._finish, args=job, daemon=True).start()
-        return 200, dict(verdict, ok=True, loading=True, evicted=evicted)
+        return 200, dict(verdict, ok=True, loading=True, **extra)
+
+    def _start_proc(self, mid, sbin):
+        """(ok, error, port, dropped): `mid`'s section as the ini holds it now
+        (placement included), spelled in `sbin`'s own arguments."""
+        c = config.load()
+        secs = config.read_sections(self.ini_path())
+        settings = {**(secs.get("*") or {}), **(secs.get(mid) or {})}
+        dst = self.help_items(sbin)
+        if not dst:
+            return False, f"couldn't read the arguments of {sbin} (its --help printed nothing)", None, []
+        try:
+            argv, dropped = slotproc.argv_for(
+                sbin, mid, settings, dst, self.help_items(self._d._active_server_bin(c)),
+                api_key=network_policy.effective_key(c))
+        except ValueError as e:
+            return False, str(e), None, []
+        try:
+            base = int(c.get("slot_port_base") or slotproc.PORT_BASE)
+        except (TypeError, ValueError):
+            base = slotproc.PORT_BASE
+        ok, err, port = self.procs().start(mid, argv, port_base=base)
+        return ok, err, port, dropped
 
     def _take_role(self, mid, role):
         if role == "main":
@@ -427,9 +511,12 @@ class SlotManager:
         for _ in range(LOAD_TIMEOUT_S):
             s = (self._statuses() or {}).get(mid) or {}
             v = s.get("value")
+            if s.get("failed") and s.get("proc"):
+                return False, (f"{mid}'s llama-server exited ({slotproc.exit_reason(s.get('exit_code'))})"
+                               f" before it was ready; see its log")
             if s.get("failed"):
-                return False, (f"the router reports the load failed (exit code "
-                               f"{s.get('exit_code', '?')}); see the router log")
+                return False, (f"the router reports the load failed "
+                               f"({slotproc.exit_reason(s.get('exit_code'))}); see the router log")
             if v in RUNNING:
                 return True, ""
             if v == "loading":
@@ -439,25 +526,25 @@ class SlotManager:
             self.sleep(1)
         return False, f"still loading after {LOAD_TIMEOUT_S} s"
 
-    def _finish(self, mid, role, verdict, k, before, evicted):
+    def _finish(self, mid, role, verdict, k, before, extra):
         try:
             ok, err = self._wait_loaded(mid)
             with self._lock:
                 if not ok:
-                    return 500, {"ok": False, "error": err, "evicted": evicted}
+                    return 500, {"ok": False, "error": err, "evicted": extra["evicted"]}
                 before, unloads = before
                 after = self._used()
                 fp = {g: after[g] - before[g] for g in after
                       if g in before and after[g] - before[g] >= footprint.NOISE_MIB}
                 if unloads != self._unloads:
                     fp = {}                # memory freed meanwhile hides some of the load
-                if verdict["devices"] and fp:
+                if verdict["devices"] and fp and k:
                     self.store.record(k, verdict["devices"], fp, "load")
                 self._live[mid] = {"devices": verdict["devices"],
                                    "footprint": fp or verdict["footprint"], "key": k,
                                    "last_used": time.time()}
                 self._take_role(mid, role)
-                return 200, dict(verdict, ok=True, measured=fp, evicted=evicted)
+                return 200, dict(verdict, ok=True, measured=fp, **extra)
         finally:
             with self._lock:
                 if self._loading == mid:
@@ -469,14 +556,21 @@ class SlotManager:
 
     def _unload_locked(self, mid):
         before = self._used()
-        code, out = self._d.router("/models/unload", "POST", {"model": mid})
-        if code != 200:
-            return code, {"ok": False, "error": (out or {}).get("error") or "unload failed"}
-        self._unloads += 1
-        for _ in range(UNLOAD_TIMEOUT_S):
-            if ((self._statuses() or {}).get(mid) or {}).get("value") not in RUNNING + ("loading",):
-                break
-            self.sleep(1)
+        procs = self.procs()
+        if procs and procs.has(mid):
+            ok, err = procs.stop(mid)        # waits for the process to exit
+            if not ok:
+                return 500, {"ok": False, "error": err or "couldn't stop the process"}
+            self._unloads += 1
+        else:
+            code, out = self._d.router("/models/unload", "POST", {"model": mid})
+            if code != 200:
+                return code, {"ok": False, "error": (out or {}).get("error") or "unload failed"}
+            self._unloads += 1
+            for _ in range(UNLOAD_TIMEOUT_S):
+                if ((self._statuses() or {}).get(mid) or {}).get("value") not in RUNNING + ("loading",):
+                    break
+                self.sleep(1)
         self.sleep(1)                      # the driver frees a dead process's memory a beat later
         after = self._used()
         freed = {g: before[g] - after[g] for g in before if g in after}

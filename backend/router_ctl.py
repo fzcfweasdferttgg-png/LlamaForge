@@ -50,13 +50,24 @@ def _help_text(server_bin):
     if key in _HELP:
         return _HELP[key]
     try:
-        out = subprocess.check_output([server_bin, "--help"], text=True, timeout=25,
-                                      stderr=subprocess.STDOUT,
-                                      creationflags=CREATE_NO_WINDOW if osplat.IS_WIN else 0)
+        # Not check_output: ik_llama.cpp prints its whole --help and exits 1.
+        # utf-8 for the same reason argspec.build_schema gives (cp1252 locale).
+        r = subprocess.run([server_bin, "--help"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=25,
+                           stdin=subprocess.DEVNULL,
+                           creationflags=CREATE_NO_WINDOW if osplat.IS_WIN else 0)
     except Exception:
         return ""                         # unreadable -> not cached
+    # some builds/forks route usage through the log system -> stderr
+    out = r.stdout if (r.stdout or "").strip() else (r.stderr or "")
+    if not out.strip():
+        return ""                         # nothing printed -> not cached
     _HELP[key] = out
     return out
+
+def help_text(server_bin):
+    """The binary's --help, cached per (path, mtime); '' when it can't be read."""
+    return _help_text(server_bin)
 
 def supports_router_mode(server_bin):
     return "--models-preset" in _help_text(server_bin)

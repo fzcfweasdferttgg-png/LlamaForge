@@ -61,7 +61,16 @@ function planFor(id, rerender) {
 }
 
 /** Drop what we know about a model's fit (its knobs changed, or a new load starts). */
-export function forget(id) { delete plans[id]; delete refusals[id]; }
+export function forget(id) { delete plans[id]; delete refusals[id]; delete dropped[id]; }
+
+// Settings a model's own build doesn't take (slotproc.translate), from its last load.
+const dropped = {};
+export function droppedNote(id) {
+  const d = dropped[id];
+  return d && d.length
+    ? `<div class="slotnote dim">Started without ${esc(d.join(", "))}: this build doesn't have ${d.length > 1 ? "those options" : "that option"}.</div>`
+    : "";
+}
 
 function warn(id, lead, reason, evict) {
   const btn = evict && evict.length
@@ -108,6 +117,7 @@ export async function load(id, asRole = "main", evict = false) {
   const r = await api("/api/load", slotsOn() ? {model: id, role: asRole, evict} : {model: id});
   if (r && !r.success && slotsOn() && typeof r.reason === "string")
     refusals[id] = {sig: loadedSig(), reason: errText(r), evict: r.evict || []};
+  if (r && r.success && Array.isArray(r.dropped) && r.dropped.length) dropped[id] = r.dropped;
   return r || {};
 }
 
