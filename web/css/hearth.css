@@ -395,6 +395,7 @@
   :root[data-skin="hearth"]:not([data-nav="rail"]) .navitem:hover .ico{transform:translateX(2px)}
   /* living things breathe: the loaded model's LED and the eyebrow's dot */
   :root[data-skin="hearth"] .led.loaded{animation:hearth-led 2.8s ease-in-out infinite}
+  :root[data-skin="hearth"] #view-stats .led.loaded{animation:none}   /* redrawn every poll: a pulse would restart and jump */
   :root[data-skin="hearth"] #page-eyebrow::before{animation:hearth-led 4s ease-in-out infinite}
   /* embers: the open ember's flame sways; a running ember's flickers faster */
   :root[data-skin="hearth"] .ef-flame{transform-origin:50% 90%}
