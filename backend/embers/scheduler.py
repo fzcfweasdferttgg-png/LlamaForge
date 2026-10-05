@@ -28,19 +28,31 @@ swap, counts as router activity, so the next swap needs fresh idle minutes.
 Everything that can go wrong is caught: tick() never raises, a broken ember
 never stops the others, and the last problem is kept in status().
 
+On a multi-model pool (pool injected and active): every model that is up
+can run a job, and one that is idle itself runs even while another works.
+A job pinned to a model that isn't up loads it as a worker beside the
+others, through the planner, when nothing is generating and the planner
+says it fits - no idle minutes needed, since nothing is evicted - and
+unloads it afterwards unless the user made it the main or is using it. A
+pool never swaps: the planner never evicts anything for a background job,
+and the router's own load would bypass the device pins it writes.
+Pre-emption there is our model leaving the pool.
+
 Known limits: each ember has one wait clock at a time, so its later due jobs
 start waiting (and count towards WAIT_MAX) only once the earlier job ran or
 was skipped; behind a router that stays busy, an ember with ingest and brief
 due can wait about two WAIT_MAX periods before both are skipped. And
 `embers_cli tick` builds a fresh Scheduler, which has observed no idle time,
-so it never swaps models.
+so it never swaps models; it has no pool either (the slot manager lives in
+the panel's process), so on a pool it only sees the first model that is up
+and never loads one.
 """
 import copy, datetime as dt, os, threading, time
 
 from . import embers_dir, jobs, lock, reserved_name
 from .llm import (MAX_REPLY_CAP, LLMError, ModelNotLoaded, Router, RouterUnavailable, ask_json,
                   clamp_n_ctx)
-from .sched import ORDER, decide, due_jobs, next_occurrence
+from .sched import ORDER, decide, decide_pool, due_jobs, next_occurrence
 from .store import parse_ts
 
 TICK = 60                  # s between passes when nothing ran
@@ -95,8 +107,12 @@ def _msg(e):
 
 class Scheduler:
     def __init__(self, cfg_fn, router_cls=Router, now=dt.datetime.now, clock=time.monotonic,
-                 sleep=None, runners=None):
-        self.cfg_fn, self.router_cls = cfg_fn, router_cls
+                 sleep=None, runners=None, pool=None):
+        """pool: the multi-model pool, or None. active() says whether loads go
+        through the planner right now; plan(mid) and load(mid) are a worker's,
+        load returning (HTTP status, body) like slotctl's; also unload(mid),
+        touch(mid) and main()."""
+        self.cfg_fn, self.router_cls, self.pool = cfg_fn, router_cls, pool
         self._stop = threading.Event()
         # The default sleep is the stop event, so stop() cuts short a wait for a model load.
         self.now, self.clock, self.sleep = now, clock, sleep or self._stop.wait
@@ -188,21 +204,26 @@ class Scheduler:
         if not candidates:
             return                             # nothing due: never touch the router
 
-        router, loaded, busy = self._observe(cfg)
+        on_pool = self._pool_on()
+        router, loaded, busy = (self._observe_pool if on_pool else self._observe)(cfg)
         idle_for = self.clock() - self._last_active
         swap_ok = cfg.get("embers_swap_models", True)
         for c in candidates:
             key = (c["id"], c["job"])
             w = self._waiting.get(key)
             waited = self.clock() - w["since"] if w and w["since"] is not None else 0
-            action, arg = decide(c["model"], loaded, busy, idle_for, waited, swap_ok)
+            if on_pool:
+                plan = self._plan(c["model"], loaded, busy, swap_ok)
+                action, arg = decide_pool(c["model"], loaded, busy, waited, swap_ok, plan)
+            else:
+                action, arg = decide(c["model"], loaded, busy, idle_for, waited, swap_ok)
             if action == "wait":
                 self._wait(result, c, arg)
                 continue
             if action == "skip":
                 self._skip(result, c, now, arg)
                 return
-            self._act(result, c, router, loaded, action, arg)
+            self._act(result, c, router, loaded, action, arg, on_pool)
             return
 
     def _scan(self, eid, root, now, status):
@@ -258,6 +279,45 @@ class Scheduler:
             self._last_active = now
         return router, loaded, busy
 
+    def _pool_on(self):
+        if self.pool is None:
+            return False
+        try:
+            return bool(self.pool.active())
+        except Exception as e:
+            self._error(f"pool: {_msg(e)}")
+            return False
+
+    def _observe_pool(self, cfg):
+        """(router|None, [ids up, the main first], {id: busy}|None) once per tick.
+        A sleeping model counts as idle and is never asked (/metrics wakes it)."""
+        router, loaded, busy = None, [], None
+        try:
+            router = self.router_cls(cfg)
+            entries = router.loaded_entries(self.pool.main() or "")
+            loaded = [e["id"] for e in entries]
+            busy = {e["id"]: 0 if e.get("status") == "sleeping" else router.report(e["id"]).get("busy")
+                    for e in entries}
+        except LLMError:
+            busy = None
+        except Exception as e:                 # a router bug is still "not reachable"
+            self._error(f"router: {_msg(e)}")
+            busy = None
+        # A pool never swaps, so it keeps no idle clock; leaving it needs fresh looks.
+        self._last_active, self._last_seen = self.clock(), None
+        return router, loaded, busy
+
+    def _plan(self, want, loaded, busy, swap_ok):
+        """The planner's verdict on loading want as a worker, asked only when
+        that is what decide_pool would do next."""
+        if (not want or want in loaded or swap_ok is not True or not isinstance(busy, dict)
+                or any(busy.values())):
+            return None
+        try:
+            return self.pool.plan(want)
+        except Exception as e:
+            return {"ok": False, "reason": f"the planner failed: {_msg(e)}"}
+
     def _wait(self, result, c, reason, count=True):
         key = (c["id"], c["job"])
         w = self._waiting.get(key)
@@ -277,14 +337,14 @@ class Scheduler:
         self._waiting.pop((c["id"], c["job"]), None)
         result["skipped"].append((c["id"], c["job"], reason))
 
-    def _act(self, result, c, router, loaded, action, model):
+    def _act(self, result, c, router, loaded, action, model, on_pool=False):
         try:
             with lock.held(c["root"]):
-                self._locked_run(result, c, router, loaded, action, model)
+                self._locked_run(result, c, router, loaded, action, model, on_pool)
         except lock.Busy:
             self._wait(result, c, LOCKED, count=False)   # the other runner writes the attempt row
 
-    def _locked_run(self, result, c, router, prev, action, model):
+    def _locked_run(self, result, c, router, prev, action, model, on_pool=False):
         with jobs.Ember(c["root"]) as ember:
             # Re-check under the lock: another runner may have just done this slot.
             now = self.now()
@@ -295,7 +355,7 @@ class Scheduler:
             if c["job"] not in due:
                 self._waiting.pop((c["id"], c["job"]), None)
                 return
-            swapped, preempted = False, []
+            swapped, coloaded, preempted = False, False, []
             try:
                 if action == "swap":
                     try:
@@ -316,26 +376,91 @@ class Scheduler:
                         self._waiting.pop((c["id"], c["job"]), None)
                         result["skipped"].append((c["id"], c["job"], why[:ERROR_CHARS]))
                         return
+                elif action == "coload":
+                    coloaded = self._coload(result, c, ember, now, model)
+                    if coloaded is None:
+                        return
                 self._waiting.pop((c["id"], c["job"]), None)
-                self._run(result, c, ember, router, model, preempted)
+                self._run(result, c, ember, router, model, preempted, on_pool)
+                if on_pool and not coloaded:
+                    self._touch(model)
             finally:
                 if swapped and not preempted:      # pre-empted: the GPU is the user's now
                     self._restore(router, prev, model)
+                if coloaded and not preempted:
+                    self._release(router, model)
 
-    def _guarded_llm(self, router, model, preempted):
+    def _coload(self, result, c, ember, now, model):
+        """Load model as a worker beside the others. True if we loaded it, False
+        if it was up already (not ours to unload), None if the job can't run now:
+        it waits (refused or unreachable, worth another try) or is skipped."""
+        try:
+            code, body = self.pool.load(model)
+        except Exception as e:
+            code, body = 502, {"error": _msg(e)}
+        body = body if isinstance(body, dict) else {}
+        if code == 200 and body.get("loading"):
+            self._wait(result, c, f"{model} is loading")
+            return None
+        if code == 200:
+            return not body.get("already")
+        err = body.get("error") or body.get("reason")
+        if isinstance(err, dict):
+            err = err.get("message")
+        why = f"could not load {model}: " + (err if isinstance(err, str) and err else f"HTTP {code}")
+        why = why[:ERROR_CHARS]
+        if code in (409, 502):
+            self._wait(result, c, why)
+            return None
+        with ember.store.db:
+            ember.store.record_skip(c["job"], now, why)
+        self._waiting.pop((c["id"], c["job"]), None)
+        result["skipped"].append((c["id"], c["job"], why))
+        return None
+
+    def _touch(self, model):
+        """A worker that just did work is the last one the planner evicts."""
+        try:
+            self.pool.touch(model)
+        except Exception as e:
+            self._error(f"pool: {_msg(e)}")
+
+    def _release(self, router, model):
+        """Unload the worker we loaded for the job, unless the user took it over
+        meanwhile: made it the main, or is sending it requests. Never raises."""
+        try:
+            if self.pool.main() == model:
+                return
+            st = next((m.get("status") for m in router.models() if m.get("id") == model), None)
+            if st not in ("loaded", "sleeping"):
+                return                         # gone already, or the user is reloading it
+            if st == "loaded" and router.report(model).get("busy"):
+                return
+            code, body = self.pool.unload(model)
+            if code != 200:
+                self._error(f"could not unload {model} after the job: "
+                            f"{(body or {}).get('error') or code}")
+        except Exception as e:
+            self._error(f"could not unload {model} after the job: {_msg(e)}")
+        finally:
+            self._last_active = self.clock()
+            self._last_seen = None
+
+    def _guarded_llm(self, router, model, preempted, on_pool=False):
         """Like router.llm(model), but every request (ask_json's retry too) first
         checks our model is still loaded, and goes out with autoload=false."""
         complete = router.complete(model, autoload=False)
 
         def check():
             try:
-                cur = router.loaded_model()    # sleeping counts: a request wakes it, still ours
+                up = router.loaded_ids()       # sleeping counts: a request wakes it, still ours
             except LLMError as e:
                 raise RouterUnavailable(f"could not check the loaded model: {e}"[:ERROR_CHARS]) from None
-            if cur != model:
-                who = cur if isinstance(cur, str) and cur else "nothing"
+            if model not in up:
+                who = up[0] if up and isinstance(up[0], str) and up[0] else "nothing"
                 preempted.append(who)
-                raise RouterUnavailable(f"pre-empted: {who} is loaded now"[:ERROR_CHARS])
+                what = f"{model} was unloaded" if on_pool and up else f"{who} is loaded now"
+                raise RouterUnavailable(f"pre-empted: {what}"[:ERROR_CHARS])
 
         def guarded(messages, schema, max_tokens):
             check()
@@ -356,11 +481,11 @@ class Scheduler:
         call.model = model
         return call
 
-    def _run(self, result, c, ember, router, model, preempted):
+    def _run(self, result, c, ember, router, model, preempted, on_pool=False):
         self._set_running(c["id"], c["job"])
         try:
             n_ctx = clamp_n_ctx(router.n_ctx(model))
-            llm = self._guarded_llm(router, model, preempted)
+            llm = self._guarded_llm(router, model, preempted, on_pool)
             r = self.runners[c["job"]](ember, llm, self.now(), n_ctx=n_ctx)
             status = r.get("status") if isinstance(r, dict) else None
             result["ran"] = (c["id"], c["job"], status if isinstance(status, str) else "unknown")

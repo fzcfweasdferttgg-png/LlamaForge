@@ -198,6 +198,69 @@ class DecideTest(unittest.TestCase):
                                 waited=99999), ("swap", "q"))
 
 
+class DecidePoolTest(unittest.TestCase):
+    """A multi-model pool: several models up at once, the main first. An ember
+    runs on any of them, loads its own beside them when the planner says it
+    fits, and never evicts anything."""
+
+    def d(self, want="", loaded=("main",), busy=None, waited=0, swap_allowed=True, plan=None):
+        busy = {m: 0 for m in loaded} if busy is None else busy
+        return sched.decide_pool(want, list(loaded), busy, waited, swap_allowed, plan)
+
+    def test_router_unreachable(self):
+        self.assertEqual(sched.decide_pool("", ["main"], None, 0, True),
+                         ("wait", "the router is not reachable"))
+
+    def test_any_model_runs_on_the_main(self):
+        self.assertEqual(self.d(loaded=("main", "small")), ("run", "main"))
+
+    def test_any_model_waits_while_the_main_is_busy(self):
+        self.assertEqual(self.d(loaded=("main", "small"), busy={"main": 1, "small": 0}),
+                         ("wait", "main is busy"))
+
+    def test_nothing_loaded(self):
+        self.assertEqual(self.d(loaded=(), busy={}), ("wait", "no model is loaded"))
+
+    def test_a_loaded_worker_runs_while_the_main_works(self):
+        self.assertEqual(self.d(want="small", loaded=("main", "small"),
+                                busy={"main": 2, "small": 0}), ("run", "small"))
+
+    def test_a_busy_model_waits(self):
+        self.assertEqual(self.d(want="small", loaded=("main", "small"),
+                                busy={"main": 0, "small": 1}), ("wait", "small is busy"))
+
+    def test_loads_beside_when_it_fits(self):
+        self.assertEqual(self.d(want="q", plan={"ok": True}), ("coload", "q"))
+
+    def test_loads_into_an_empty_pool(self):
+        self.assertEqual(self.d(want="q", loaded=(), busy={}, plan={"ok": True}), ("coload", "q"))
+
+    def test_waits_with_the_planners_reason(self):
+        self.assertEqual(self.d(want="q", plan={"ok": False, "reason": "needs ~9.0 GiB"}),
+                         ("wait", "q can't load beside the loaded models: needs ~9.0 GiB"))
+
+    def test_never_loads_while_anything_is_busy(self):
+        self.assertEqual(self.d(want="q", busy={"main": 1}, plan={"ok": True}),
+                         ("wait", "the router is busy"))
+
+    def test_swapping_off_means_no_loads_either(self):
+        self.assertEqual(self.d(want="q", swap_allowed=False, plan={"ok": True}),
+                         ("wait", "needs q; model swapping is off"))
+
+    def test_no_plan_is_a_wait(self):
+        self.assertEqual(self.d(want="q", plan=None)[0], "wait")
+
+    def test_wait_max_skips(self):
+        self.assertEqual(self.d(want="q", plan={"ok": False, "reason": "full"},
+                                waited=sched.WAIT_MAX),
+                         ("skip", "q can't load beside the loaded models: full for 60 minutes"))
+
+    def test_junk_is_tolerated(self):
+        self.assertEqual(sched.decide_pool(None, ["m", 5, ""], {"m": 0}, 0, True), ("run", "m"))
+        self.assertEqual(self.d(loaded=("m",), busy={"m": "1"}), ("wait", "the router is not reachable"))
+        self.assertEqual(sched.decide_pool("", "m", {"m": 0}, 0, True), ("wait", "no model is loaded"))
+
+
 class EdgeDatesTest(unittest.TestCase):
     def test_daily_across_year_boundary(self):
         self.assertEqual(sched.last_occurrence("23:00", dt(2027, 1, 1, 0, 30)),

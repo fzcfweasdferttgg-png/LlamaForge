@@ -2336,3 +2336,26 @@ POST_ROUTES = {
 # so every helper it reaches for must already be defined.
 REGISTRY = backends.Registry(sys.modules[__name__])
 SLOTS = slotctl.SlotManager(sys.modules[__name__], os.path.join(ROOT, "footprints.json"))
+
+
+class EmbersPool:
+    """The pool as the embers scheduler may use it: worker loads beside the
+    user's models, never an eviction, never a role change."""
+
+    def active(self):
+        return _slots_on()
+
+    def plan(self, mid):
+        return SLOTS.plan(mid, "worker")
+
+    def load(self, mid):
+        return SLOTS.load(mid, "worker", False, wait=True, keep_role=True)
+
+    def unload(self, mid):
+        return SLOTS.unload(mid)
+
+    def touch(self, mid):
+        SLOTS.touch(mid)
+
+    def main(self):
+        return SLOTS._main()

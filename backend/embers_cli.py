@@ -7,8 +7,9 @@
   python backend/embers_cli.py tick               # one scheduler pass: what the panel would run now
 
 It uses the router LlamaForge already runs (config router_port and
-router_api_key) and whatever model is loaded; --model (or the ember's pinned
-model) must name the loaded one. The job commands never load or unload
+router_api_key) and whatever model is loaded (the pool's main when several
+are); --model (or the ember's pinned model) must name a loaded one. The job
+commands never load or unload
 models, and stop if the user switches models mid-run; `tick` follows the panel's
 scheduler rules (embers/scheduler.py), but a fresh process has seen no idle
 time yet, so it never swaps models.
@@ -157,10 +158,13 @@ def _run_steps(a, root, cfg, router_cls, out):
     with jobs.Ember(root) as ember:
         router = router_cls(cfg)
         pinned = ember.conf.get("model")
-        model = a.model or (pinned if isinstance(pinned, str) else "") or router.loaded_model()
+        slots = cfg.get("slots") if isinstance(cfg.get("slots"), dict) else {}
+        main = slots.get("main") if isinstance(slots.get("main"), str) else ""
+        up = router.loaded_ids(main)           # several on a multi-model pool, the main first
+        model = a.model or (pinned if isinstance(pinned, str) else "") or (up[0] if up else None)
         if not model or not isinstance(model, str):
             raise SystemExit("No model is loaded in the router. Load one in LlamaForge or pass --model.")
-        if model != router.loaded_model():     # never load one: it would evict the user's model
+        if model not in up:                    # never load one: it could evict the user's model
             raise _Fail(safe(f"{model} is not loaded in the router. Load it in LlamaForge first "
                              "(job commands never load or unload models).")[:REASON_CHARS])
         # autoload=False: if the user switches models mid-run, stop instead of loading ours back.

@@ -173,5 +173,23 @@ class AutoLoad(Base):
         self.router.assert_any_call("/models/load", "POST", {"model": "m1"})
 
 
+class EmbersPool(Base):
+    """What the embers scheduler may do with the pool: worker loads only, never
+    an eviction, never a role change."""
+
+    def test_loads_are_workers_that_evict_nothing(self):
+        routes.EmbersPool().load("q")
+        self.slots.load.assert_called_once_with("q", "worker", False, wait=True, keep_role=True)
+
+    def test_plans_are_a_workers(self):
+        routes.EmbersPool().plan("q")
+        self.slots.plan.assert_called_once_with("q", "worker")
+
+    def test_active_only_on_a_running_pool(self):
+        self.assertTrue(routes.EmbersPool().active())
+        self.pool.return_value = None
+        self.assertFalse(routes.EmbersPool().active())
+
+
 if __name__ == "__main__":
     unittest.main()

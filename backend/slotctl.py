@@ -360,11 +360,12 @@ class SlotManager:
         with self._lock:
             self._set_main(mid or "")
 
-    def load(self, mid, role="main", evict=False, wait=True):
+    def load(self, mid, role="main", evict=False, wait=True, keep_role=False):
         """(HTTP status, body). 409 = the planner said no (body is its verdict;
         `evict` names the workers whose unload would make room for a main load,
         and evict=True unloads them first). With wait=False the load runs on in
-        the background and the body says loading."""
+        the background and the body says loading. keep_role: a model that is
+        up already keeps its role (a background job must not demote the main)."""
         role = "main" if role == "main" else "worker"
         with self._lock:
             if self._loading and self._loading != mid:
@@ -376,7 +377,8 @@ class SlotManager:
                 return 404, _unknown(mid)
             cur = (st.get(mid) or {}).get("value")
             if cur in RUNNING or cur == "loading":
-                self._take_role(mid, role)
+                if not keep_role:
+                    self._take_role(mid, role)
                 return 200, {"ok": True, "already": True, "loading": cur == "loading"}
             busy = [m for m, s in st.items() if s.get("value") == "loading"]
             if busy:

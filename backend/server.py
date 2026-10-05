@@ -448,7 +448,7 @@ def main():
         pass
     try:                    # embers: run due jobs in the background (config embers_scheduler)
         from embers.scheduler import Scheduler
-        EMBERS_SCHED = Scheduler(routes.cfg)
+        EMBERS_SCHED = Scheduler(routes.cfg, pool=routes.EmbersPool())
         EMBERS_SCHED.start()
     except Exception as e:
         print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")

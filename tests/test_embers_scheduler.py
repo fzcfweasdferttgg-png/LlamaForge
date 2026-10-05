@@ -61,6 +61,10 @@ class FakeRouter:
         e = self.loaded_entry()
         return e["id"] if e else None
 
+    def loaded_ids(self, main=""):
+        e = self.loaded_entry()
+        return [e["id"]] if e else []
+
     def report(self, model):
         self.s.calls.append(("activity", model))
         if model != self._current():           # asleep or not loaded: /metrics would load or wake it

@@ -331,6 +331,14 @@ class Roles(Base):
         self.assertEqual(self.router.status["w1"]["value"], "unloaded")
         self.assertEqual(out["evicted"], ["w1"])
 
+    def test_a_background_load_never_demotes_the_main(self):
+        self.mgr.load("m1", "main")
+        status, out = self.mgr.load("m1", "worker", keep_role=True)   # an ember, a beat late
+        self.assertEqual((status, out["already"]), (200, True))
+        self.assertEqual(config.load()["slots"]["main"], "m1")
+        self.mgr.load("m1", "worker")                                  # the user asked for it
+        self.assertEqual(config.load()["slots"]["main"], "")
+
     def test_one_main_at_a_time(self):
         self.mgr.load("m1", "main")
         self.mgr.load("m2", "main")

@@ -331,6 +331,15 @@ class Router:
         """The registry entry of the model that is up ("loaded" or "sleeping"), else None."""
         return next((m for m in self.models() if m["status"] in ("loaded", "sleeping")), None)
 
+    def loaded_entries(self, main=""):
+        """Every entry that is up - several on a multi-model pool - with the
+        pool's main (when given and up) first."""
+        up = [m for m in self.models() if m["status"] in ("loaded", "sleeping")]
+        return sorted(up, key=lambda m: m["id"] != main)
+
+    def loaded_ids(self, main=""):
+        return [m["id"] for m in self.loaded_entries(main)]
+
     def loaded_model(self):
         e = self.loaded_entry()
         return e["id"] if e else None

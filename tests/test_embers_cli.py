@@ -37,10 +37,15 @@ class FakeRouter:
     def __init__(self, cfg):
         self.cfg = cfg
 
-    def loaded_model(self):
+    def loaded_ids(self, main=""):
         if isinstance(self.loaded, Exception):
             raise self.loaded
-        return self.loaded
+        ids = self.loaded if isinstance(self.loaded, list) else [self.loaded] if self.loaded else []
+        return sorted(ids, key=lambda m: m != main)
+
+    def loaded_model(self):
+        ids = self.loaded_ids()
+        return ids[0] if ids else None
 
     def n_ctx(self, model):
         return self.ctx
@@ -114,6 +119,19 @@ class CliTest(CliCase):
         with self.assertRaises(SystemExit) as cm:
             self.cli("ingest", "morning")
         self.assertIn("No model is loaded", str(cm.exception))
+
+    def test_a_model_loaded_beside_the_main_is_accepted(self):
+        self.create()
+        FakeRouter.loaded = ["big", "qwen3.5-9b"]
+        code, out = self.cli("ingest", "morning", "--model", "qwen3.5-9b")
+        self.assertEqual(code, 0, out + self.err)
+        self.assertIn("Using qwen3.5-9b", out)
+
+    def test_unpinned_on_a_pool_uses_the_main(self):
+        self.create()
+        config.update({"slots": {"main": "big"}})
+        FakeRouter.loaded = ["small", "big"]
+        self.assertIn("Using big", self.cli("ingest", "morning")[1])
 
 
 class HardeningTest(CliCase):
