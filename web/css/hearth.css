@@ -357,3 +357,52 @@
 @keyframes hearth-breathe{0%,100%{filter:drop-shadow(0 0 8px rgba(255,120,50,.35))}50%{filter:drop-shadow(0 0 16px rgba(255,140,60,.7))}}
 :root[data-skin="hearth"] .logo{animation:hearth-breathe 5s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){:root[data-skin="hearth"] .logo{animation:none}}
+/* ---- Motion -------------------------------------------------------------
+   Subtle, and only where nothing re-renders underneath it. Views that poll
+   (stats every 4s, the embers list every 5s, GPU tiles) never get entrance
+   animations - those would replay on every poll. Entrances use `backwards`
+   fill so no transform lingers after they finish (a lingering transform would
+   become the containing block for fixed descendants). All of it is off when
+   the OS asks for reduced motion. */
+:root[data-skin="hearth"]{--ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.45,.64,1)}
+@keyframes hearth-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes hearth-drop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes hearth-pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes hearth-fade{from{opacity:0}to{opacity:1}}
+@keyframes hearth-led{0%,100%{box-shadow:0 0 4px var(--green)}50%{box-shadow:0 0 12px 1px var(--green)}}
+@keyframes hearth-flicker{0%,100%{transform:scale(1) rotate(0)}30%{transform:scale(1.035,.985) rotate(-1.5deg)}60%{transform:scale(.985,1.03) rotate(1deg)}}
+@media (prefers-reduced-motion:no-preference){
+  /* tab switch: the view rises in; the serif title and lede follow (ui.js adds .swap) */
+  :root[data-skin="hearth"] .view.active{animation:hearth-rise .42s var(--ease-out) backwards}
+  :root[data-skin="hearth"] #page-title.swap{animation:hearth-rise .38s var(--ease-out) backwards}
+  :root[data-skin="hearth"] #page-lede.swap{animation:hearth-rise .38s var(--ease-out) .06s backwards}
+  /* model rows are keyed and kept between polls, so they cascade in once */
+  :root[data-skin="hearth"] #list>.row{animation:hearth-rise .4s var(--ease-out) backwards}
+  :root[data-skin="hearth"] #list>.row:nth-child(2){animation-delay:.03s}
+  :root[data-skin="hearth"] #list>.row:nth-child(3){animation-delay:.06s}
+  :root[data-skin="hearth"] #list>.row:nth-child(4){animation-delay:.09s}
+  :root[data-skin="hearth"] #list>.row:nth-child(5){animation-delay:.12s}
+  :root[data-skin="hearth"] #list>.row:nth-child(6){animation-delay:.15s}
+  :root[data-skin="hearth"] #list>.row:nth-child(n+7){animation-delay:.18s}
+  :root[data-skin="hearth"] .row.open .edit{animation:hearth-drop .28s var(--ease-out) backwards}
+  /* hover and press */
+  :root[data-skin="hearth"] :is(.row,.card,.gpu,.ef-row,.navitem,.qbtn,.chip),
+  :where(:root[data-skin="hearth"]) button{transition:background-color .18s ease,border-color .18s ease,box-shadow .22s ease,color .18s ease,transform .22s var(--ease-out),filter .18s ease}
+  :root[data-skin="hearth"] .row:not(.open):hover{transform:translateY(-1px)}
+  :where(:root[data-skin="hearth"]) button.primary:hover{transform:translateY(-1px)}
+  :where(:root[data-skin="hearth"]) button:active,:root[data-skin="hearth"] .qbtn:active{transform:scale(.97);transition-duration:.08s}
+  :root[data-skin="hearth"] .navitem .ico{transition:transform .25s var(--ease-out),color .18s ease,opacity .18s ease}
+  :root[data-skin="hearth"]:not([data-nav="rail"]) .navitem:hover .ico{transform:translateX(2px)}
+  /* living things breathe: the loaded model's LED and the eyebrow's dot */
+  :root[data-skin="hearth"] .led.loaded{animation:hearth-led 2.8s ease-in-out infinite}
+  :root[data-skin="hearth"] #page-eyebrow::before{animation:hearth-led 4s ease-in-out infinite}
+  /* embers: the open ember's flame sways; a running ember's flickers faster */
+  :root[data-skin="hearth"] .ef-flame{transform-origin:50% 90%}
+  :root[data-skin="hearth"] .ef-title .ef-flame{animation:hearth-flicker 3.6s ease-in-out infinite}
+  :root[data-skin="hearth"] .ef-row:has(.ef-led.run) .ef-flame{animation:hearth-flicker 1.3s ease-in-out infinite}
+  /* modals pop in over a fading backdrop; the toast settles with a little spring */
+  :root[data-skin="hearth"] :is(.modal-dialog,#net-confirm)[open] .modal{animation:hearth-pop .28s var(--ease-out) backwards}
+  :root[data-skin="hearth"] :is(.modal-dialog,#net-confirm)[open]::backdrop{animation:hearth-fade .28s ease-out}
+  :root[data-skin="hearth"] .wizard-overlay:not([hidden]) .wizard-card{animation:hearth-pop .32s var(--ease-out) backwards}
+  :root[data-skin="hearth"] #toast{transition:transform .42s var(--ease-spring),opacity .22s ease}
+}
