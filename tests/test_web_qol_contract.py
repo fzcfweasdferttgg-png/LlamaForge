@@ -28,10 +28,15 @@ class WebQolContractTest(unittest.TestCase):
         self.assertIn('.open', src)
         self.assertNotIn('models.refreshRouterLog();\nmodels.refreshVllmLog();', src)
 
-    def test_scanline_overlay_avoids_blend_mode(self):
+    def test_no_blend_mode_overlays(self):
+        # A fixed full-viewport layer with mix-blend-mode repaints the whole
+        # page on every scroll. The CRT scanline overlay is gone; keep any
+        # future overlay (and everything else) off blend modes.
         src = read("web/index.html")
-        rule = src.split("body::after", 1)[1].split("}", 1)[0]
-        self.assertNotIn("mix-blend-mode", rule)
+        self.assertNotIn("mix-blend-mode", src)
+        if "body::after" in src:
+            rule = src.split("body::after", 1)[1].split("}", 1)[0]
+            self.assertNotIn("mix-blend-mode", rule)
 
     def test_bootstrap_scripts_prompt_for_existing_checkout(self):
         for rel in ("bootstrap.ps1", "bootstrap.sh"):
