@@ -25,7 +25,7 @@ import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, 
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends, prebuilt, version, slots, slotctl
+import gguf, diag, backends, prebuilt, version, slots, slotctl, compat
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -957,10 +957,14 @@ def get_vllm_hub_progress(req):
 
 
 def get_model_metadata(req):
+    """The editor's GGUF card: header facts, and which llama.cpp family can
+    load the file (compat.py), read when a row opens, never on the poll."""
     sect = config.read_sections().get(req.q("model"), {})
     mpath = sect.get("model")
     meta = gguf.metadata(mpath) if mpath else None
-    return 200, {"metadata": meta or {}}
+    ok = compat.for_model(mpath) if mpath else dict(compat.UNKNOWN)
+    ok["advice"] = compat.advice(ok["class"], ok["types"], cfg().get("active_engine", "llamacpp"))
+    return 200, {"metadata": meta or {}, "compat": ok}
 
 
 def get_model_diag(req):

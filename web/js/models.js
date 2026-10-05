@@ -27,6 +27,7 @@ let knobEpoch = 0;
 const cmpSet = new Set();         // model ids picked for compare
 const diagCache = {};             // failure diagnosis per model id
 const metaCache = {};             // GGUF metadata per model id
+const compatCache = {};           // which llama.cpp family can load it (compat.py), per model id
 const loadQ = [];                 // sequential load queue
 const favs = new Set(JSON.parse(localStorage.getItem("lf_favs") || "[]"));
 const loadingSince = {};
@@ -568,12 +569,19 @@ function metaBlock(m) {
   if (m.backend === "vllm" || !m.in_ini) return "";
   const meta = metaCache[m.id];
   if (meta === undefined) { setTimeout(() => fetchMeta(m.id), 0); return `<div class="metacard"><div class="m"><span class="mv">reading GGUF header...</span></div></div>`; }
-  if (!meta || !Object.keys(meta).length) return "";
+  if (!meta || !Object.keys(meta).length) return compatNote(m.id);
   const row = (k, v) => v == null ? "" : `<div class="m"><div class="mk">${esc(k)}</div><div class="mv">${esc(v)}</div></div>`;
-  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}</div>`;
+  const runsOn = RUNS_ON[(compatCache[m.id] || {}).class];
+  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}${row("runs on",runsOn)}</div>${compatNote(m.id)}`;
+}
+// From the GGUF's tensor types; advice only, since a third fork can reuse an id.
+const RUNS_ON = {"any": "llama.cpp + ik_llama.cpp", "ik-only": "ik_llama.cpp, not mainline", "mainline-only": "llama.cpp, not ik_llama"};
+function compatNote(id) {
+  const c = compatCache[id];
+  return c && c.advice ? `<div class="slotnote warn"><b>Quant:</b> ${esc(c.advice)}</div>` : "";
 }
 async function fetchMeta(id) {
-  try { const r = await api("/api/model/metadata?model=" + encodeURIComponent(id)); metaCache[id] = r.metadata || {}; }
+  try { const r = await api("/api/model/metadata?model=" + encodeURIComponent(id)); metaCache[id] = r.metadata || {}; compatCache[id] = r.compat || null; }
   catch (e) { metaCache[id] = {}; }
   if (openId === id) renderModels();
 }
