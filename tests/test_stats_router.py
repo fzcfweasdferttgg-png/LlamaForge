@@ -95,12 +95,98 @@ class TestRouterMetricsScrape(RouterCase):
         self.assertTrue(self.tr.live["router_up"])   # up, just idle
         self.assertIsNone(self.tr.live["loaded_model"])
 
+    def test_reset_rebaselines(self):
+        self._wire(prompt=10, gen=20)
+        self.tr.poll_once()
+        self.tr.reset()
+        self._wire(prompt=15, gen=60)
+        self.tr.poll_once()                       # a fresh baseline, not a delta
+        self.assertEqual(self.tr.data["models"]["nomic"]["generated"], 0)
+
     def test_router_down_reports_offline(self):
         def fake_get(path, timeout=4):
             raise urllib.error.URLError("connection refused")
         self.tr._get = fake_get
         self.tr.poll_once()
         self.assertFalse(self.tr.live["router_up"])
+
+
+class TestPool(RouterCase):
+    """With a multi-model pool several models are loaded at once; each has its
+    own /metrics, so each keeps its own baseline."""
+
+    def _pool(self, counters, main=""):
+        """counters: {model: (prompt, gen, gen_per_sec)} for the loaded models."""
+        def fake_get(path, timeout=4):
+            if path == "/models":
+                return json.dumps({"data": [{"id": "default", "status": {"value": "unloaded"}}] + [
+                    {"id": m, "status": {"value": "loaded"}} for m in counters]})
+            mid = path.split("=", 1)[1]
+            p, g, tps = counters[mid]
+            return (f"llamacpp:prompt_tokens_total {p}\n"
+                    f"llamacpp:tokens_predicted_total {g}\n"
+                    f"llamacpp:predicted_tokens_seconds {tps}\n"
+                    f"llamacpp:requests_processing 1\n")
+        self.tr._get = fake_get
+        self.tr._main = lambda: main
+
+    def test_each_model_gets_its_own_tokens(self):
+        self._pool({"big": (10, 100, 5.0), "small": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (10, 150, 5.0), "small": (40, 300, 60.0)})
+        self.tr.poll_once()
+        models = self.tr.data["models"]
+        self.assertEqual((models["big"]["prompt"], models["big"]["generated"]), (0, 50))
+        self.assertEqual((models["small"]["prompt"], models["small"]["generated"]), (40, 300))
+
+    def test_a_model_that_unloads_starts_over_when_it_returns(self):
+        self._pool({"big": (0, 100, 0.0), "small": (0, 500, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (0, 120, 0.0)})          # small unloaded
+        self.tr.poll_once()
+        self._pool({"big": (0, 120, 0.0), "small": (0, 30, 0.0)})   # back, counters from 0
+        self.tr.poll_once()
+        self.assertEqual(self.tr.data["models"]["small"]["generated"], 0)
+        self.assertEqual(self.tr.data["models"]["big"]["generated"], 20)
+
+    def test_runs_are_counted_per_model(self):
+        self._pool({"big": (0, 0, 0.0), "small": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (0, 10, 0.0), "small": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (0, 20, 0.0), "small": (0, 10, 0.0)})    # big still going, small starts
+        self.tr.poll_once()
+        self.assertEqual(self.tr.data["models"]["big"]["runs"], 1)
+        self.assertEqual(self.tr.data["models"]["small"]["runs"], 1)
+
+    def test_live_lists_them_all_with_the_main_first(self):
+        self._pool({"small": (0, 0, 60.0), "big": (0, 0, 5.0)}, main="big")
+        self.tr.poll_once()
+        live = self.tr.live
+        self.assertEqual(live["loaded_model"], "big")
+        self.assertEqual(live["loaded_models"], ["big", "small"])
+        self.assertEqual(live["gen_per_sec"], 65.0)
+        self.assertEqual(live["requests_processing"], 2)
+
+    def test_a_failed_scrape_keeps_the_baseline(self):
+        self._pool({"big": (0, 1000, 0.0)})
+        self.tr.poll_once()
+        good = self.tr._get
+
+        def flaky(path, timeout=4):
+            if path.startswith("/metrics"):
+                raise TimeoutError("busy")
+            return good(path, timeout)
+        self.tr._get = flaky
+        self.tr.poll_once()
+        self._pool({"big": (0, 1010, 0.0)})
+        self.tr.poll_once()
+        self.assertEqual(self.tr.data["models"]["big"]["generated"], 10)
+
+    def test_without_a_main_the_first_loaded_is_named(self):
+        self._pool({"small": (0, 0, 0.0), "big": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self.assertEqual(self.tr.live["loaded_model"], "small")
 
 
 if __name__ == "__main__":

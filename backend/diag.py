@@ -14,6 +14,8 @@ Two rules keep it honest (review 03 H6):
 """
 import re
 
+import compat
+
 _PIN_KEYS = ("n-gpu-layers", "tensor-split", "ctx-size")
 
 # Ordered most-specific first; the first rule whose pattern hits wins.
@@ -25,6 +27,9 @@ _RULES = [
     ("tokenizer", r"unknown pre-tokenizer type",
      "This llama.cpp build doesn't know this model's tokenizer.",
      "Update llama.cpp (Build / Update tab)."),
+    ("quant", r"has invalid ggml type \d+",
+     "This llama.cpp build can't read the model's quant type.",
+     None),
     ("argument", r"error while handling argument|error: invalid argument|unknown argument",
      "llama.cpp rejected a setting.",
      "Clear {arg} in this model's settings. If it's a newer flag, update llama.cpp."),
@@ -118,6 +123,8 @@ def diagnose(log_text, settings=None, model=None):
             fix = _oom_fix(settings)
         elif kind == "argument":
             fix = fix.format(arg=_arg_name(line))
+        elif kind == "quant":
+            fix = compat.load_failure(int(re.search(r"invalid ggml type (\d+)", line).group(1)))
         return {"error": line or err, "suggestion": fix}
     for ln in reversed(lines):
         m = re.search(r"exited with status (-?\d+)", ln)

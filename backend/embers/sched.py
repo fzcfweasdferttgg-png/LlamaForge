@@ -103,6 +103,51 @@ def _decide(want, loaded, busy, idle_for, swap_allowed):
     return "wait", f"waiting for {SWAP_IDLE // 60} idle minutes before loading {want}"
 
 
+def _decide_pool(want, loaded, busy, swap_allowed, plan):
+    if not isinstance(busy, dict):
+        return "wait", "the router is not reachable"
+    counts = {m: _num(busy.get(m, 0)) for m in loaded}
+    if any(n is None or n < 0 for n in counts.values()):
+        return "wait", "the router is not reachable"
+    target = want or (loaded[0] if loaded else None)
+    if target is None:
+        return "wait", "no model is loaded"
+    if target in loaded:
+        return ("wait", f"{target} is busy") if counts[target] > 0 else ("run", target)
+    if swap_allowed is not True:
+        return "wait", f"needs {want}; model swapping is off"
+    if any(counts.values()):
+        return "wait", "the router is busy"    # a load now would slow whoever is generating
+    if not isinstance(plan, dict):
+        return "wait", f"could not ask whether {want} fits"
+    if plan.get("ok") is True:
+        return "coload", want
+    reason = plan.get("reason") if isinstance(plan.get("reason"), str) else ""
+    return "wait", f"{want} can't load beside the loaded models: {reason[:300] or 'refused'}"
+
+
+def decide_pool(want, loaded, busy, waited, swap_allowed, plan=None):
+    """decide() for a multi-model pool. loaded: the ids that are up, the main
+    first; busy: {id: in-flight requests} (None: unreachable); plan: the
+    planner's verdict for loading want as a worker, asked only when needed.
+
+    One of ('run', model), ('coload', model), ('wait', reason), ('skip', reason).
+    A model that is up runs when it is idle itself, even while another one
+    works. Loading one is a worker load beside the others, only when nothing
+    is generating and the planner says it fits; a pool never swaps (the
+    planner never evicts anything for a background job), so there is no idle
+    clock here.
+    """
+    if not isinstance(want, str):
+        want = ""
+    loaded = [m for m in loaded if isinstance(m, str) and m] if isinstance(loaded, list) else []
+    action, arg = _decide_pool(want, loaded, busy, swap_allowed, plan)
+    waited = _num(waited)
+    if action == "wait" and (waited is None or waited >= WAIT_MAX):
+        return "skip", f"{arg} for {WAIT_MAX // 60} minutes"
+    return action, arg
+
+
 def decide(want, loaded, busy, idle_for, waited, swap_allowed):
     """One of ('run', model), ('swap', model), ('wait', reason), ('skip', reason).
 

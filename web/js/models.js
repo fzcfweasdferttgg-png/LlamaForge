@@ -11,6 +11,7 @@ import { $, $$, esc, setHTML, api, toast, meter } from "./core.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
+import * as slots from "./slots.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -26,6 +27,8 @@ let knobEpoch = 0;
 const cmpSet = new Set();         // model ids picked for compare
 const diagCache = {};             // failure diagnosis per model id
 const metaCache = {};             // GGUF metadata per model id
+const compatCache = {};           // which llama.cpp family can load it (compat.py), per model id
+const buildsCache = {};           // {options, pinned}: the builds a model can be pinned to (builds.py)
 const loadQ = [];                 // sequential load queue
 const favs = new Set(JSON.parse(localStorage.getItem("lf_favs") || "[]"));
 const loadingSince = {};
@@ -106,7 +109,7 @@ function knobGroups(m, schema) {
 function editorLive(m) {
   return m.backend === "vllm"
     ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${presetBar(m)}${autoTuneBar(m)}`;
+    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
   if (m.backend === "vllm") {
@@ -117,7 +120,8 @@ function editorButtons(m) {
       <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
-      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
+      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
+      ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
       ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
@@ -157,7 +161,8 @@ function editor(m) {
   const placeholder = m.backend === "vllm"
     ? "filter knobs (e.g. tensor, memory, quant)..."
     : "filter knobs (e.g. cache, rope, temp)...";
-  return `<div class="ed-live">${editorLive(m)}</div>
+  return `<div class="ed-slot">${slots.block(m, renderModels)}</div>
+    <div class="ed-live">${editorLive(m)}</div>
     <div class="toolbar ed-tools">
       <input class="search" data-knobfilter placeholder="${esc(placeholder)}">
       <span class="chip ${onlySet?"on":""}" data-onlyset>Only set</span>
@@ -216,7 +221,7 @@ function rowHead(m, showBackend) {
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="qbtns">${quickBtn(m)}</span>
@@ -225,9 +230,10 @@ function rowHead(m, showBackend) {
 // Everything rowHead() reads. Compared as a string so an unchanged row is left
 // in the DOM untouched - which is what keeps focus, selection and scroll alive.
 function headSig(m, cols, showBackend) {
-  return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.eff_ctx,
+  return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.build, m.eff_ctx,
     m.modalities, m.in_ini, favs.has(m.id), compareMode, cmpSet.has(m.id),
-    loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, cols, showBackend]);
+    loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, cols, showBackend,
+    slots.chipSig(m)]);
 }
 // Keyed so only a different model, backend or schema rebuilds the knob grid.
 function knobSig(m) {
@@ -249,6 +255,7 @@ export function renderModels() {
   if (count) count.textContent = `${nLoaded} LOADED / ${all.length} TOTAL` +
     (ms.length !== all.length ? ` · ${ms.length} shown` : "");
   document.title = nLoaded ? `▸${nLoaded} LLAMAFORGE` : "LLAMAFORGE";
+  slots.renderBanner();
   const cols = compareMode ? "16px 14px 18px 1fr auto auto auto auto"
                            : "14px 18px 1fr auto auto auto auto";
   const showBackend = backendTagNeeded();
@@ -302,9 +309,10 @@ function syncEditor(row, m) {
   if (row._ks !== ks) {          // first open, or the schema/model actually changed
     setHTML(edit, editor(m));
     row._ks = ks;
-    row._live = row._btns = row._note = null;
+    row._slot = row._live = row._btns = row._note = null;
   }
-  const regions = [[".ed-live", editorLive, "_live"],
+  const regions = [[".ed-slot", x => slots.block(x, renderModels), "_slot"],
+                   [".ed-live", editorLive, "_live"],
                    [".ed-btns", editorButtons, "_btns"],
                    [".ed-note", editorNote, "_note"]];
   for (const [sel, build, key] of regions) {
@@ -331,6 +339,7 @@ function beOf(id) {
 function enqueueLoad(id) {
   if (loadQ.some(j => j.id === id) || (loadBusy && loadQ[0] && loadQ[0].id === id)) return;
   delete diagCache[id];               // a retry should re-diagnose, not show stale error
+  slots.forget(id);
   loadQ.push({id});
   toast(loadBusy ? `Queued #${loadQ.length}` : "Loading...", "ok");
   renderModels(); processQ();
@@ -339,7 +348,14 @@ async function processQ() {
   if (loadBusy || !loadQ.length) return;
   loadBusy = true;
   const job = loadQ[0];
-  try { await api(beOf(job.id) === "vllm" ? "/api/vllm/load" : "/api/load", {model: job.id}); } catch (e) {}
+  let r = null;
+  try {
+    r = beOf(job.id) === "vllm" ? await api("/api/vllm/load", {model: job.id})
+                                : await slots.load(job.id);
+  } catch (e) {}
+  // a planner refusal is an answer, not a crash: say it (the open row shows the details)
+  if (r && r.success === false && typeof r.reason === "string")
+    toast(`${job.id}: ${slots.errText(r)}`.slice(0, 220), "err");
   loadQ.shift(); loadBusy = false;
   await refresh(true);
   if (chatAfterLoad.delete(job.id)) {
@@ -554,14 +570,84 @@ function metaBlock(m) {
   if (m.backend === "vllm" || !m.in_ini) return "";
   const meta = metaCache[m.id];
   if (meta === undefined) { setTimeout(() => fetchMeta(m.id), 0); return `<div class="metacard"><div class="m"><span class="mv">reading GGUF header...</span></div></div>`; }
-  if (!meta || !Object.keys(meta).length) return "";
+  if (!meta || !Object.keys(meta).length) return compatNote(m.id);
   const row = (k, v) => v == null ? "" : `<div class="m"><div class="mk">${esc(k)}</div><div class="mv">${esc(v)}</div></div>`;
-  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}</div>`;
+  const runsOn = RUNS_ON[(compatCache[m.id] || {}).class];
+  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}${row("runs on",runsOn)}</div>${compatNote(m.id)}`;
+}
+// From the GGUF's tensor types; advice only, since a third fork can reuse an id.
+const RUNS_ON = {"any": "llama.cpp + ik_llama.cpp", "ik-only": "ik_llama.cpp, not mainline", "mainline-only": "llama.cpp, not ik_llama"};
+function compatNote(id) {
+  const c = compatCache[id];
+  return c && c.advice ? `<div class="slotnote warn"><b>Quant:</b> ${esc(c.advice)}</div>` : "";
 }
 async function fetchMeta(id) {
-  try { const r = await api("/api/model/metadata?model=" + encodeURIComponent(id)); metaCache[id] = r.metadata || {}; }
-  catch (e) { metaCache[id] = {}; }
+  try {
+    const r = await api("/api/model/metadata?model=" + encodeURIComponent(id));
+    metaCache[id] = r.metadata || {}; compatCache[id] = r.compat || null; buildsCache[id] = r.builds || null;
+  } catch (e) { metaCache[id] = {}; }
   if (openId === id) renderModels();
+}
+
+/* ---------- per-model build ----------------------------------------------
+   A model pinned to a build other than the router's runs in its own
+   llama-server process (slotproc.py), on its own port. That is how a model
+   whose quant only ik_llama.cpp has can run at all: ik has no router mode. */
+function buildTag(m) {
+  if (!m.build) return "";
+  const tip = m.process
+    ? `runs on build ${m.build}, in its own llama-server process`
+    : `pinned to build ${m.build}`;
+  return `<span class="tag build" title="${esc(tip)}">${esc(m.build)}</span>`;
+}
+function buildBar(m) {
+  const b = buildsCache[m.id];
+  if (!b || !Array.isArray(b.options)) return "";
+  const pinned = b.pinned || "", opts = b.options;
+  const cur = opts.find(o => o.ref === pinned);
+  // nothing to choose when every build is the router's own; one other build
+  // (ik beside a router on the user's own binary) is already a choice
+  if (!pinned && !opts.some(o => !o.router)) return "";
+  const router = opts.find(o => o.router);
+  const opt = (v, label) => `<option value="${esc(v)}"${v === pinned ? " selected" : ""}>${esc(label)}</option>`;
+  const items = [opt("", `follow the router${router ? " (" + router.label + ")" : ""}`)]
+    .concat(opts.map(o => opt(o.ref, o.label + (o.router ? " · the router's build now" : ""))));
+  if (pinned && !cur) items.push(opt(pinned, `${pinned} (not installed)`));
+  let note = "";
+  if (pinned && !cur)
+    note = `<div class="slotnote warn"><b>Build gone:</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Build / Update.</div>`;
+  else if (cur && cur.router)
+    note = `<div class="slotnote dim">Pinned: it stays on ${esc(cur.label)} when the router moves to another build.</div>`;
+  else if (cur)
+    note = `<div class="slotnote dim">Runs in its own llama-server${m.process ? " on port " + esc(m.process.port) : ""}, not the router: clients reach it at its own endpoint, and Embers can't use it.</div>`;
+  return `<div class="tunebar">
+    <span class="tunebar-label" title="Which llama.cpp build runs this model. Follow the router, or keep it on one build whatever the router runs. A build other than the router's runs the model in its own process.">Build</span>
+    <select data-build-pick="${esc(m.id)}">${items.join("")}</select>
+  </div>${note}${slots.droppedNote(m.id)}`;
+}
+async function setBuild(sel) {
+  const id = sel.dataset.buildPick, ref = sel.value;
+  const row = sel.closest(".row"), msg = row && $("[data-msg]", row);
+  const m = modelRows().find(x => x.id === id);
+  const up = m && (m.status === "loaded" || m.status === "loading" || m.status === "sleeping");
+  if (up && !confirm(`Switching the build unloads ${id}. Continue?`)) {
+    if (row) row._live = null;                         // put the select back
+    renderModels(); return;
+  }
+  sel.disabled = true;
+  try {
+    const r = await api("/api/model/build", {model: id, build: ref});
+    if (r && r.ok) {
+      if (buildsCache[id]) buildsCache[id].pinned = r.build;
+      delete diagCache[id]; slots.forget(id);
+      if (msg) { msg.className = "msg ok"; msg.textContent = r.was_running ? "build saved - unloaded to apply" : "build saved - used on the next load"; }
+      toast(ref ? `${id} now runs on ${ref}` : `${id} follows the router's build`, "ok");
+    } else {
+      toast((r && r.error) || "could not change the build", "err");
+      if (row) row._live = null;
+    }
+  } catch (e) { toast("could not change the build: " + e, "err"); if (row) row._live = null; }
+  await refresh(true);
 }
 
 /* ---------- autotune bar ---------- */
@@ -613,7 +699,7 @@ function renderTuneResults(row, measurements) {
     const label = diff ? diff : "base";
     return `<div class="tunebar-cand${isBest?" best":""}"><span class="tunebar-cand-label">${esc(label)}</span><span class="tunebar-cand-tok">${tok} tok/s</span>${isBest?'<span class="tunebar-cand-best">← chosen</span>':''}</div>`;
   }).join("");
-  el.innerHTML = `<div class="tunebar-cand-header"><span>candidate</span><span>speed</span></div>${rows}`;
+  setHTML(el, `<div class="tunebar-cand-header"><span>candidate</span><span>speed</span></div>${rows}`);
   el.hidden = false;
 }
 async function handleTuneRefine(modelId) {
@@ -627,7 +713,11 @@ async function handleTuneRefine(modelId) {
     const tok = (r.measurements?.chosen_tok_s || 0).toFixed(1);
     applyTuneResult(row, {knobs: r.knobs, intent});
     renderTuneResults(row, r.measurements);
-    toast(`Refined — ${tok} tok/s`, "ok");
+    if (r.restore_error) {
+      const msg = $("[data-msg]", row);
+      if (msg) { msg.className = "msg err"; msg.textContent = `benchmarked, but ${modelId} didn't load back: ${r.restore_error}`; }
+      toast(`Refined, but ${modelId} didn't load back`, "err");
+    } else toast(`Refined — ${tok} tok/s`, "ok");
   } catch (e) { toast("Refine failed: " + e, "err"); }
   btn.disabled = false; btn.textContent = "Run (~1 min)";
 }
@@ -709,6 +799,11 @@ export function initModels() {
     if (vllmLog.open) refreshVllmLog();
   });
 
+  document.addEventListener("change", e => {
+    const pick = e.target.closest("#view-models [data-build-pick]");
+    if (pick) setBuild(pick);
+  });
+
   document.addEventListener("input", e => {
     // knob-filter box (dynamic, inside an open editor)
     if (e.target.matches("[data-knobfilter]")) { filterKnobs(e.target); return; }
@@ -778,6 +873,26 @@ export function initModels() {
     // quick load/unload in the row header
     const quick = e.target.closest("#view-models [data-quick]");
     if (quick) { e.stopPropagation(); quickAction(quick.dataset.quick, quick.dataset.qid); return; }
+    // multi-model slots: make main, unload-the-workers-and-load, restart with the pool
+    const sMain = e.target.closest("#view-models [data-slot-main]");
+    if (sMain) {
+      e.stopPropagation(); sMain.disabled = true;
+      await slots.makeMain(sMain.dataset.slotMain); await refresh(true); return;
+    }
+    const sEvict = e.target.closest("#view-models [data-slot-evict]");
+    if (sEvict) {
+      e.stopPropagation(); sEvict.disabled = true;
+      const id = sEvict.dataset.slotEvict;
+      toast(`Unloading workers, then loading ${id}...`, "ok");
+      const r = await slots.load(id, "main", true);
+      toast(r.success ? `${id} is loaded` : `${id}: ${slots.errText(r)}`.slice(0, 220), r.success ? "ok" : "err");
+      await refresh(true); return;
+    }
+    if (e.target.closest("#view-models [data-slot-apply]")) {
+      e.stopPropagation();
+      if (await slots.applyPool()) await refresh(true);
+      return;
+    }
     // presets
     const pApply = e.target.closest("[data-preset-apply]");
     if (pApply) {
@@ -816,11 +931,16 @@ export function initModels() {
           msg.textContent = r.was_running ? "saved - unloaded to apply" : "saved + reloaded";
           toast("Saved & reloaded", "ok");
           invalidateKnobs();   // server now matches the inputs; refresh "set" marks
+          slots.forget(id);    // new knobs, new footprint: ask the planner again
         } else { msg.className = "msg err"; msg.textContent = r.error || "failed"; }
       } else if (act === "load") {
         msg.className = "msg work"; msg.textContent = "loading (may take seconds)...";
-        const r = await api("/api/load", {model: id});
-        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=(r.error&&r.error.message)||"load failed");
+        const r = await slots.load(id);
+        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
+      } else if (act === "loadw") {
+        msg.className = "msg work"; msg.textContent = "loading beside the main model...";
+        const r = await slots.load(id, "worker");
+        r.success ? toast("Loaded as a worker","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
       } else if (act === "unload") {
         msg.className = "msg work"; msg.textContent = "unloading...";
         await api("/api/unload", {model: id}); toast("Unloaded", "ok");

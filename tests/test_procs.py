@@ -82,6 +82,76 @@ class PlanTest(unittest.TestCase):
             self.assertEqual([pid for _l, pid in self.plan(router=None)], [])
 
 
+SLOT, SLOT2 = 400, 401
+
+
+class SlotProcsTest(unittest.TestCase):
+    """Models pinned to their own build run in processes the panel started
+    (slotproc.py), recorded in logs/slotprocs.json; stop takes those too."""
+    def setUp(self):
+        self.logdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.logdir, True)
+
+    def records(self, recs):
+        with open(os.path.join(self.logdir, "slotprocs.json"), "w", encoding="utf-8") as f:
+            f.write(recs if isinstance(recs, str) else json.dumps(recs))
+
+    def plan(self, t, ports):
+        owners = {8080: None, 8090: None}
+        owners.update(ports)
+        return procs.plan(CFG, self.logdir, t, owners.get)
+
+    def test_recorded_processes_holding_their_ports(self):
+        self.records({"ik-model": {"pid": SLOT, "port": 8100, "bin": "/ik/llama-server"},
+                      "other": {"pid": SLOT2, "port": 8101, "bin": "/b2/llama-server"}})
+        t = table()
+        t[SLOT] = (PANEL, r"C:\lf\engines\ik_llama\llama-server.exe")
+        t[SLOT2] = (PANEL, r"C:\lf\engines\b2\llama-server.exe")
+        self.assertEqual(sorted(self.plan(t, {8100: SLOT, 8101: SLOT2})),
+                         [("model process", SLOT), ("model process", SLOT2)])
+
+    def test_they_go_before_the_router_and_the_panel(self):
+        procs.write_pid(self.logdir, "router", ROUTER)
+        self.records({"m": {"pid": SLOT, "port": 8100}})
+        t = table()
+        t[SLOT] = (PANEL, "llama-server")
+        steps = self.plan(t, {8080: ROUTER, 8090: PANEL, 8100: SLOT})
+        self.assertEqual(steps[0], ("model process", SLOT))
+        self.assertEqual(steps[-1], ("LlamaForge dashboard", PANEL))
+
+    def test_a_reused_pid_is_left_alone(self):
+        self.records({"m": {"pid": SLOT, "port": 8100}})
+        t = table()
+        t[SLOT] = (1, r"C:\Program Files\Steam\steam.exe")      # not a llama-server
+        self.assertEqual(self.plan(t, {8100: SLOT}), [])
+        t[SLOT] = (1, r"C:\other\llama-server.exe")             # the user's own, elsewhere
+        self.assertEqual(self.plan(t, {8100: STRANGER, 9000: SLOT}), [])
+
+    def test_still_starting_counts_when_the_panel_is_its_parent(self):
+        """Before it binds its port, a process the panel started is still ours."""
+        self.records({"m": {"pid": SLOT, "port": 8100}})
+        t = table()
+        t[SLOT] = (PANEL, "llama-server")
+        self.assertEqual(self.plan(t, {8090: PANEL}),
+                         [("model process", SLOT), ("LlamaForge dashboard", PANEL)])
+        self.assertEqual(self.plan(t, {}), [])                  # parent unknown: not proven
+
+    def test_gone_or_garbage_records(self):
+        self.records({"m": {"pid": SLOT, "port": 8100}, "x": "junk", "y": {"pid": "no"}})
+        self.assertEqual(self.plan(table(), {8100: SLOT}), [])  # not in the table
+        self.records("not json")
+        self.assertEqual(self.plan(table(), {}), [])
+        self.records([1, 2])
+        self.assertEqual(self.plan(table(), {}), [])
+
+    def test_never_stops_itself(self):
+        self.records({"m": {"pid": SLOT, "port": 8100}})
+        t = table()
+        t[SLOT] = (1, "llama-server")
+        with mock.patch.object(procs.os, "getpid", return_value=SLOT):
+            self.assertEqual(self.plan(t, {8100: SLOT}), [])
+
+
 class ImageTest(unittest.TestCase):
     def test_names(self):
         self.assertTrue(procs.is_llama("/opt/lf/engines/b/llama-server"))
@@ -144,6 +214,26 @@ class StopTest(unittest.TestCase):
         self.assertEqual(killed, [GRANDCHILD, CHILD, ROUTER, PANEL])
         self.assertIsNone(procs.read_pid(logdir, "router"))
         self.assertIsNone(procs.read_pid(logdir, "panel"))
+
+    def test_stops_model_processes_and_drops_their_records(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        logdir = os.path.join(root, "logs")
+        os.makedirs(logdir)
+        recs = os.path.join(logdir, "slotprocs.json")
+        with open(recs, "w") as f:
+            json.dump({"m": {"pid": 400, "port": 8100}}, f)
+        t = table()
+        t[400] = (PANEL, "llama-server")
+        killed = []
+        with mock.patch.object(procs, "table", return_value=t), \
+             mock.patch.object(procs, "pid_on_port",
+                               side_effect=lambda p: {8100: 400}.get(p)), \
+             mock.patch.object(procs, "kill", side_effect=killed.append), \
+             mock.patch("builtins.print"):
+            procs.stop(root)
+        self.assertEqual(killed, [400])
+        self.assertFalse(os.path.exists(recs))
 
 
 class ScriptsTest(unittest.TestCase):

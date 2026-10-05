@@ -346,6 +346,16 @@ class RouterTest(_NoNetwork):
         r = self.make({"models": {"data": [{"id": "a", "status": {"value": "loading"}}]}})
         self.assertIsNone(r.loaded_entry())
 
+    def test_loaded_entries_on_a_pool_put_the_main_first(self):
+        r = self.make({"models": {"data": [{"id": "a", "status": {"value": "loaded"}},
+                                           {"id": "b", "status": {"value": "loading"}},
+                                           {"id": "c", "status": {"value": "sleeping"}},
+                                           {"id": "d", "status": {"value": "unloaded"}}]}})
+        self.assertEqual([e["id"] for e in r.loaded_entries()], ["a", "c"])
+        self.assertEqual([e["id"] for e in r.loaded_entries(main="c")], ["c", "a"])
+        self.assertEqual(r.loaded_ids(main="c"), ["c", "a"])
+        self.assertEqual(r.loaded_ids(main="zzz"), ["a", "c"])
+
     def test_missing_message(self):
         r = self.make({"completions": {"choices": []}})
         with self.assertRaises(llm.LLMError):

@@ -75,7 +75,7 @@ class LlamaCppBackend:
         for m in base["models"]:
             m["backend"] = self.name
             if m.get("status") == "loaded":
-                m["endpoint"] = endpoint
+                m.setdefault("endpoint", endpoint)   # a model in its own process has its own
         return base
 
     def list_models(self):

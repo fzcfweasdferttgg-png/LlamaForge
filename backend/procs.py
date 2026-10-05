@@ -12,6 +12,10 @@ an unrelated app that happened to sit on 8080. Now:
 * With no pidfile at all (a copy started by an older version) the port owner
   is stopped only if its image looks right.
 * Model instances are the router's own children; only those are swept.
+* A model pinned to its own build runs in a process the panel started
+  (slotproc.py, recorded in `logs/slotprocs.json`). One is stopped only if it
+  is a llama-server and holds its recorded port, or is still starting under
+  our panel.
 * vLLM is stopped only when it has been set up, and only the server on the
   configured port.
 
@@ -168,16 +172,39 @@ def descendants(root, procs, looks_right):
     return [pid for _d, pid in sorted(out, reverse=True)]
 
 
+SLOTPROCS = "slotprocs.json"          # slotproc.py records the processes it starts here
+
+
+def slot_records(logdir):
+    """[(pid, port)] from logs/slotprocs.json; [] when it's missing or garbage."""
+    try:
+        with open(os.path.join(logdir, SLOTPROCS), encoding="utf-8") as f:
+            recs = json.load(f)
+    except (OSError, ValueError):
+        return []
+    out = []
+    for r in recs.values() if isinstance(recs, dict) else []:
+        if isinstance(r, dict) and isinstance(r.get("pid"), int):
+            out.append((r["pid"], r.get("port")))
+    return out
+
+
 def plan(cfg, logdir, procs, port_owner):
     """[(label, pid), ...] in the order to stop them. Pure: no side effects."""
     steps = []
+    panel = owned(port_owner(cfg.get("panel_port")), read_pid(logdir, "panel"),
+                  procs, is_python)
+    for pid, port in slot_records(logdir):
+        if pid == os.getpid() or pid not in procs or not is_llama(procs[pid][1]):
+            continue
+        # it holds its port, or (still starting, not bound yet) our panel is its parent
+        if (port and port_owner(port) == pid) or (panel and procs[pid][0] == panel):
+            steps.append(("model process", pid))
     router = owned(port_owner(cfg.get("router_port")), read_pid(logdir, "router"),
                    procs, is_llama)
     if router:
         steps += [("model instance", p) for p in descendants(router, procs, is_llama)]
         steps.append(("llama.cpp router", router))
-    panel = owned(port_owner(cfg.get("panel_port")), read_pid(logdir, "panel"),
-                  procs, is_python)
     if panel:
         steps.append(("LlamaForge dashboard", panel))
     return steps
@@ -222,6 +249,12 @@ def stop(root):
                 os.remove(pidfile(logdir, name))
             except OSError:
                 pass
+    # every record is now stopped, gone or not ours; a stale one must not be
+    # adopted by the next panel (slotproc reconcile)
+    try:
+        os.remove(os.path.join(logdir, SLOTPROCS))
+    except OSError:
+        pass
     vllm = vllm_command(cfg, root)
     if vllm:
         _run(vllm, timeout=30)

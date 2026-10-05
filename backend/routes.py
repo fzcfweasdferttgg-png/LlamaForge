@@ -25,7 +25,7 @@ import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, 
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends, prebuilt, version
+import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -341,8 +341,24 @@ def model_state():
                            "modalities": ["text"], "in_ini": True,
                            "settings": ini[name], "eff_ctx": ini[name].get("ctx-size", glob.get("ctx-size", "?")),
                            "file_gib": _file_gib(ini[name].get("model"))})
+    _overlay_procs(models)
     models.sort(key=lambda m: (m["status"] != "loaded", m["id"]))
     return {"models": models, "global": glob}
+
+
+def _overlay_procs(models):
+    """A model pinned to another build runs in its own process: the router
+    lists it as unloaded, so its row takes the process's state and port."""
+    procs = PROCS.status()
+    pins = cfg().get("model_builds") or {}
+    for m in models:
+        p = procs.get(m["id"])
+        if p:
+            s = slotctl.proc_status(p)
+            m.update(status=s["value"], failed=bool(s.get("failed")), endpoint=p["endpoint"],
+                     process={"port": p["port"], "pid": p["pid"], "exit_code": p.get("exit_code")})
+        if isinstance(pins, dict) and pins.get(m["id"]):
+            m["build"] = pins[m["id"]]
 
 
 def _file_gib(path):
@@ -409,60 +425,80 @@ def _autotune_refine(body):
             return rec
         base = rec.get("knobs") or {}
 
+    was_running = (_model_status(mid) or {}).get("value") in slotctl.RUNNING
+    main = SLOTS._main()
+    # beside another main it's tuned where it would run: as a worker
+    role = "main" if main == mid or not (main or was_running) else "worker"
+    before = config.read_sections(raw=True).get(mid, {})
+    touched = set()
+
     def load_fn(knobs):
-        config.set_keys(mid, _clean_settings(knobs))     # blank = unset (left to --fit)
-        router("/models?reload=1")
-        code, res = router("/models/load", "POST", {"model": mid})
-        if code >= 400:
-            raise RuntimeError((res or {}).get("error", "load failed"))
+        clean = _clean_settings(knobs)              # blank = unset (left to --fit)
+        touched.update(clean)
+        _apply_knobs_and_reload(mid, clean)
+        _load_and_wait(mid, role)
 
-    def measure_fn():
-        """Send a real completion request and measure tok/s (generation only, excludes prompt eval)."""
-        import time
-        prompt = "Write a Python function that computes the Fibonacci sequence iteratively. Explain your approach briefly."
-        payload = {"model": mid, "prompt": prompt, "n_predict": 200, "stream": True}
-        url = router_base() + "/completion"
-        data = json.dumps(payload).encode()
-        headers = {"Content-Type": "application/json"}
-        key = network_policy.effective_key(cfg())
-        if key:
-            headers["Authorization"] = "Bearer " + key
-        req = urllib.request.Request(url, data=data, method="POST",
-                                     headers=headers)
-        tokens = 0
-        first_tok = None
-        last_tok = None
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                for line in r:
-                    line = line.decode().strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    try:
-                        obj = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("stop"):
-                        break
-                    content = obj.get("content", "")
-                    if content:
-                        tokens += 1
-                        now = time.monotonic()
-                        if first_tok is None:
-                            first_tok = now
-                        last_tok = now
-        except Exception as e:
-            return 0.0
-        if first_tok is None or last_tok is None or tokens < 10:
-            return 0.0
-        elapsed = last_tok - first_tok
-        if elapsed < 0.01:
-            return 0.0
-        return round(tokens / elapsed, 1)
-
-    out = autotune.refine(base, intent, load_fn, measure_fn)
+    out = autotune.refine(base, intent, load_fn, lambda: _measure_tok_s(mid))
+    # benchmarking isn't saving: models.ini goes back to what the user wrote and
+    # the model to how it was found; the UI offers the winner as unsaved changes
+    if touched:
+        _apply_knobs_and_reload(mid, {k: before.get(k) for k in touched})
+        if was_running:
+            try:
+                _load_and_wait(mid, role)
+            except RuntimeError as e:
+                out["restore_error"] = str(e)
     out["model"] = mid
     return out
+
+
+def _model_base(mid):
+    """Where mid answers: its own process's port, or the router's."""
+    return (PROCS.status().get(mid) or {}).get("endpoint") or router_base()
+
+
+def _measure_tok_s(mid):
+    """Send a real completion request and measure tok/s (generation only, excludes prompt eval)."""
+    prompt = "Write a Python function that computes the Fibonacci sequence iteratively. Explain your approach briefly."
+    payload = {"model": mid, "prompt": prompt, "n_predict": 200, "stream": True}
+    url = _model_base(mid) + "/completion"
+    data = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"}
+    key = network_policy.effective_key(cfg())
+    if key:
+        headers["Authorization"] = "Bearer " + key
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers=headers)
+    tokens = 0
+    first_tok = None
+    last_tok = None
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            for line in r:
+                line = line.decode().strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                try:
+                    obj = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("stop"):
+                    break
+                content = obj.get("content", "")
+                if content:
+                    tokens += 1
+                    now = time.monotonic()
+                    if first_tok is None:
+                        first_tok = now
+                    last_tok = now
+    except Exception:
+        return 0.0
+    if first_tok is None or last_tok is None or tokens < 10:
+        return 0.0
+    elapsed = last_tok - first_tok
+    if elapsed < 0.01:
+        return 0.0
+    return round(tokens / elapsed, 1)
 
 
 # ---------- unified model list (llama.cpp + vLLM) ----------
@@ -611,15 +647,85 @@ def _write_anthropic_stream(write, model, status, resp):
 def _apply_knobs_and_reload(mid, clean):
     """Write knobs to models.ini, then make the router pick them up. A loaded
     model has to be unloaded first - llama.cpp reads args at load time.
-    Returns whether it had been running."""
+    /models/unload only signals the process, so wait for it to stop: then the
+    reload never sees it running, whatever this router build does with a
+    running model's changed preset. On a pool the slot manager unloads it, so
+    the per-GPU books stay right. Returns whether it had been running."""
     config.set_keys(mid, clean)
-    st, data = router("/models")
-    running = any(m["id"] == mid and m["status"]["value"] == "loaded"
-                  for m in data.get("data", [])) if st == 200 else False
+    running = (_model_status(mid) or {}).get("value") in slotctl.RUNNING
     if running:
-        router("/models/unload", "POST", {"model": mid})
+        _unload_and_wait(mid)
     router("/models?reload=1")
     return running
+
+
+def _unload_and_wait(mid):
+    """(status, body) once mid has stopped. On a pool, or for a model in its own
+    process, the slot manager does it (it keeps the per-GPU books); otherwise
+    /models/unload, which only signals the process, then a wait."""
+    if _slots_on() or PROCS.has(mid):
+        return SLOTS.unload(mid)
+    code, out = router("/models/unload", "POST", {"model": mid})
+    if code != 200:
+        return code, {"ok": False, "error": _router_error(out, "unload failed")}
+    _wait_status(mid, lambda s: s.get("value") not in slotctl.RUNNING + ("loading",),
+                 slotctl.UNLOAD_TIMEOUT_S)
+    return 200, {"ok": True}
+
+
+_sleep = time.sleep
+
+
+def _model_status(mid):
+    """mid's status: its own process's if it has one, else the router's; {} if
+    the router doesn't list it, None if it isn't answering."""
+    p = PROCS.status().get(mid)
+    if p:
+        return slotctl.proc_status(p)
+    st, data = router("/models")
+    if st != 200 or not isinstance(data, dict):
+        return None
+    return next((m.get("status") or {} for m in data.get("data", [])
+                 if m.get("id") == mid), {})
+
+
+def _wait_status(mid, done, timeout):
+    """Poll once a second until done(status); that status, or None on timeout."""
+    for _ in range(timeout):
+        s = _model_status(mid)
+        if s is not None and done(s):
+            return s
+        _sleep(1)
+    return None
+
+
+def _router_error(res, default):
+    e = res.get("error") if isinstance(res, dict) else None
+    if isinstance(e, dict):
+        e = e.get("message")
+    return e or default
+
+
+def _load_and_wait(mid, role):
+    """Load mid and return once it serves; RuntimeError says why it didn't.
+    /models/load only starts a load - a request sent before it finishes would
+    measure a model that's still loading."""
+    if _slotted(mid):
+        status, out = SLOTS.load(mid, role, False, wait=True)
+        if status != 200:
+            raise RuntimeError(_slot_error(out) or "load failed")
+        return
+    _stop_procs()
+    code, res = router("/models/load", "POST", {"model": mid})
+    if code >= 400:
+        raise RuntimeError(_router_error(res, "load failed"))
+    s = _wait_status(mid, lambda s: s.get("failed") or s.get("value") in slotctl.RUNNING,
+                     slotctl.LOAD_TIMEOUT_S)
+    if s is None:
+        raise RuntimeError(f"still loading after {slotctl.LOAD_TIMEOUT_S} s")
+    if s.get("failed"):
+        raise RuntimeError(f"the router reports the load failed (exit code "
+                           f"{s.get('exit_code', '?')}); see the router log")
 
 
 def _clean_settings(updates):
@@ -714,6 +820,7 @@ def get_state(req):
     s["chat_port"] = c.get("chat_port", 8091)
     s["config_error"] = config.LOAD_ERROR
     s["version"] = version.VERSION
+    s["slots"] = _slots_state(c)
     s["onboarding"] = {
         "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
         "model_count": len(s["models"]),
@@ -885,10 +992,26 @@ def get_vllm_hub_progress(req):
 
 
 def get_model_metadata(req):
-    sect = config.read_sections().get(req.q("model"), {})
+    """The editor's GGUF card: header facts, and which llama.cpp family can
+    load the file (compat.py), read when a row opens, never on the poll."""
+    mid = req.q("model")
+    sect = config.read_sections().get(mid, {})
     mpath = sect.get("model")
     meta = gguf.metadata(mpath) if mpath else None
-    return 200, {"metadata": meta or {}}
+    c = cfg()
+    pins = c.get("model_builds") if isinstance(c.get("model_builds"), dict) else {}
+    opts = builds.options(c, _installs(c))
+    ok = compat.for_model(mpath) if mpath else dict(compat.UNKNOWN)
+    # an ik older than the file crashes on it instead of refusing: ask its checkout
+    ids = ok.get("ids") or []
+    stale = compat.missing(ids, compat.build_types(c.get("ik_llama_src"))) if ids else []
+    ok["advice"] = compat.advice(ok["class"], ok["types"], c.get("active_engine", "llamacpp"),
+                                 build=pins.get(mid, ""),
+                                 ik_built=any(o["ref"] == builds.IK for o in opts),
+                                 ik_missing=stale)
+    return 200, {"metadata": meta or {}, "compat": ok,
+                 "builds": {"options": [{k: o[k] for k in ("ref", "label", "router")} for o in opts],
+                            "pinned": pins.get(mid, "")}}
 
 
 def get_model_diag(req):
@@ -896,9 +1019,11 @@ def get_model_diag(req):
     ini = config.read_sections()
     merged = dict(ini.get("*", {}))
     merged.update(ini.get(mid, {}))
-    # A load prints ~50 lines of args before the child says anything, so the
-    # tail must reach back past the spawn line of the last attempt.
-    return 200, {"diag": diag.diagnose(router_log_tail(800), merged, model=mid)}
+    # A model in its own process logs to its own file; on the router a load
+    # prints ~50 lines of args before the child says anything, so the tail
+    # must reach back past the spawn line of the last attempt.
+    log = PROCS.log_tail(mid, 800) if PROCS.has(mid) else router_log_tail(800)
+    return 200, {"diag": diag.diagnose(log, merged, model=mid)}
 
 
 def get_presets(req):
@@ -948,7 +1073,10 @@ def post_client_config(req):
         raise ApiError(400, "unsupported client-config fields: " + ", ".join(sorted(unknown)))
     row, backend = _resolve_model_row(body.get("model"), body.get("backend", ""))
     c = cfg()
-    if backend in backends.LLAMA_FAMILY:
+    if backend in backends.LLAMA_FAMILY and row.get("process"):
+        endpoint = row["endpoint"]          # its own build's process: this machine only
+        api_key = network_policy.effective_key(c)
+    elif backend in backends.LLAMA_FAMILY:
         endpoint = _llama_client_endpoint(c)
         api_key = network_policy.effective_key(c)
     elif backend == "vllm":
@@ -1075,12 +1203,20 @@ def _backend_for(req):
 
 def post_model_load(req):
     mid, backend = _backend_for(req)
+    if backend.name == "llamacpp" and _slotted(mid):
+        status, out = _slot_load(req.body, mid)
+        return status, dict(out, error=_slot_error(out), backend=backend.name)
+    if backend.name == "llamacpp":
+        _stop_procs()
     ok, err = backend.load(mid)
     return (200 if ok else 400), {"ok": ok, "error": err, "backend": backend.name}
 
 
 def post_model_unload(req):
     mid, backend = _backend_for(req)
+    if backend.name == "llamacpp" and (_slots_on() or PROCS.has(mid)):
+        status, out = SLOTS.unload(mid)
+        return status, dict(out, error=out.get("error", ""), backend=backend.name)
     ok, err = backend.unload(mid)
     return (200 if ok else 400), {"ok": ok, "error": err, "backend": backend.name}
 
@@ -1143,11 +1279,25 @@ def post_save(req):
 
 
 def post_load(req):
+    if _slotted(req.body.get("model")):
+        status, out = _slot_load(req.body, req.body.get("model"))
+        # the shape the router answers in, which is what the dashboard reads
+        res = dict(out, success=bool(out.get("ok")))
+        if not out.get("ok"):
+            res["error"] = {"message": _slot_error(out)}
+        return status, res
+    _stop_procs()
     code, res = router("/models/load", "POST", {"model": req.body.get("model")})
     return (200 if code == 200 else 400), res
 
 
 def post_unload(req):
+    if _slots_on() or PROCS.has(req.body.get("model")):
+        status, out = SLOTS.unload(req.body.get("model"))
+        res = dict(out, success=bool(out.get("ok")))
+        if not out.get("ok"):
+            res["error"] = {"message": out.get("error") or "unload failed"}
+        return status, res
     code, res = router("/models/unload", "POST", {"model": req.body.get("model")})
     return (200 if code == 200 else 400), res
 
@@ -1156,10 +1306,169 @@ def post_unload_all(req):
     st, data = router("/models")
     loaded = [m["id"] for m in data.get("data", [])
               if st == 200 and m.get("id") != "default"
-              and m.get("status", {}).get("value") in ("loaded", "loading")]
+              and m.get("status", {}).get("value") in ("loaded", "loading", "sleeping")]
+    slotted = _slots_on()
     for mid in loaded:
-        router("/models/unload", "POST", {"model": mid})
-    return 200, {"ok": True, "unloaded": loaded}
+        if slotted:
+            SLOTS.unload(mid)
+        else:
+            router("/models/unload", "POST", {"model": mid})
+    procs = [m for m in PROCS.status() if m not in loaded]
+    for mid in procs:
+        SLOTS.unload(mid)
+    return 200, {"ok": True, "unloaded": loaded + procs}
+
+
+# ---- multi-model slots -------------------------------------------------------
+
+def _slots_on(c=None):
+    """Loads go through the planner only on a router LlamaForge started with a
+    pool. The runner's router (or one started before the setting was turned on)
+    holds one model and evicts by itself; plans for a pool that isn't running
+    would be fiction. ik_llama has no router mode at all."""
+    c = c or cfg()
+    return (bool(c.get("multi_model")) and c.get("active_engine", "llamacpp") == "llamacpp"
+            and router_ctl.running_pool(LOGDIR) is not None)
+
+
+# ---- per-model builds (builds.py) and their processes (slotproc.py) ---------
+
+def _installs(c=None):
+    return prebuilt.list_installs(ENGINES_DIR, _active_server_bin(c))
+
+
+def pinned_bin(mid):
+    """(server_bin, "") when mid runs in its own process, (None, "") when the
+    router serves it, (None, why) for a pin that can't be honoured. Lists the
+    installs only for a model that has a pin: the dashboard poll asks this."""
+    c = cfg()
+    pins = c.get("model_builds")
+    if not isinstance(pins, dict) or not pins.get(mid):
+        return None, ""
+    return builds.pinned_bin(mid, c, _installs(c))
+
+
+def _slotted(mid):
+    """Loads of mid go through the slot manager: on a pool, or when it runs on
+    a build of its own (its own process, single-model mode too). A pin that
+    can't be honoured goes there as well, to be refused - never to the router,
+    whose build may be the reason for the pin."""
+    if _slots_on():
+        return True
+    sbin, err = pinned_bin(mid) if mid else (None, "")
+    return bool(sbin or err)
+
+
+def _stop_procs():
+    """Single-model mode: a router load replaces whatever runs in its own process."""
+    for mid in list(PROCS.status()):
+        SLOTS.unload(mid)
+
+
+def post_model_build(req):
+    """Pin a model to a build: {model, build}; build "" runs it on the router.
+    A model that is up is unloaded, as a knob save does: it runs on the old
+    build until it loads again."""
+    body = req.body or {}
+    mid, ref = body.get("model"), body.get("build", "")
+    if not isinstance(mid, str) or not mid.strip() or mid.strip() == "*":
+        raise ApiError(400, "a model id is required")
+    if mid not in config.read_sections():
+        raise ApiError(404, f"unknown model: {mid}")
+    c = cfg()
+    err = builds.validate(ref, c, _installs(c))
+    if err:
+        raise ApiError(400, err)
+    pins = c.get("model_builds") if isinstance(c.get("model_builds"), dict) else {}
+    if pins.get(mid, "") == ref:
+        return 200, {"ok": True, "build": ref, "changed": False, "was_running": False}
+    running = (_model_status(mid) or {}).get("value") in slotctl.RUNNING + ("loading",)
+    if running:
+        code, out = _unload_and_wait(mid)
+        if code != 200:
+            raise ApiError(409, f"{mid} is still up on its old build: "
+                                f"{out.get('error') or 'unload failed'}")
+
+    def apply(conf):
+        p = conf.get("model_builds") if isinstance(conf.get("model_builds"), dict) else {}
+        if ref:
+            p[mid] = ref
+        else:
+            p.pop(mid, None)
+        conf["model_builds"] = p
+    config.mutate(apply)
+    return 200, {"ok": True, "build": ref, "changed": True, "was_running": running}
+
+
+def _slot_role(v):
+    if v in (None, ""):
+        return "main"
+    if v not in ("main", "worker"):
+        raise ApiError(400, "role must be main or worker")
+    return v
+
+
+def _slot_load(body, mid):
+    if not mid:
+        raise ApiError(400, "model is required")
+    return SLOTS.load(mid, _slot_role(body.get("role")), bool(body.get("evict")), wait=True)
+
+
+def _slot_error(out):
+    if out.get("ok"):
+        return ""
+    return out.get("error") or out.get("reason") or "load refused"
+
+
+def get_slots(req):
+    c = cfg()
+    on = _slots_on(c)
+    return 200, {"enabled": on, "multi_model": bool(c.get("multi_model")),
+                 "pool": router_ctl.running_pool(LOGDIR),
+                 "restart_needed": bool(c.get("multi_model")) and not on,
+                 "main": SLOTS._main(), "loaded": SLOTS.loaded() if on else []}
+
+
+def _slots_state(c):
+    """The slots part of /api/state: roles, where our loads went, and the
+    settings. Built for the 4-second poll - config and two small files, never
+    the planner or nvidia-smi."""
+    on = _slots_on(c)
+    llama = c.get("active_engine", "llamacpp") == "llamacpp"
+    s = c.get("slots") if isinstance(c.get("slots"), dict) else {}
+    main = s.get("main") if on and isinstance(s.get("main"), str) else ""
+    cap = c.get("slot_cap")
+    head = c.get("slot_headroom_mib")
+    return {"enabled": on, "engine_ok": llama, "main": main,
+            "restart_needed": bool(c.get("multi_model")) and llama and not on,
+            "devices": SLOTS.devices() if on else {},
+            "settings": {"multi_model": bool(c.get("multi_model")),
+                         "slot_cap": cap if _v_int(slots.CAP_MIN, slots.CAP_MAX)(cap)
+                         is not None else slots.CAP_DEFAULT,
+                         "slot_headroom_mib": head if _v_int(0, 32768)(head) is not None
+                         else slots.DEFAULT_HEADROOM_MIB,
+                         "slot_autoload": bool(c.get("slot_autoload"))},
+            "cap_range": [slots.CAP_MIN, slots.CAP_MAX]}
+
+
+def post_slots_apply(req):
+    """Restart the router with the pool the settings ask for (the one running
+    was started single, by run.ps1 / run.sh or before the setting)."""
+    with _ROUTER_LIFECYCLE_LOCK:
+        restarted, err = _sync_router_pool(cfg())
+    return (500 if err else 200), {"ok": not err, "restarted": restarted, "error": err or ""}
+
+
+def get_slots_plan(req):
+    mid = req.q("model")
+    if not mid:
+        raise ApiError(400, "model is required")
+    return 200, SLOTS.plan(mid, _slot_role(req.q("role") or "worker"))
+
+
+def post_slots_main(req):
+    SLOTS.set_main(req.body.get("model") or "")
+    return 200, {"ok": True, "main": req.body.get("model") or ""}
 
 
 def post_autotune_recommend(req):
@@ -1581,6 +1890,8 @@ def _v_mode(v):  return v if v in ("lite", "advanced") else None
 def _v_theme(v): return v if v in ("", "light", "dark") else None
 def _v_dirs(v):
     return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
+def _v_int(lo, hi):
+    return lambda v: v if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi else None
 
 def _v_bandwidths(v):
     """{vram_bw,ram_bw,disk_bw} -> GB/s. Only those keys, each a positive number.
@@ -1610,7 +1921,13 @@ CONFIG_WRITABLE = {
     "anthropic_shim_enabled":  _v_bool,
     "vram_bandwidths":         _v_bandwidths,
     "vram_predict_enabled":    _v_bool,
+    "multi_model":             _v_bool,
+    "slot_cap":                _v_int(slots.CAP_MIN, slots.CAP_MAX),
+    "slot_headroom_mib":       _v_int(0, 32768),
+    "slot_autoload":           _v_bool,
 }
+# what the router is started with: changing one restarts it (and unloads models)
+_POOL_KEYS = ("multi_model", "slot_cap", "slot_autoload")
 
 
 def post_config(req):
@@ -1634,6 +1951,12 @@ def post_config(req):
     out = {"ok": True, "config": _public_config(c), "applied": sorted(accepted)}
     if rejected:
         out["rejected"] = sorted(rejected)
+    if any(k in accepted for k in _POOL_KEYS):
+        with _ROUTER_LIFECYCLE_LOCK:
+            restarted, err = _sync_router_pool(c)
+        out["router"] = {"restarted": restarted, "error": err or ""}
+    if accepted.get("multi_model") is False:
+        SLOTS.unplace_all()                 # models.ini back the way the user wrote it
     return 200, out
 
 
@@ -1643,6 +1966,46 @@ def _active_server_bin(c=None):
     if c.get("active_engine") == "ikllama":
         return c.get("ik_llama_server_bin", "")
     return c.get("server_bin", "")
+
+
+def _router_pool(c, sbin):
+    """router_ctl's pool for config `c` on binary `sbin` (None = single)."""
+    return slots.router_pool(c, bool(sbin) and router_ctl.supports_no_autoload(sbin))
+
+
+def _sync_router_pool(c):
+    """Restart a running router whose pool isn't the one `c` asks for.
+    (restarted, error). Callers hold _ROUTER_LIFECYCLE_LOCK."""
+    sbin = _active_server_bin(c)
+    if not sbin or not os.path.exists(sbin) or not router_ctl.is_running(c["router_port"]):
+        return False, ""
+    want = _router_pool(c, sbin)
+    if want == router_ctl.running_pool(LOGDIR):
+        return False, ""
+    ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
+                                 c.get("router_host", "127.0.0.1"),
+                                 c.get("router_api_key", ""), LOGDIR,
+                                 c.get("router_local_key", ""), want)
+    return bool(ok), err
+
+
+def reconcile_router_pool(wait_s=20):
+    """Startup check: run.ps1 / run.sh start the router one-model-at-a-time;
+    with multi_model on (or just turned off) restart it with the right pool,
+    before anything is loaded. True when a restart was attempted."""
+    c = cfg()
+    if not c.get("multi_model"):
+        SLOTS.unplace_all()             # turned off while LlamaForge was down
+        if router_ctl.running_pool(LOGDIR) is None:
+            return False                # single mode, single router: nothing to do
+    deadline = time.monotonic() + wait_s   # the runner's router may still be binding
+    while not router_ctl.is_running(c["router_port"]) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    with _ROUTER_LIFECYCLE_LOCK:
+        restarted, err = _sync_router_pool(cfg())
+    if err:
+        print(f"  WARNING: router restart for multi-model failed ({err})")
+    return restarted or bool(err)
 
 
 def reconcile_router_auth():
@@ -1661,7 +2024,7 @@ def reconcile_router_auth():
         ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                      c.get("router_host", "127.0.0.1"),
                                      c.get("router_api_key", ""), LOGDIR,
-                                     c.get("router_local_key", ""))
+                                     c.get("router_local_key", ""), _router_pool(c, sbin))
     print("  router restarted with API-key auth" if ok
           else f"  WARNING: router auth restart failed ({err})")
     return True
@@ -1711,10 +2074,11 @@ def _post_network_locked(req):
     except Exception:
         raise ApiError(500, "network settings could not be saved") from None
     try:
+        sbin = _active_server_bin(c)
         ok, error = router_ctl.restart(
-            _active_server_bin(c), config.ini_path(), c["router_port"],
+            sbin, config.ini_path(), c["router_port"],
             mutation.router_host, mutation.router_api_key, LOGDIR,
-            c.get("router_local_key", ""))
+            c.get("router_local_key", ""), _router_pool(c, sbin))
     except Exception as exc:
         ok, error = False, exc
     running = router_ctl.is_running(c["router_port"])
@@ -1764,7 +2128,7 @@ def _post_engine_switch_locked(req):
     ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                  c.get("router_host", "127.0.0.1"),
                                  c.get("router_api_key", ""), LOGDIR,
-                                 c.get("router_local_key", ""))
+                                 c.get("router_local_key", ""), _router_pool(c, sbin))
     return 200, {"ok": ok, "active_engine": engine, "error": err}
 
 
@@ -1925,15 +2289,21 @@ def _activate_prebuilt(sbin):
             ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                          c.get("router_host", "127.0.0.1"),
                                          c.get("router_api_key", ""), LOGDIR,
-                                         c.get("router_local_key", ""))
+                                         c.get("router_local_key", ""), _router_pool(c, sbin))
         except Exception as e:
             ok, err = False, str(e)
         return ok, err
 
 
 PREBUILT = prebuilt.Installer(ROOT, LOGDIR, on_installed=_activate_prebuilt)
-PREBUILT.protected = lambda: profiles.pinned_dirs(config.get_profiles(),
-                                                  prebuilt.list_installs(ENGINES_DIR))
+def _protected_installs():
+    """Install dirs pruning must keep: the ones a launch profile or a model pins."""
+    installs = prebuilt.list_installs(ENGINES_DIR)
+    return sorted(set(profiles.pinned_dirs(config.get_profiles(), installs))
+                  | set(builds.protected_dirs(cfg(), installs)))
+
+
+PREBUILT.protected = _protected_installs
 _PREBUILT_CACHE = {}            # channel -> (expires_at, result)
 _PREBUILT_LOCK = threading.Lock()
 PREBUILT_TTL, PREBUILT_FAIL_TTL = 900, 60
@@ -2057,6 +2427,8 @@ GET_ROUTES = {
     "/api/wiki/preview":      get_wiki_preview,
     "/api/docs":              get_docs,
     "/api/docs/page":         get_docs_page,
+    "/api/slots":             get_slots,
+    "/api/slots/plan":        get_slots_plan,
 }
 
 POST_ROUTES = {
@@ -2124,9 +2496,50 @@ POST_ROUTES = {
     "/api/wiki/profile/delete": post_wiki_profile_delete,
     "/api/wiki/active":         post_wiki_active,
     "/api/wiki/export":         post_wiki_export,
+    "/api/slots/main":          post_slots_main,
+    "/api/slots/apply":         post_slots_apply,
+    "/api/model/build":         post_model_build,
 }
 
 
 # Built last: backends.Registry captures this module as its dependency bundle,
 # so every helper it reaches for must already be defined.
 REGISTRY = backends.Registry(sys.modules[__name__])
+SLOTS = slotctl.SlotManager(sys.modules[__name__], os.path.join(ROOT, "footprints.json"))
+# Models pinned to another build, each in its own llama-server. Adopting the
+# ones a previous panel left running is server.main()'s job (PROCS.reconcile()).
+PROCS = slotproc.Manager(LOGDIR)
+
+
+class EmbersPool:
+    """The pool as the embers scheduler may use it: worker loads beside the
+    user's models, never an eviction, never a role change."""
+
+    def active(self):
+        return _slots_on()
+
+    def plan(self, mid):
+        return SLOTS.plan(mid, "worker")
+
+    def load(self, mid):
+        return SLOTS.load(mid, "worker", False, wait=True, keep_role=True)
+
+    def unload(self, mid):
+        return SLOTS.unload(mid)
+
+    def touch(self, mid):
+        SLOTS.touch(mid)
+
+    def main(self):
+        return SLOTS._main()
+
+    def own_build(self, mid):
+        """Embers go through the router; a model in its own process isn't there."""
+        sbin, err = pinned_bin(mid)
+        if err:
+            return f"{mid} is pinned to a build that can't be used: {err}"
+        if sbin:
+            return (f"{mid} runs on its own build, outside the router embers use; "
+                    f"pick another model for this ember, or set {mid} back to the "
+                    f"router's build")
+        return ""

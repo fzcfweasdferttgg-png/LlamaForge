@@ -1,8 +1,9 @@
 // Setup tab: prerequisites, detected hardware, drive scanning, startup options,
 // LAN access, the agent-connect panel, and vLLM/WSL installation.
 import { $, $$, esc, setHTML, api, toast } from "./core.js";
-import { models, config as cfgOf } from "./state.js";
+import { S, models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
+import { applyPool } from "./slots.js";
 
 let vllmSetupPoll = null;
 let setupGeneration = 0;
@@ -496,11 +497,74 @@ function wireNetwork(net, generation) {
   sync();
 }
 
+/* ---------- multi-model ---------- */
+// Read from the slots block of /api/state (the slot keys aren't in the public
+// config). Changing one of POOL_KEYS restarts the router, which unloads every
+// model, so the card sends only what changed and asks first when that bites.
+const POOL_KEYS = ["multi_model", "slot_cap", "slot_autoload"];
+const UP = new Set(["loaded", "sleeping", "loading"]);
+const slotState = () => (S.STATE && S.STATE.slots) || null;
+
+function slotsMarkup() {
+  const sl = slotState();
+  if (!sl) return "";
+  const st = sl.settings || {}, [lo, hi] = sl.cap_range || [2, 4];
+  const box = (id, on) => `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
+  const num = (id, min, max, step, val, w) =>
+    `<input id="${id}" type="number" min="${esc(min)}" max="${esc(max)}" step="${esc(step)}" value="${esc(val)}" style="width:${w}px">`;
+  return `<div class="card" id="slots-card"><h3>Multi-model <span style="color:var(--dim);font-weight:normal;font-size:11px">(llama.cpp)</span></h3>
+      ${sl.engine_ok ? "" : `<div class="slotnote warn"><b>Not with this engine:</b> ik_llama has no router mode, so several models at once needs llama.cpp. The settings are kept for when you switch back.</div>`}
+      ${sl.restart_needed ? `<div class="slotnote warn"><b>On, but not running:</b> the router up now holds one model at a time. <button class="qbtn" id="mm-apply" title="restart the router with the multi-model pool; loaded models are unloaded">Restart router</button></div>` : ""}
+      <div class="kv"><label class="k" for="mm-on">load several models at once</label><span class="v">${box("mm-on", st.multi_model)}</span></div>
+      <div class="kv"><label class="k" for="mm-cap">at most this many</label><span class="v">${num("mm-cap", lo, hi, 1, st.slot_cap, 70)}</span></div>
+      <div class="kv"><label class="k" for="mm-head">VRAM kept free per GPU (MiB)</label><span class="v">${num("mm-head", 0, 32768, 256, st.slot_headroom_mib, 90)}</span></div>
+      <div class="kv"><label class="k" for="mm-auto">let client requests load models</label><span class="v">${box("mm-auto", st.slot_autoload)}</span></div>
+      <div class="actions"><button id="mm-save">Save</button><span class="msg" id="mm-msg"></span></div>
+      <div class="note">A model loads only when the VRAM math says it fits beside the ones already up, with the headroom above left free on every GPU it touches. The <b>main</b> model (the one you work with) gets the fastest GPU that fits; <b>workers</b> go on the GPUs the main doesn't use. Sizes are predicted from the GGUF until a load measures them.</div>
+      <div class="note">Turning it on or off, the count, and client loading restart the router, which unloads every model; the headroom applies from the next load. With client loading on, a request for an unloaded model loads it without the VRAM check (llama.cpp drops the least recently used model when the count is full).</div>
+    </div>`;
+}
+
+function wireSlots(generation) {
+  const sl = slotState(), save = $("#mm-save");
+  if (!sl || !save) return;
+  const saved = {...(sl.settings || {})};
+  const msg = (t, c) => { const m = $("#mm-msg"); if (m) { m.className = "msg " + c; m.textContent = t; } };
+  const apply = $("#mm-apply");
+  if (apply) apply.onclick = async () => {
+    if (await applyPool() && setupViewActive(generation)) { emit("refresh", true); loadSetup(); }
+  };
+  save.onclick = async () => {
+    const [lo, hi] = sl.cap_range || [2, 4];
+    const want = {multi_model: $("#mm-on").checked, slot_cap: Number($("#mm-cap").value),
+                  slot_headroom_mib: Number($("#mm-head").value), slot_autoload: $("#mm-auto").checked};
+    if (!Number.isInteger(want.slot_cap) || want.slot_cap < lo || want.slot_cap > hi)
+      return msg(`the count must be ${lo}-${hi}`, "err");
+    if (!Number.isInteger(want.slot_headroom_mib) || want.slot_headroom_mib < 0 || want.slot_headroom_mib > 32768)
+      return msg("headroom must be 0-32768 MiB", "err");
+    const changed = Object.fromEntries(Object.entries(want).filter(([k, v]) => v !== saved[k]));
+    if (!Object.keys(changed).length) return msg("nothing changed", "ok");
+    const up = models().filter(m => UP.has(m.status)).length;
+    if (POOL_KEYS.some(k => k in changed) && up &&
+        !confirm(`Saving restarts the router, which unloads the ${up} loaded model${up > 1 ? "s" : ""}. Continue?`)) return;
+    msg("saving...", "work");
+    const r = await api("/api/config", changed).catch(() => null);
+    if (!setupViewActive(generation)) return;
+    if (!r || r.error) return msg((r && r.error) || "backend unreachable", "err");
+    (r.applied || []).forEach(k => { saved[k] = changed[k]; });
+    if (r.rejected) msg(`refused: ${r.rejected.join(", ")}`, "err");
+    else if (r.router && r.router.error) msg(`saved, but the router didn't restart: ${r.router.error}`, "err");
+    else msg(r.router && r.router.restarted ? "saved; router restarted" : "saved", "ok");
+    emit("refresh", true);
+  };
+}
+
 export async function loadSetup() {
   const generation = invalidateSetup();
   const v = $("#view-setup");
   setHTML(v, `<div class="skel">PROBING SYSTEM...</div>`);
-  const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup")]);
+  const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup"),
+    S.STATE ? null : api("/api/state").then(st => { if (st && !st.error) S.STATE = st; }, () => {})]);
   if (!setupViewActive(generation)) return;
   const p = s.prereqs, hw = s.hardware;
   const toolRow = (name, t) => `<div class="kv"><span class="k">${esc(name)}</span>
@@ -550,6 +614,7 @@ export async function loadSetup() {
         </select></span></div>
       <div class="note">The selected model loads automatically once the router is ready after launch &mdash; handy for always-on setups. An optional tray icon (loaded-model count, quick open) is available if you <b>pip install pystray pillow</b>; without them LlamaForge stays pure-stdlib.</div>
     </div>
+    ${slotsMarkup()}
     ${networkMarkup(net)}
     <div id="agent-connect" class="card"></div>`
     + (vs.supported === false ? "" : `<div class="card"><h3>vLLM Backend (WSL2)</h3>
@@ -579,6 +644,7 @@ export async function loadSetup() {
     msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : "cleared — all drives";
   };
   $("#btn-missing").onclick = checkMissing;
+  wireSlots(generation);
   const autoSel = $("#auto-load");
   if (autoSel) autoSel.onchange = async () => {
     await api("/api/config", {auto_load_model: autoSel.value});

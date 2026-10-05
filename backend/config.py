@@ -69,6 +69,16 @@ DEFAULTS = {
     "embers_dir":    "",                        # "" = <ROOT>/embers (ember wikis + embers.db)
     "embers_scheduler":   True,                 # run due ember jobs in the panel process
     "embers_swap_models": True,                 # embers may load their pinned model when the router is idle
+    # Multi-model (slots.py): off = one model at a time, exactly as before.
+    "multi_model":       False,                 # let the router hold several models at once
+    "slot_cap":          3,                     # most models loaded together (2-4)
+    "slot_headroom_mib": 1536,                  # per GPU, kept free beyond every plan
+    "slot_autoload":     False,                 # let client requests load models (bypasses the planner)
+    "slots":             {"main": "", "placed": {}},  # main model id; {model: keys LlamaForge wrote}
+    # Per-model builds (builds.py): {model id: install dir name | "ik_llama"}.
+    # A pin other than the router's own build runs the model in its own process.
+    "model_builds":      {},
+    "slot_port_base":    8100,                  # first port for those processes (slotproc)
 }
 
 def load():
@@ -228,8 +238,9 @@ def ini_path(engine=None):
         return stem + "-ikllama" + (ext or ".ini")
     return _abs(c["models_ini"])
 
-def read_sections(path=None):
-    """Return {section: {key: value}} for all sections including [*]."""
+def read_sections(path=None, raw=False):
+    """Return {section: {key: value}} for all sections including [*].
+    raw: keep each value's inline `; comment`, to write the line back as it was."""
     path = path or ini_path()
     if not path or not os.path.exists(path):
         return {}
@@ -244,7 +255,7 @@ def read_sections(path=None):
                 continue
             if "=" in s:
                 k, v = s.split("=", 1)
-                v = v.split(";", 1)[0].strip() if ";" in v else v.strip()
+                v = v.split(";", 1)[0].strip() if ";" in v and not raw else v.strip()
                 out[cur][k.strip()] = v
     return out
 
@@ -303,9 +314,9 @@ def _set_keys_locked(section, updates, path):
         if km and km.group(1) in updates:
             if updates[km.group(1)] is not None:
                 new_body.append(f"{km.group(1)} = {updates[km.group(1)]}")
-            continue
-        new_body.append(line)
-        if j + 1 == last_key_local:
+        else:
+            new_body.append(line)
+        if j + 1 == last_key_local:          # even when that last key was just replaced
             for k, v in updates.items():
                 if v is not None and k not in seen:
                     new_body.append(f"{k} = {v}"); seen.add(k)

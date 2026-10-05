@@ -91,18 +91,22 @@ def _candidates(base, intent):
 def refine(base_knobs, intent, load_fn, measure_fn, budget_s=60, clock=time.monotonic):
     start = clock()
     best_knobs, best_tok = dict(base_knobs), -1.0
-    cands = []
+    cands, err = [], ""
     for cand in _candidates(base_knobs, intent):
         if clock() - start >= budget_s:
             break
         try:
             load_fn(cand)
             tok = float(measure_fn())
-        except Exception:
+        except Exception as e:
+            err = err or str(e) or type(e).__name__
             continue
         cands.append({"knobs": cand, "tok_s": tok})
         if tok > best_tok:
             best_knobs, best_tok = cand, tok
-    return {"knobs": best_knobs,
-            "measurements": {"candidates": cands,
-                             "chosen_tok_s": best_tok if best_tok >= 0 else 0.0}}
+    out = {"knobs": best_knobs,
+           "measurements": {"candidates": cands,
+                            "chosen_tok_s": best_tok if best_tok >= 0 else 0.0}}
+    if err and not cands:
+        out["error"] = "no candidate could be measured: " + err
+    return out

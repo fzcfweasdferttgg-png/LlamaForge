@@ -276,6 +276,16 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .faildiag{border:1px solid var(--red);background:var(--red-tint);padding:10px 12px;margin-bottom:12px;font-size:12px}
 .faildiag .ferr{color:var(--red);font-family:var(--mono);word-break:break-word}
 .faildiag .ffix{color:var(--ink);margin-top:6px}.faildiag .ffix b{color:var(--amber-text)}
+.tag.slot-main{color:var(--amber-text);border-color:var(--amber-dim)}
+.tag.slot-worker{color:var(--cyan-text);border-color:var(--cyan-border)}
+.tag.build{color:var(--ink-strong);border-color:var(--amber-dim)}
+.slotnote{font-size:12px;line-height:1.6;color:var(--ink);margin-bottom:10px}
+.slotnote.dim{color:var(--dim);font-size:11px;letter-spacing:.06em}
+.slotnote.ok{color:var(--green)}
+.slotnote.warn{border:1px solid var(--amber-dim);background:var(--amber-tint);padding:8px 10px}
+.slotnote.warn b{color:var(--amber-text)}
+.slotnote .qbtn{margin-left:8px}
+#slots-banner:empty{display:none}
 /* GGUF metadata card (#11) */
 .metacard{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px;border:1px solid var(--hair);background:var(--panel2);padding:12px 14px;margin-bottom:12px}
 .metacard .m{font-size:11px}.metacard .m .mk{color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-size:9px}
@@ -494,6 +504,7 @@ body.mode-lite .advanced-only{display:none !important}
       <span class="chip" id="cmp-run" style="display:none">Compare (<span id="cmp-n">0</span>)</span>
       <span class="chip" id="unload-all" title="unload every loaded model">Unload all</span>
     </div>
+    <div id="slots-banner"></div>
     <div class="list" id="list"><div class="skel">SCANNING REGISTRY...</div></div>
     <details class="kgroup" style="margin-top:16px" id="router-log-details">
       <summary>Router Log (llama.cpp stdout/stderr)</summary>

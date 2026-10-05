@@ -116,6 +116,51 @@ def total_ram_bytes():
     return 0
 
 
+def parse_meminfo_available(text):
+    """MemAvailable (bytes) from /proc/meminfo contents; 0 if absent."""
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1]) * 1024
+    return 0
+
+
+def _win_available_ram():
+    import ctypes
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+    st = MEMORYSTATUSEX()
+    st.dwLength = ctypes.sizeof(st)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+        return 0
+    return int(st.ullAvailPhys)
+
+
+def available_ram_bytes():
+    """RAM a new process could get without swapping, in bytes; 0 if
+    undetectable. Never raises."""
+    try:
+        if IS_WIN:
+            return _win_available_ram()
+        if IS_LINUX:
+            with open("/proc/meminfo", encoding="utf-8") as f:
+                return parse_meminfo_available(f.read())
+        if IS_MAC:
+            return parse_vm_stat(run_text(["vm_stat"]))
+    except Exception:
+        return 0
+    return 0
+
+
 def parse_vm_stat(text):
     """Free+inactive bytes from `vm_stat` output (best-effort)."""
     m = re.search(r"page size of (\d+)", text)

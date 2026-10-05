@@ -61,6 +61,10 @@ class FakeRouter:
         e = self.loaded_entry()
         return e["id"] if e else None
 
+    def loaded_ids(self, main=""):
+        e = self.loaded_entry()
+        return [e["id"]] if e else []
+
     def report(self, model):
         self.s.calls.append(("activity", model))
         if model != self._current():           # asleep or not loaded: /metrics would load or wake it
@@ -348,6 +352,46 @@ class WaitTest(SchedCase):
             r = self.sched.tick()
         self.assertEqual(r["skipped"], [])
         self.assertEqual(self.runs(root), [])
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+
+
+class OwnBuildTest(SchedCase):
+    """Embers reach models through the router; a model pinned to another
+    llama.cpp build runs in its own process, which the router doesn't serve."""
+
+    class Pool:
+        def __init__(self, why):
+            self.why = why
+
+        def active(self):
+            return False
+
+        def own_build(self, mid):
+            return self.why.get(mid, "")
+
+    def test_a_model_on_its_own_build_waits_and_is_never_swapped_in(self):
+        root = self.ember("a", model="ik-model")
+        self.sched.pool = self.Pool({"ik-model": "ik-model runs on its own build"})
+        self.t[0] = SWAP_IDLE * 3
+        for _ in range(3):
+            r = self.sched.tick()
+            self.assertIsNone(r["ran"])
+            self.assertIn("own build", r["waiting"]["a"]["ingest"])
+        self.assertEqual(self.ops(), [])
+        self.t[0] = WAIT_MAX * 3          # a config condition: never turns into a skip
+        self.assertEqual(self.sched.tick()["skipped"], [])
+        self.assertEqual(self.runs(root), [])
+
+    def test_other_models_are_unaffected(self):
+        self.ember("a", model="pinned")
+        self.sched.pool = self.Pool({"ik-model": "ik-model runs on its own build"})
+        self.sched.tick()
+        self.t[0] = SWAP_IDLE
+        self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
+
+    def test_a_pool_without_the_probe_is_fine(self):
+        self.ember("a")
+        self.sched.pool = mock.Mock(spec=["active"], active=lambda: False)
         self.assertEqual(self.sched.tick()["ran"], ("a", "ingest", "ok"))
 
 

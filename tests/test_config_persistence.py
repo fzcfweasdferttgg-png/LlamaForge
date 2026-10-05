@@ -179,5 +179,30 @@ class ConcurrentIniTest(unittest.TestCase):
         self.assertEqual(secs["*"]["ctx-size"], "4096")   # untouched
 
 
+class IniLayoutTest(unittest.TestCase):
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "models.ini")
+
+    def write(self, text):
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def text(self):
+        with open(self.path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_new_keys_follow_the_last_key_even_when_it_is_replaced(self):
+        self.write("[m]\nmodel = /m.gguf\nmain-gpu = 1\n\n[n]\nmodel = /n.gguf\n")
+        config.set_keys("m", {"main-gpu": "0", "device": "CUDA1"}, self.path)
+        self.assertEqual(self.text(), "[m]\nmodel = /m.gguf\nmain-gpu = 0\ndevice = CUDA1\n\n"
+                                      "[n]\nmodel = /n.gguf\n")
+
+    def test_raw_read_keeps_inline_comments(self):
+        self.write("[m]\nmain-gpu = 1 ; the 5080\nctx-size = 8192\n")
+        self.assertEqual(config.read_sections(self.path)["m"]["main-gpu"], "1")
+        self.assertEqual(config.read_sections(self.path, raw=True)["m"],
+                         {"main-gpu": "1 ; the 5080", "ctx-size": "8192"})
+
+
 if __name__ == "__main__":
     unittest.main()

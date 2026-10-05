@@ -391,16 +391,24 @@ def _auto_load(model_id):
             known = {m.get("id") for m in data.get("data", [])}
             if model_id not in known and model_id not in config.read_sections():
                 return                          # unknown model id - nothing to load
-            routes.router("/models/load", "POST", {"model": model_id})
+            if routes._slotted(model_id):     # a pool, or a model on its own build
+                routes.SLOTS.load(model_id, "main", wait=False)
+            else:
+                routes.router("/models/load", "POST", {"model": model_id})
             return
         time.sleep(1)
 
 
 def _router_startup(model_id):
-    """Background: re-key a router left running by an older build, then load
-    the favourite model - in that order, so the load lands on the new router."""
+    """Background: re-key a router left running by an older build, give it the
+    multi-model pool if that's on, then load the favourite model - in that
+    order, so the load lands on the final router."""
     try:
         routes.reconcile_router_auth()
+    except Exception:
+        pass
+    try:
+        routes.reconcile_router_pool()
     except Exception:
         pass
     if model_id:
@@ -430,6 +438,10 @@ def main():
             routes.router("/models?reload=1")
     except Exception:
         pass
+    try:                    # adopt the model processes a previous panel left running
+        routes.PROCS.reconcile()
+    except Exception:
+        pass
     stats.TRACKER.start()   # background usage poller
     chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
     try:                    # optional tray icon (no-op unless pystray+pillow present)
@@ -440,7 +452,7 @@ def main():
         pass
     try:                    # embers: run due jobs in the background (config embers_scheduler)
         from embers.scheduler import Scheduler
-        EMBERS_SCHED = Scheduler(routes.cfg)
+        EMBERS_SCHED = Scheduler(routes.cfg, pool=routes.EmbersPool())
         EMBERS_SCHED.start()
     except Exception as e:
         print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")

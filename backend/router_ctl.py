@@ -3,7 +3,7 @@ so changing network settings (host, API key) never requires the user
 to touch a terminal. Windows uses Get-NetTCPConnection to find the
 process bound to a port; Linux/macOS use lsof.
 """
-import os, signal, subprocess, time, socket, urllib.error, urllib.request
+import json, os, signal, subprocess, time, socket, urllib.error, urllib.request
 
 import network_policy, osplat, procs
 
@@ -50,16 +50,33 @@ def _help_text(server_bin):
     if key in _HELP:
         return _HELP[key]
     try:
-        out = subprocess.check_output([server_bin, "--help"], text=True, timeout=25,
-                                      stderr=subprocess.STDOUT,
-                                      creationflags=CREATE_NO_WINDOW if osplat.IS_WIN else 0)
+        # Not check_output: ik_llama.cpp prints its whole --help and exits 1.
+        # utf-8 for the same reason argspec.build_schema gives (cp1252 locale).
+        r = subprocess.run([server_bin, "--help"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=25,
+                           stdin=subprocess.DEVNULL,
+                           creationflags=CREATE_NO_WINDOW if osplat.IS_WIN else 0)
     except Exception:
         return ""                         # unreadable -> not cached
+    # some builds/forks route usage through the log system -> stderr
+    out = r.stdout if (r.stdout or "").strip() else (r.stderr or "")
+    if not out.strip():
+        return ""                         # nothing printed -> not cached
     _HELP[key] = out
     return out
 
+def help_text(server_bin):
+    """The binary's --help, cached per (path, mtime); '' when it can't be read."""
+    return _help_text(server_bin)
+
 def supports_router_mode(server_bin):
     return "--models-preset" in _help_text(server_bin)
+
+def supports_no_autoload(server_bin):
+    """Multi-model mode needs it: with autoload on, any client request for an
+    unloaded model loads it behind the planner's back and the router evicts
+    whatever it likes to make room."""
+    return "--no-models-autoload" in _help_text(server_bin)
 
 def supports_cors_origins(server_bin):
     """Older builds and forks predate --cors-origins and would refuse to start."""
@@ -131,9 +148,11 @@ def stop(port, timeout=10):
     time.sleep(0.5)
     return _pid_on_port(port) is None
 
-def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
+def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
     """api_key is the user's key and decides policy (LAN needs one the user
-    knows); local_key is LlamaForge's own, used when the user has none."""
+    knows); local_key is LlamaForge's own, used when the user has none.
+    pool: None for one model at a time, or slots.router_pool()'s
+    {"models_max", "autoload"} for multi-model mode."""
     reason = network_policy.start_error(host, api_key)
     if reason:
         return False, reason
@@ -148,8 +167,11 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
         return False, (f"port {port} is already in use by another process - "
                        f"stop it, or change the router port in Setup")
     os.makedirs(logdir, exist_ok=True)
-    args = [server_bin, "--models-preset", models_ini, "--models-max", "1", "--offline",
+    models_max = str(pool["models_max"]) if pool else "1"
+    args = [server_bin, "--models-preset", models_ini, "--models-max", models_max, "--offline",
             "--host", host, "--port", str(port), "--metrics"]
+    if pool and not pool.get("autoload", True):
+        args.append("--no-models-autoload")
     args += network_policy.router_auth_args(host, api_key or local_key,
                                             supports_cors_origins(server_bin))
     out = open(os.path.join(logdir, "router.out.log"), "a", encoding="utf-8", errors="replace")
@@ -166,9 +188,31 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
         out.close()
         err.close()
     procs.write_pid(logdir, "router", proc.pid)   # stop.ps1/.sh stop only this one
+    record_pool(logdir, proc.pid, pool)
     return True, ""
 
-def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
+
+def record_pool(logdir, pid, pool):
+    """Remember which pool the router under `pid` runs, beside its pidfile."""
+    try:
+        with open(os.path.join(logdir, "router.pool.json"), "w", encoding="utf-8") as f:
+            json.dump({"pid": int(pid), "pool": pool}, f)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def running_pool(logdir):
+    """The pool of the router LlamaForge started, or None (one model at a time)
+    when the recorded router is not the one running: run.ps1 / run.sh start it
+    single and overwrite the pidfile, not this record."""
+    try:
+        with open(os.path.join(logdir, "router.pool.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        return rec["pool"] if rec.get("pid") == procs.read_pid(logdir, "router") else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
     reason = network_policy.start_error(host, api_key)
     if reason:
         return False, reason
@@ -178,4 +222,4 @@ def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
         return False, ("can't see which process holds the router port - install "
                        "lsof, or iproute2 (ss), or psmisc (fuser)")
     stop(port)
-    return start(server_bin, models_ini, port, host, api_key, logdir, local_key)
+    return start(server_bin, models_ini, port, host, api_key, logdir, local_key, pool)
