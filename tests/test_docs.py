@@ -19,6 +19,23 @@ class TestRenderInline(unittest.TestCase):
         self.assertEqual(docs.render("![alt](docs/img/x.png)"),
                          '<p><img alt="alt" src="docs/img/x.png"></p>')
 
+    def test_images_off_renders_a_link_and_fetches_nothing(self):
+        md = "\n\n".join([
+            "![pixel](https://x.example/p.png)",
+            "- ![](https://x.example/q.png) in a list",
+            "> ![q](https://x.example/r.png)",
+            "| a |\n|---|\n| ![t](https://x.example/s.png) |"])
+        html = docs.render(md, images=False)
+        self.assertNotIn("<img", html)
+        self.assertIn('<a href="https://x.example/p.png">pixel</a>', html)
+        self.assertIn('<a href="https://x.example/q.png">image</a>', html)
+        self.assertIn('<a href="https://x.example/r.png">q</a>', html)
+        self.assertIn('<a href="https://x.example/s.png">t</a>', html)
+
+    def test_images_off_still_neutralises_urls(self):
+        html = docs.render("![x](javascript:alert(1))", images=False)
+        self.assertNotIn("javascript:", html)
+
     def test_hr(self):
         self.assertEqual(docs.render("---"), "<hr>")
 

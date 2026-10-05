@@ -69,18 +69,31 @@ class Ember:
         self.close()
 
 
-def create_ember(embers_dir, template, ember_id, bindings, now):
+def create_ember(embers_dir, template, ember_id, bindings, now, name=None):
     """template: a parse_template() result. bindings: {slot_id: path_or_url}.
     Returns the new ember's folder."""
     if not isinstance(ember_id, str) or not ID_RE.fullmatch(ember_id):
         raise ValueError("ember id must be lowercase letters, digits and dashes")
     if reserved_name(ember_id):
         raise ValueError(f"ember id {ember_id!r} is a reserved device name")
-    if not isinstance(bindings, dict):
-        raise ValueError("bindings must be an object")
     root = os.path.join(embers_dir, ember_id)
     if os.path.exists(os.path.join(root, "ember.json")):
         raise ValueError(f"ember {ember_id!r} already exists")
+    clean = clean_bindings(template, bindings)
+    os.makedirs(root, exist_ok=True)
+    wikifs.init_wiki(root, template["title"], template["schema_md"])
+    atomicio.write_json(os.path.join(root, "ember.json"), {
+        "id": ember_id, "name": name or template["title"],
+        "template": {k: v for k, v in template.items() if k != "dropped"},
+        "bindings": clean, "model": "", "enabled": True, "created": ts(now)})
+    return root
+
+
+def clean_bindings(template, bindings):
+    """{slot_id: path_or_url} checked against the template's slots: unknown
+    slots refused, blanks dropped, rss defaults filled, required slots bound."""
+    if not isinstance(bindings, dict):
+        raise ValueError("bindings must be an object")
     slots = {s["id"]: s for s in template["slots"]}
     unknown = sorted(set(bindings) - set(slots))
     if unknown:
@@ -93,13 +106,7 @@ def create_ember(embers_dir, template, ember_id, bindings, now):
                if s["required"] and s["type"] not in templates.AUTO_SLOTS and s["id"] not in clean]
     if missing:
         raise ValueError(f"required slot(s) not bound: {', '.join(missing)}")
-    os.makedirs(root, exist_ok=True)
-    wikifs.init_wiki(root, template["title"], template["schema_md"])
-    atomicio.write_json(os.path.join(root, "ember.json"), {
-        "id": ember_id, "name": template["title"],
-        "template": {k: v for k, v in template.items() if k != "dropped"},
-        "bindings": clean, "model": "", "enabled": True, "created": ts(now)})
-    return root
+    return clean
 
 
 def _bound(ember):

@@ -49,7 +49,7 @@ and never loads one.
 """
 import copy, datetime as dt, os, threading, time
 
-from . import embers_dir, jobs, lock, reserved_name
+from . import embers_dir, jobs, lock, push, reserved_name
 from .llm import (MAX_REPLY_CAP, LLMError, ModelNotLoaded, Router, RouterUnavailable, ask_json,
                   clamp_n_ctx)
 from .sched import ORDER, decide, decide_pool, due_jobs, next_occurrence
@@ -107,13 +107,16 @@ def _msg(e):
 
 class Scheduler:
     def __init__(self, cfg_fn, router_cls=Router, now=dt.datetime.now, clock=time.monotonic,
-                 sleep=None, runners=None, pool=None):
+                 sleep=None, runners=None, pool=None, after_run=push.after_run):
         """pool: the multi-model pool, or None. active() says whether loads go
         through the planner right now; plan(mid) and load(mid) are a worker's,
         load returning (HTTP status, body) like slotctl's; also unload(mid),
         touch(mid) and main(). An optional own_build(mid) names why a model
-        pinned to another build can't serve embers (they go through the router)."""
+        pinned to another build can't serve embers (they go through the router).
+        after_run(ember, job, result, now) is called after each job that
+        returned, with the ember still open; its errors are only reported."""
         self.cfg_fn, self.router_cls, self.pool = cfg_fn, router_cls, pool
+        self.after_run = after_run
         self._stop = threading.Event()
         # The default sleep is the stop event, so stop() cuts short a wait for a model load.
         self.now, self.clock, self.sleep = now, clock, sleep or self._stop.wait
@@ -124,14 +127,46 @@ class Scheduler:
         self._waiting = {}                     # (id, job) -> {"since": clock|None, "reason": str}
         self._last_active = clock()            # construction counts as activity: no swap for SWAP_IDLE
         self._last_seen = None                 # (clock, loaded, status, work) of the last good look
+        self._manual = {}                      # id -> [jobs] asked for with request(), in ORDER
+        self._wake = threading.Event()         # request() cuts the wait between passes short
         self._thread = None
 
     # ------------------------------------------------------------ public
     def status(self):
         with self._lock:
             out = copy.deepcopy(self._status)
+            for eid, queued in self._manual.items():
+                out.setdefault(eid, {"enabled": True, "next": {}, "waiting": {}, "running": None})
+            for eid, entry in out.items():
+                entry["queued"] = list(self._manual.get(eid, []))
             out["last_error"] = self._last_error
         return out
+
+    def request(self, eid, wanted):
+        """Run now: queue jobs for one ember, run in ORDER on the next passes.
+        They wait, skip and take the lock like scheduled jobs, run even when
+        the ember is disabled or the scheduler is off (the user asked), and a
+        job that is due anyway runs once. Raises ValueError on a bad id or job."""
+        if not isinstance(eid, str) or not jobs.ID_RE.fullmatch(eid) or reserved_name(eid):
+            raise ValueError("bad ember id")
+        if not isinstance(wanted, (list, tuple)) or not wanted:
+            raise ValueError("name at least one job")
+        bad = [j for j in wanted if j not in self.runners]
+        if bad:
+            raise ValueError(f"unknown job(s): {', '.join(map(str, bad))[:200]}")
+        with self._lock:
+            have = set(self._manual.get(eid, [])) | set(wanted)
+            self._manual[eid] = [j for j in ORDER if j in have]
+            queued = list(self._manual[eid])
+        self._wake.set()
+        return queued
+
+    def cancel(self, eid):
+        """Drop the queued requests of one ember (a job already running finishes).
+        Returns what was dropped."""
+        with self._lock:
+            dropped = self._manual.pop(eid, [])
+        return dropped                         # the next pass drops their wait clocks
 
     def tick(self):
         with self._tick_lock:
@@ -152,6 +187,7 @@ class Scheduler:
 
     def stop(self, timeout=STOP_JOIN):
         self._stop.set()
+        self._wake.set()
         t = self._thread
         if t is not None and t is not threading.current_thread():
             t.join(timeout)
@@ -160,13 +196,14 @@ class Scheduler:
     def _loop(self):
         while not self._stop.is_set():
             ran = False
+            self._wake.clear()                 # before the pass: a request made during it wakes the wait
             try:
                 r = self.tick()
                 ran = bool(r.get("ran")) and not r.get("error")
             except Exception as e:             # tick() catches already; belt and braces
                 self._error(_msg(e))
             if not ran:
-                self._stop.wait(TICK)
+                self._wake.wait(TICK)
 
     def _error(self, msg):
         with self._lock:
@@ -185,20 +222,30 @@ class Scheduler:
         cfg = self.cfg_fn()
         if not isinstance(cfg, dict):
             cfg = {}
-        if cfg.get("embers_scheduler") is False:
+        on = cfg.get("embers_scheduler") is not False
+        with self._lock:
+            manual = {k: list(v) for k, v in self._manual.items() if v}
+        if not on and not manual:              # off: only what the user asks for runs
             self._publish({})
             self._waiting.clear()
             return
         now = self.now()
         status, candidates = {}, []
-        for eid, root in list_embers(embers_dir(cfg)):
+        listed = list_embers(embers_dir(cfg))
+        for eid, root in listed:
             try:
-                cand = self._scan(eid, root, now, status)
+                cand = self._scan(eid, root, now, status, manual.get(eid, []), on)
             except Exception as e:             # one broken ember must not stop the others
                 self._error(f"{eid}: {_msg(e)}")
                 continue
             if cand:
                 candidates.append(cand)
+        gone = set(manual) - {eid for eid, _ in listed}
+        if gone:                               # deleted since the request
+            with self._lock:
+                for eid in gone:
+                    self._manual.pop(eid, None)
+        candidates.sort(key=lambda c: not c.get("manual"))   # asked for first; stable otherwise
         keys = {(c["id"], c["job"]) for c in candidates}
         self._waiting = {k: v for k, v in self._waiting.items() if k in keys}
         self._publish(status)
@@ -231,8 +278,9 @@ class Scheduler:
             self._act(result, c, router, loaded, action, arg, on_pool)
             return
 
-    def _scan(self, eid, root, now, status):
-        """Status entry for one ember; its first due job as a candidate, or None."""
+    def _scan(self, eid, root, now, status, queued=(), due_ok=True):
+        """Status entry for one ember; its first requested job, else its first
+        due one (when due_ok), as a candidate, or None."""
         with jobs.Ember(root) as ember:
             conf = ember.conf if isinstance(ember.conf, dict) else {}
             sched = jobs_conf(conf)
@@ -244,18 +292,20 @@ class Scheduler:
                     nxt[job] = occ.isoformat(timespec="minutes")
             status[eid] = {"enabled": enabled, "next": nxt if enabled else {},
                            "waiting": {}, "running": None}
-            if not enabled:
-                return None
-            attempts = {}
-            for job in ORDER:
-                last = ember.store.last_attempt(job)
-                attempts[job] = parse_ts(last["started"]) if last else None
-            due = due_jobs(sched, attempts, parse_ts(conf.get("created")) or dt.datetime.min, now)
+            due = []
+            if enabled and due_ok and not queued:
+                attempts = {}
+                for job in ORDER:
+                    last = ember.store.last_attempt(job)
+                    attempts[job] = parse_ts(last["started"]) if last else None
+                due = due_jobs(sched, attempts, parse_ts(conf.get("created")) or dt.datetime.min, now)
+        model = conf.get("model")
+        model = model if isinstance(model, str) else ""
+        if queued:
+            return {"id": eid, "root": root, "job": queued[0], "model": model, "manual": True}
         if not due:
             return None
-        model = conf.get("model")
-        return {"id": eid, "root": root, "job": due[0],
-                "model": model if isinstance(model, str) else ""}
+        return {"id": eid, "root": root, "job": due[0], "model": model}
 
     def _observe(self, cfg):
         """(router|None, loaded, busy) once per tick; busy None means unreachable.
@@ -352,7 +402,19 @@ class Scheduler:
             with ember.store.db:
                 ember.store.record_skip(c["job"], now, reason)
         self._waiting.pop((c["id"], c["job"]), None)
+        self._dequeue(c)
         result["skipped"].append((c["id"], c["job"], reason))
+
+    def _dequeue(self, c):
+        """A requested job ran or was skipped: it leaves the queue."""
+        if not c.get("manual"):
+            return
+        with self._lock:
+            q = self._manual.get(c["id"])
+            if q and c["job"] in q:
+                q.remove(c["job"])
+            if not q:
+                self._manual.pop(c["id"], None)
 
     def _act(self, result, c, router, loaded, action, model, on_pool=False):
         try:
@@ -369,7 +431,7 @@ class Scheduler:
             conf = ember.conf if isinstance(ember.conf, dict) else {}
             due = due_jobs(jobs_conf(conf), {c["job"]: parse_ts(last["started"]) if last else None},
                            parse_ts(conf.get("created")) or dt.datetime.min, now)
-            if c["job"] not in due:
+            if c["job"] not in due and not c.get("manual"):
                 self._waiting.pop((c["id"], c["job"]), None)
                 return
             swapped, coloaded, preempted = False, False, []
@@ -391,6 +453,7 @@ class Scheduler:
                         with ember.store.db:
                             ember.store.record_skip(c["job"], now, why[:ERROR_CHARS])
                         self._waiting.pop((c["id"], c["job"]), None)
+                        self._dequeue(c)
                         result["skipped"].append((c["id"], c["job"], why[:ERROR_CHARS]))
                         return
                 elif action == "coload":
@@ -398,6 +461,7 @@ class Scheduler:
                     if coloaded is None:
                         return
                 self._waiting.pop((c["id"], c["job"]), None)
+                self._dequeue(c)
                 self._run(result, c, ember, router, model, preempted, on_pool)
                 if on_pool and not coloaded:
                     self._touch(model)
@@ -432,6 +496,7 @@ class Scheduler:
         with ember.store.db:
             ember.store.record_skip(c["job"], now, why)
         self._waiting.pop((c["id"], c["job"]), None)
+        self._dequeue(c)
         result["skipped"].append((c["id"], c["job"], why))
         return None
 
@@ -508,6 +573,11 @@ class Scheduler:
             result["ran"] = (c["id"], c["job"], status if isinstance(status, str) else "unknown")
             if isinstance(r, dict) and r.get("router_down") is True:
                 self._error(f"{c['id']} {c['job']}: the router went down during the run")
+            if self.after_run and isinstance(r, dict):
+                try:
+                    self.after_run(ember, c["job"], r, self.now())
+                except Exception as e:     # e.g. a bad push config: the job itself succeeded
+                    self._error(f"{c['id']} after {c['job']}: {_msg(e)}"[:ERROR_CHARS])
         except Exception as e:                 # the job closed its own run row
             result["ran"] = (c["id"], c["job"], "error")
             result["error"] = f"{c['id']} {c['job']}: {_msg(e)}"[:ERROR_CHARS]
