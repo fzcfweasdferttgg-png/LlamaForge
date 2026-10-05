@@ -590,7 +590,7 @@ export async function loadSetup() {
     </div>
     <div class="card"><h3>Speed Estimates <span style="color:var(--dim);font-weight:normal;font-size:11px">(advanced &mdash; optional)</span></h3>
       <div class="note">The "Will it run?" panel and Discover speed badges estimate tok/s from memory bandwidth. Detected GPU presets are used by default; override here only if you've measured your machine. Blank = use the preset/default.</div>
-      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="formrow" style="gap:8px;margin:10px 0 0">
         <div class="fld"><label>VRAM GB/s</label><input id="bw-vram" type="number" min="0" step="any" placeholder="preset" value="${esc(String(bw.vram_bw ?? ""))}" style="width:110px"></div>
         <div class="fld"><label>RAM GB/s</label><input id="bw-ram" type="number" min="0" step="any" placeholder="50" value="${esc(String(bw.ram_bw ?? ""))}" style="width:110px"></div>
         <div class="fld"><label>Disk GB/s</label><input id="bw-disk" type="number" min="0" step="any" placeholder="5.7" value="${esc(String(bw.disk_bw ?? ""))}" style="width:110px"></div>
