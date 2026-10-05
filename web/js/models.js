@@ -117,7 +117,7 @@ function editorButtons(m) {
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch for this model">Save as profile</button>
-      <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
+      <button class="danger" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
@@ -125,7 +125,7 @@ function editorButtons(m) {
       ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
-      <button class="ghost" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
+      <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
 }
 function editorNote(m) {
   if (m.backend === "vllm")
@@ -546,7 +546,7 @@ function presetBar(m) {
       + `${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="delete preset">&times;</span></span>`;
   }).join("");
   return `<div class="presetbar">
-    <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Presets</span>
+    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Presets</span>
     ${chips||'<span class="note" style="margin:0">none saved yet</span>'}
     <button class="qbtn" data-preset-save="${esc(m.id)}" title="save this model's set knobs as a named preset">Save current +</button>
   </div>`;
@@ -914,7 +914,10 @@ export function initModels() {
       const pbind = e.target.closest("[data-preset-bind]");
       if (pbind) { await bindPreset(pbind.dataset.presetBindModel, pbind.dataset.presetBind); return; }
       const pdel = e.target.closest("[data-preset-del]");
-      if (pdel) { await api("/api/presets/delete", {name: pdel.dataset.presetDel}); toast("Preset deleted","ok"); await refresh(true); return; }
+      if (pdel) {
+        if (!confirm(`Delete preset "${pdel.dataset.presetDel}"? This can't be undone.`)) return;
+        await api("/api/presets/delete", {name: pdel.dataset.presetDel}); toast("Preset deleted","ok"); await refresh(true); return;
+      }
       await applyPreset(pApply.dataset.presetModel, pApply.dataset.presetApply); return;
     }
     const pSave = e.target.closest("[data-preset-save]");

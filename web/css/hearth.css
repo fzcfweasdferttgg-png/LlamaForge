@@ -18,31 +18,35 @@
   --sans:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
   --disp:var(--serif);
 
-  --bg:#130d0a;--panel:#1c1411;--panel2:#241a15;--raise:#2b1f19;
-  --inset:#110b09;--seg-bg:#2a1e18;--code-bg:#0e0907;--code-ink:#dcc8ae;
-  --hair:#33261f;--hair-hi:#4b3a2f;--hair-dim:#271d18;--led-off:#4a3b31;
-  --ink:#eadac4;--ink-hi:#f4e6d2;--ink-strong:#fff3e2;
-  --dim:#a88f79;--faint:#7c6757;--faint-2:#6d5a4c;
-  --amber:#ff8a4c;--amber-text:#ffa774;--amber-status:#ffb36b;--amber-dim:#8f4826;
+  /* warm graphite, not brown: the page recedes, cards sit clearly above it,
+     ink is near-white - the same page/card/ink hierarchy the light theme has.
+     faint text still clears 4.5:1 on the lightest panel. */
+  --bg:#0f0e0d;--panel:#201d1a;--panel2:#282521;--raise:#312d28;
+  --inset:#0d0c0b;--seg-bg:#322d28;--code-bg:#0b0a09;--code-ink:#e3d8c8;
+  --hair:#35302b;--hair-hi:#4c463f;--hair-dim:#27231f;--led-off:#4d4740;
+  --ink:#e8e2d8;--ink-hi:#f2ede5;--ink-strong:#fbf8f2;
+  --dim:#a39a8e;--faint:#968d82;--faint-2:#968d82;
+  --amber:#ff9156;--amber-text:#ffab7c;--amber-status:#ffb36b;--amber-dim:#8a4a2a;
   --amber-tint:rgba(255,138,76,.10);--on-amber:#2a1006;--on-accent:#2a1006;
   --cyan:#55c7bb;--cyan-text:#7dd8ce;--cyan-border:#285a54;
   --green:#86d39a;--green-border:#355a3d;
   --red:#ff6f5e;--red-tint:rgba(255,111,94,.08);
   --grid:transparent;
-  --overlay:rgba(12,7,5,.62);--overlay-72:rgba(12,7,5,.74);
+  --overlay:rgba(10,9,8,.62);--overlay-72:rgba(10,9,8,.74);
   --shadow:rgba(0,0,0,.55);--shadow-70:rgba(0,0,0,.7);
   --r-xs:7px;--r-sm:10px;--r:16px;--r-lg:22px;
-  --lift:0 1px 0 rgba(255,236,214,.045) inset,0 1px 2px rgba(0,0,0,.35),0 18px 40px -22px rgba(0,0,0,.85);
+  --lift:0 1px 0 rgba(255,244,230,.05) inset,0 1px 2px rgba(0,0,0,.4),0 18px 40px -22px rgba(0,0,0,.9);
   --ring:0 0 0 3px rgba(255,138,76,.22);
   --topbar-bg:transparent;
   --ember-glow:0 0 0 1px rgba(255,138,76,.35),0 10px 40px -10px rgba(255,110,50,.45);
-  --surface:linear-gradient(180deg,rgba(255,226,196,.035),rgba(255,226,196,0) 46%),var(--panel);
-  --hero-ink:#fff1de;
-  --paper:#f5e9d5;--paper-ink:#2b1d14;--paper-dim:#7a604b;--paper-hair:#e2cfb2;
+  --surface:linear-gradient(180deg,rgba(255,240,224,.03),rgba(255,240,224,0) 46%),var(--panel);
+  --hero-ink:#fbf6ee;
+  /* the brief's paper is dimmed in the dark so it doesn't glare off the page */
+  --paper:#e6d8c1;--paper-ink:#2b1d14;--paper-dim:#664e3c;--paper-hair:#d2bf9f;
+  --sidebar-bg:linear-gradient(180deg,rgba(255,240,224,.02),transparent 30%),#151311;
   --bg-glow:
-    radial-gradient(900px 520px at 78% -8%,rgba(255,122,60,.16),transparent 62%),
-    radial-gradient(700px 520px at 6% 104%,rgba(64,150,138,.10),transparent 60%),
-    radial-gradient(1200px 700px at 40% 40%,rgba(120,60,30,.10),transparent 70%);
+    radial-gradient(900px 480px at 82% -10%,rgba(255,130,70,.10),transparent 62%),
+    radial-gradient(700px 520px at 4% 106%,rgba(70,150,140,.05),transparent 60%);
 }
 
 /* ---------- tokens: light ---------- */
@@ -51,7 +55,7 @@
   --inset:#f3e8d6;--seg-bg:#ead9c2;--code-bg:#f2e6d2;--code-ink:#4a3424;
   --hair:#e6d5bc;--hair-hi:#d4bc9a;--hair-dim:#eee2cf;--led-off:#d4bc9a;
   --ink:#3b2a1e;--ink-hi:#2f2117;--ink-strong:#21150d;
-  --dim:#7e6450;--faint:#a68c76;--faint-2:#a68c76;
+  --dim:#6c5341;--faint:#7a604b;--faint-2:#7a604b;
   --amber:#e5622a;--amber-text:#b0441a;--amber-status:#b0441a;--amber-dim:#f0b28d;
   --amber-tint:rgba(229,98,42,.09);--on-amber:#fff8f0;--on-accent:#fff8f0;
   --cyan:#1f8a80;--cyan-text:#17716a;--cyan-border:#a9d3cc;
@@ -65,6 +69,7 @@
   --surface:linear-gradient(180deg,#fffdf8,rgba(255,253,248,0) 50%),var(--panel);
   --hero-ink:#21150d;
   --paper:#fffdf7;--paper-ink:#2b1d14;--paper-dim:#7a604b;--paper-hair:#eadbc4;
+  --sidebar-bg:linear-gradient(180deg,#fffaf2,#fbf3e6);
   --bg-glow:
     radial-gradient(900px 520px at 80% -10%,rgba(255,150,90,.20),transparent 62%),
     radial-gradient(700px 520px at 4% 104%,rgba(80,160,145,.10),transparent 60%);
@@ -101,9 +106,7 @@
 /* ---------- sidebar ---------- */
 :root[data-skin="hearth"]{--nav-w:236px}
 :root[data-skin="hearth"][data-nav="rail"]{--nav-w:64px}
-:root[data-skin="hearth"] #sidebar{background:linear-gradient(180deg,rgba(255,226,196,.025),transparent 30%),var(--panel);
-  border-right:1px solid var(--hair);padding:22px 14px 16px;gap:2px}
-:root[data-skin="hearth"][data-theme="light"] #sidebar{background:linear-gradient(180deg,#fffaf2,#fbf3e6)}
+:root[data-skin="hearth"] #sidebar{background:var(--sidebar-bg);border-right:1px solid var(--hair);padding:22px 14px 16px;gap:2px}
 :root[data-skin="hearth"] .side-head{border-bottom:0;padding:2px 6px 18px;margin-bottom:6px;gap:12px}
 :root[data-skin="hearth"] .logo{width:34px;height:34px;border:0;border-radius:0;box-shadow:none;
   background:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%23ffd27a"/><stop offset=".55" stop-color="%23ff8a4c"/><stop offset="1" stop-color="%23d94a1f"/></linearGradient></defs><path fill="url(%23g)" d="M12 1.8c.9 4 6.2 6 6.2 12.2a6.2 6.2 0 0 1-12.4 0c0-3.6 2.4-5.2 2.6-8.4 1.2 1.4 2.3 2.5 3.6 2.7.3-2.1.3-4.3 0-6.5z"/><path fill="%23fff1c9" d="M12 12.6c.5 1.9 2.9 2.8 2.9 5.6a2.9 2.9 0 0 1-5.8 0c0-1.6 1-2.4 1.2-3.7.6.6 1 1 1.7 1.1.1-1 .1-1.9 0-3z"/></svg>') center/contain no-repeat;
@@ -112,11 +115,11 @@
 :root[data-skin="hearth"] .brand-word{font-family:var(--serif);font-style:italic;font-weight:600;font-size:22px;letter-spacing:-.01em;
   text-transform:none;color:var(--ink-strong);line-height:1.05;font-variation-settings:"opsz" 72}
 :root[data-skin="hearth"] .brand-word span{color:var(--ink-strong)}
-:root[data-skin="hearth"] .brand-word .brand-ver{font-family:var(--sans);font-style:normal;font-size:10px;letter-spacing:.18em;
+:root[data-skin="hearth"] .brand-word .brand-ver{font-family:var(--sans);font-style:normal;font-size:11px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--dim);margin-top:4px}
 :root[data-skin="hearth"] .nav-toggle{border-color:transparent;border-radius:var(--r-pill);width:26px;height:26px}
 :root[data-skin="hearth"] .nav-toggle:hover{border-color:var(--hair-hi);background:var(--panel2)}
-:root[data-skin="hearth"] .nav-cap{display:block;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);padding:2px 12px 8px}
+:root[data-skin="hearth"] .nav-cap{display:block;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);padding:2px 12px 8px}
 :root[data-skin="hearth"][data-nav="rail"] .nav-cap{display:none}
 :root[data-skin="hearth"] .side-nav{gap:3px}
 :root[data-skin="hearth"] .navitem{font-family:var(--sans);font-weight:500;letter-spacing:0;text-transform:none;font-size:14px;
@@ -144,13 +147,11 @@
 :root[data-skin="hearth"][data-theme="light"] .mode-toggle button.active{background:#fff;box-shadow:0 1px 3px rgba(90,60,30,.18)}
 :root[data-skin="hearth"] #skin-toggle button.active{background:linear-gradient(180deg,#ffbf76,#ff7a48);color:#2a1006}
 
-/* ---------- page header: eyebrow + serif title + lede ---------- */
+/* ---------- page header: serif title + lede ---------- */
 :root[data-skin="hearth"] #content{padding:0 44px 30px}
 :root[data-skin="hearth"] .topbar{position:relative;border-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;
   padding:34px 0 26px;margin-bottom:6px;align-items:flex-start;gap:16px}
 :root[data-skin="hearth"] .page-head{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
-:root[data-skin="hearth"] #page-eyebrow{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
-:root[data-skin="hearth"] #page-eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
 :root[data-skin="hearth"] #page-title{font-family:var(--serif);font-weight:650;font-size:44px;line-height:1.02;letter-spacing:-.02em;
   text-transform:none;color:var(--hero-ink);font-variation-settings:"opsz" 144,"SOFT" 30}
 :root[data-skin="hearth"] #page-title::before{display:none}
@@ -179,7 +180,7 @@
 :root[data-skin="hearth"] .qbtn.load:hover{background:linear-gradient(180deg,#ffc07a,#ff7a48);color:#2a1006;border-color:transparent}
 :root[data-skin="hearth"] .chip{font-size:12px;letter-spacing:0;text-transform:none;padding:6px 14px;background:var(--panel)}
 :root[data-skin="hearth"] .chip.on{background:var(--cyan);border-color:var(--cyan);color:#06201d}
-:root[data-skin="hearth"] .tag{font-size:10px;letter-spacing:.08em;padding:2px 9px;background:color-mix(in srgb,var(--panel2) 70%,transparent)}
+:root[data-skin="hearth"] .tag{font-size:11px;letter-spacing:.06em;padding:2px 9px;background:color-mix(in srgb,var(--panel2) 70%,transparent)}
 :root[data-skin="hearth"] .presetbar .pchip{letter-spacing:.02em;text-transform:none;font-size:12px}
 
 /* ---------- surfaces ---------- */
@@ -210,6 +211,13 @@
   color:var(--ink-hi);background:transparent;padding:12px 16px}
 :root[data-skin="hearth"] .kgroup>summary:hover{color:var(--amber-text)}
 :root[data-skin="hearth"] .log{border-radius:var(--r-sm);font-size:11.5px}
+/* copy buttons on snippets: a small tab in the corner, with room kept for it */
+:root[data-skin="hearth"] .snip{padding:14px 84px 14px 16px;border-radius:var(--r);font-size:12px}
+:root[data-skin="hearth"] .snip .scopy{top:9px;right:9px;padding:4px 12px;font-size:11.5px;line-height:1.3;white-space:nowrap;
+  word-break:normal;background:var(--panel2);border-color:var(--hair-hi);color:var(--ink-hi)}
+:root[data-skin="hearth"] :is(.snip .scopy,#agent-connect .scopy){min-width:0;min-height:0}
+:root[data-skin="hearth"] .snip .scopy::after{content:"";position:absolute;inset:-12px -8px}
+:root[data-skin="hearth"] .snip .scopy:hover{border-color:color-mix(in srgb,var(--amber) 60%,var(--hair-hi));color:var(--ink-strong)}
 :root[data-skin="hearth"] .search{border-radius:var(--r-pill);font-family:var(--sans);font-size:13px;padding:10px 14px 10px 36px;background-position:13px center;
   background-color:var(--inset)}
 
@@ -217,7 +225,7 @@
 :root[data-skin="hearth"] .gpus{gap:18px;margin-bottom:28px}
 :root[data-skin="hearth"] .gpu{border-radius:var(--r-lg);padding:18px 20px}
 :root[data-skin="hearth"] .gpu .name{font-family:var(--serif);font-weight:600;font-size:18px;letter-spacing:-.005em}
-:root[data-skin="hearth"] .gpu .idx{letter-spacing:.14em;font-size:10px}
+:root[data-skin="hearth"] .gpu .idx{letter-spacing:.14em;font-size:11px}
 :root[data-skin="hearth"] .meter{height:10px;padding:0;gap:0;border:0;border-radius:var(--r-pill);background:var(--seg-bg);overflow:hidden}
 :root[data-skin="hearth"] .seg{border-radius:0;background:transparent}
 /* 1px same-colour shadow hides subpixel seams between fractional-width segments */
@@ -236,9 +244,10 @@
 :root[data-skin="hearth"] .rhead{padding:15px 20px;border-radius:var(--r)}
 :root[data-skin="hearth"] .row:hover{border-color:var(--hair-hi);background:var(--surface)}
 :root[data-skin="hearth"] .row.open{border-color:color-mix(in srgb,var(--amber) 45%,var(--hair));box-shadow:var(--ember-glow)}
-:root[data-skin="hearth"] .row.sel{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
+:root[data-skin="hearth"] .row.sel:not(.open){border-color:var(--cyan-border);box-shadow:0 0 0 1px var(--cyan-border),var(--lift)}
+:root[data-skin="hearth"] .row.open.sel{border-color:color-mix(in srgb,var(--amber) 70%,var(--hair));box-shadow:var(--ember-glow)}
 :root[data-skin="hearth"] .mid{font-weight:550;font-size:14.5px}
-:root[data-skin="hearth"] .stat{letter-spacing:.12em}
+:root[data-skin="hearth"] .stat{font-size:11px;letter-spacing:.1em}
 :root[data-skin="hearth"] .led{width:10px;height:10px}
 :root[data-skin="hearth"] .edit{padding:20px 22px 22px}
 :root[data-skin="hearth"] .fld label{letter-spacing:.08em}
@@ -295,7 +304,7 @@
 /* the brief and wiki read like paper: cream sheet, dark ink, serif heads */
 :root[data-skin="hearth"] .ef-doc,
 :root[data-skin="hearth"] .ef-answer{background:var(--paper);color:var(--paper-ink);border:1px solid var(--paper-hair);border-radius:18px;
-  padding:30px 36px;box-shadow:0 1px 0 #fff inset,0 24px 60px -28px rgba(0,0,0,.75);font-size:15px;line-height:1.7}
+  padding:30px 36px;box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 24px 60px -28px rgba(0,0,0,.75);font-size:15px;line-height:1.7}
 :root[data-skin="hearth"] .ef-doc :is(h1,h2,h3),
 :root[data-skin="hearth"] .ef-answer>p{color:var(--paper-ink)}
 :root[data-skin="hearth"] .ef-doc :is(h1,h2,h3){font-family:var(--serif);font-weight:650;letter-spacing:-.01em}
@@ -364,7 +373,7 @@
    fill so no transform lingers after they finish (a lingering transform would
    become the containing block for fixed descendants). All of it is off when
    the OS asks for reduced motion. */
-:root[data-skin="hearth"]{--ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.45,.64,1)}
+:root[data-skin="hearth"]{--ease-out:cubic-bezier(.16,1,.3,1)}
 @keyframes hearth-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes hearth-drop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 @keyframes hearth-pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
@@ -393,19 +402,18 @@
   :where(:root[data-skin="hearth"]) button:active,:root[data-skin="hearth"] .qbtn:active{transform:scale(.97);transition-duration:.08s}
   :root[data-skin="hearth"] .navitem .ico{transition:transform .25s var(--ease-out),color .18s ease,opacity .18s ease}
   :root[data-skin="hearth"]:not([data-nav="rail"]) .navitem:hover .ico{transform:translateX(2px)}
-  /* living things breathe: the loaded model's LED and the eyebrow's dot */
+  /* living things breathe: the loaded model's LED */
   :root[data-skin="hearth"] .led.loaded{animation:hearth-led 2.8s ease-in-out infinite}
   :root[data-skin="hearth"] #view-stats .led.loaded{animation:none}   /* redrawn every poll: a pulse would restart and jump */
-  :root[data-skin="hearth"] #page-eyebrow::before{animation:hearth-led 4s ease-in-out infinite}
   /* embers: the open ember's flame sways; a running ember's flickers faster */
   :root[data-skin="hearth"] .ef-flame{transform-origin:50% 90%}
   :root[data-skin="hearth"] .ef-title .ef-flame{animation:hearth-flicker 3.6s ease-in-out infinite}
   :root[data-skin="hearth"] .ef-row:has(.ef-led.run) .ef-flame{animation:hearth-flicker 1.3s ease-in-out infinite}
-  /* modals pop in over a fading backdrop; the toast settles with a little spring */
+  /* modals pop in over a fading backdrop; the toast glides up and settles */
   :root[data-skin="hearth"] :is(.modal-dialog,#net-confirm)[open] .modal{animation:hearth-pop .28s var(--ease-out) backwards}
   :root[data-skin="hearth"] :is(.modal-dialog,#net-confirm)[open]::backdrop{animation:hearth-fade .28s ease-out}
   :root[data-skin="hearth"] .wizard-overlay:not([hidden]) .wizard-card{animation:hearth-pop .32s var(--ease-out) backwards}
-  :root[data-skin="hearth"] #toast{transition:transform .42s var(--ease-spring),opacity .22s ease}
+  :root[data-skin="hearth"] #toast{transition:transform .42s var(--ease-out),opacity .22s ease}
 }
 
 /* ---- Character ------------------------------------------------------------
@@ -422,9 +430,8 @@
 @keyframes hearth-ignite-led{0%{transform:scale(1)}30%{transform:scale(1.7);box-shadow:0 0 18px 3px var(--green)}100%{transform:scale(1)}}
 @keyframes hearth-spark{0%,58%{opacity:0;transform:translate(0,0) scale(1)}62%{opacity:1}100%{opacity:0;transform:translate(var(--sx,4px),-26px) scale(.3)}}
 @keyframes hearth-grow{from{transform:scaleY(0)}to{transform:none}}
-@keyframes hearth-shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
 @keyframes hearth-shake{0%,100%{transform:translateX(-50%)}20%{transform:translateX(calc(-50% - 6px))}40%{transform:translateX(calc(-50% + 5px))}60%{transform:translateX(calc(-50% - 3px))}80%{transform:translateX(calc(-50% + 2px))}}
-@keyframes hearth-dot{0%{transform:scale(0)}60%{transform:scale(1.4)}100%{transform:scale(1)}}
+@keyframes hearth-dot{from{transform:scale(0)}to{transform:scale(1)}}
 @keyframes hearth-navbar{from{box-shadow:inset 0 0 0 var(--amber),0 8px 24px -14px transparent}}
 @keyframes hearth-reveal{from{clip-path:circle(0 at var(--rx,50%) var(--ry,0))}to{clip-path:circle(150vmax at var(--rx,50%) var(--ry,0))}}
 @keyframes hearth-think{0%,100%{opacity:.45}50%{opacity:1}}
@@ -437,9 +444,9 @@
   /* models: kindling while loading, then the row catches once */
   :root[data-skin="hearth"] .led.loading{animation:hearth-kindle 1.2s steps(12,end) infinite}
   :root[data-skin="hearth"] #list>.row.ignite{animation:hearth-rise .4s var(--ease-out) backwards,hearth-ignite 1.4s var(--ease-out)}
-  :root[data-skin="hearth"] #list>.row.ignite .led.loaded{animation:hearth-ignite-led .7s var(--ease-spring),hearth-led 2.8s ease-in-out .7s infinite}
+  :root[data-skin="hearth"] #list>.row.ignite .led.loaded{animation:hearth-ignite-led .7s var(--ease-out),hearth-led 2.8s ease-in-out .7s infinite}
   /* the brand flame throws the odd spark and leans in when you point at it */
-  :root[data-skin="hearth"] .logo{transition:transform .35s var(--ease-spring)}
+  :root[data-skin="hearth"] .logo{transition:transform .35s var(--ease-out)}
   :root[data-skin="hearth"] .side-head:hover .logo{transform:scale(1.08) rotate(-4deg)}
   :root[data-skin="hearth"] .logo::before,
   :root[data-skin="hearth"] .logo::after{content:"";display:block;position:absolute;left:50%;top:22%;right:auto;width:3px;height:3px;
@@ -461,17 +468,15 @@
   :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(5){animation-delay:.16s}
   :root[data-skin="hearth"] .stats-body.intro>.gpus>.gpu:nth-child(6){animation-delay:.2s}
   :root[data-skin="hearth"] .stats-body.intro .bar{transform-origin:50% 100%;animation:hearth-grow .6s var(--ease-out) backwards;animation-delay:calc(.15s + var(--i,0) * 22ms)}
-  /* waiting text shimmers like heat; "nothing matched" is not waiting, so it doesn't */
-  :root[data-skin="hearth"] .skel:not(.empty):not([style]){color:transparent;-webkit-background-clip:text;background-clip:text;
-    background-image:linear-gradient(100deg,var(--dim) 35%,var(--amber-text) 50%,var(--dim) 65%);background-size:240% 100%;
-    animation:hearth-shimmer 1.8s linear infinite}
+  /* waiting text breathes like "thinking" does; "nothing matched" is not waiting, so it doesn't */
+  :root[data-skin="hearth"] .skel:not(.empty):not([style]){animation:hearth-think 1.8s ease-in-out infinite}
   /* knob groups open with the same drop as the editor */
   :root[data-skin="hearth"] .kgroup[open]>summary~*{animation:hearth-drop .24s var(--ease-out) backwards}
   /* forge: the newest message rises in; "thinking" breathes */
   :root[data-skin="hearth"] .fg-log>.fg-msg:last-child{animation:hearth-rise .32s var(--ease-out) backwards}
   :root[data-skin="hearth"] .fg-wait .fg-text{animation:hearth-think 1.4s ease-in-out infinite}
   /* toasts: the dot pops; an error gives a short shake once it has landed */
-  :root[data-skin="hearth"] #toast.show::before{animation:hearth-dot .4s var(--ease-spring) .12s backwards}
+  :root[data-skin="hearth"] #toast.show::before{animation:hearth-dot .4s var(--ease-out) .12s backwards}
   :root[data-skin="hearth"] #toast.err.show{animation:hearth-shake .42s ease-out .28s}
   /* theme switch: the new theme spreads out from the toggle */
   :root[data-skin="hearth"]::view-transition-old(root),

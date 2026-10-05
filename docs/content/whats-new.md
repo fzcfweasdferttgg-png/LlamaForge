@@ -8,6 +8,20 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Unreleased (early preview)
+
+These are on `master` and not in a tagged release yet.
+
+- **Several models at once.** Multi-model mode places your main model on the fastest GPU that fits it and keeps worker models off that GPU. Fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. Workers are evicted least-recently-used, and only after you agree to it. A model with no context size set is refused, with the reason. The model rows get **Load as worker**, **Make main** and **Unload X and load**, and Setup has a Multi-model card. API: `/api/slots`, `/api/slots/plan`, `/api/slots/main`, `/api/slots/apply`.
+- **Per-model builds.** Pin a model to any installed llama.cpp build. An ik_llama build runs as its own `llama-server` on `127.0.0.1:8100` and up, with arguments translated between the builds. Crash exit codes are named instead of shown as raw numbers.
+- **"Runs on" for GGUFs.** The file card says whether a GGUF runs on any build, mainline only or ik_llama only. The diagnosis explains `invalid ggml type N` instead of leaving you with the number.
+- **Embers.** Small local agents that keep watch on a topic, keep a wiki and write you a brief on a schedule. A wiki item only counts if it quotes its source verbatim. Model Scout needs no setup, and **Forge** builds a new ember by interviewing you (tested on 8 models from 3B to 27B). See [Embers](embers.md).
+- **MCP server.** Claude Code, Codex or any MCP client can check status, load and unload models, check fit, search and download from Hugging Face, and hand a task to a local model. See [MCP Server](mcp.md).
+- **pi from Setup.** The pi coding agent card installs, updates and removes pi under `<root>/agents/pi` (with `--ignore-scripts`), and can install Node.js through winget, Chocolatey or Homebrew. See [Connect an Agent](agents.md).
+- **Hearth.** A new default look with light, dark and colorblind-safe variants. Classic is one click away. Motion is subtle, never runs on the views that refresh every few seconds, and is off when your system asks for reduced motion. See [Theming & Accessibility](theming.md).
+- **Stats count every loaded model**, including models running as their own process, with live tokens per second for each. See [Stats](stats.md).
+- **Docs search reads the whole page**, not only titles and headings, and says so when nothing matches.
+
 ## v0.15: llama.cpp sizes memory, honest diagnosis, safer by default
 
 - **llama.cpp's `--fit` decides context, GPU layers and split.** LlamaForge no longer pins `ctx-size`, `n-gpu-layers` or `tensor-split`. Auto-tune clears them, and the old `[*] ctx-size = 150000` pin is removed once on upgrade. See [First Run](first-run.md) and [models.ini Format](models-ini.md).

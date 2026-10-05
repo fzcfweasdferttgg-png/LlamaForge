@@ -159,6 +159,14 @@ _FM = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.S)
 _SECTION_ORDER = {"whats-new": 0, "getting-started": 1, "guides": 2,
                   "reference": 3, "faq": 4, "troubleshooting": 5}
 _HEADING = re.compile(r"(?m)^(#{1,4})\s+(.*)$")
+# Written out, because slug.title() can't spell "What's New" or "FAQ".
+_SECTION_TITLES = {"whats-new": "What's New", "faq": "FAQ"}
+# Markdown punctuation dropped from the search text; words and flags stay.
+_MD_NOISE = re.compile(r"[*`#>|\[\]()!]+")
+
+
+def section_title(sid):
+    return _SECTION_TITLES.get(sid) or sid.replace("-", " ").title()
 
 
 def _int(v, default=0):
@@ -212,7 +220,8 @@ def page(slug):
 
 def search_index():
     return [{"slug": p["slug"], "title": p["title"],
-             "headings": [m.group(2).strip() for m in _HEADING.finditer(p["_body"])]}
+             "headings": [m.group(2).strip() for m in _HEADING.finditer(p["_body"])],
+             "text": " ".join(_MD_NOISE.sub(" ", p["_body"]).split()).lower()}
             for p in _pages()]
 
 
@@ -221,7 +230,7 @@ def manifest():
     for p in list_pages():
         sid = p["section"]
         if sid not in secs:
-            secs[sid] = {"id": sid, "title": sid.replace("-", " ").title(), "pages": []}
+            secs[sid] = {"id": sid, "title": section_title(sid), "pages": []}
             order.append(sid)
         secs[sid]["pages"].append({"slug": p["slug"], "title": p["title"]})
     order.sort(key=lambda s: _SECTION_ORDER.get(s, 9))
