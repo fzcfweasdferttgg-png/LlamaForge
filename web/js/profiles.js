@@ -25,7 +25,7 @@ function render() {
   shownSig = sig;
   const names = Object.keys(P).sort();
   setHTML(el, `<div class="presetbar profbar">
-    <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Profiles</span>
+    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Profiles</span>
     ${names.map(n => `<span class="pchip" data-prof-launch="${esc(n)}" title="launch: ${esc(describe(P[n]))}">`
       + `&#9654; ${esc(n)}`
       + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="share as a recipe">&#8599;</span>`)

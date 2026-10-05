@@ -113,7 +113,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .brand-word{line-height:1.15}
 .brand-word .brand-ver{display:block;margin-top:1px;font-family:var(--mono,monospace);font-weight:400;letter-spacing:.04em;font-size:10px;color:var(--dim);text-transform:none}
 /* Hearth-only chrome (hearth.css shows these); Classic renders as before */
-.nav-cap,#page-eyebrow,#page-lede,.ef-flame{display:none}
+.nav-cap,#page-lede,.ef-flame{display:none}
 .page-head{display:contents}
 .nav-toggle{margin-left:auto;background:transparent;border:1px solid var(--hair);color:var(--dim);
   cursor:pointer;width:22px;height:22px;padding:0;flex:none;border-radius:4px;font:inherit;line-height:1;
@@ -151,7 +151,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .topbar{display:flex;align-items:center;gap:14px;
   padding:16px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:20px;position:sticky;top:0;z-index:5;
   background:var(--topbar-bg);-webkit-backdrop-filter:blur(10px) saturate(1.2);backdrop-filter:blur(10px) saturate(1.2)}
-.topbar #clock{margin-left:auto}
+.topbar #clock{margin-left:auto;font-variant-numeric:tabular-nums;text-align:center;min-width:14ch}
 #page-title{font-family:var(--disp);font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-strong);font-size:18px;
   display:inline-flex;align-items:center;gap:10px}
 #page-title::before{content:"";width:8px;height:8px;background:var(--amber);border-radius:2px;transform:rotate(45deg);box-shadow:0 0 10px var(--amber-dim)}
@@ -180,7 +180,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .token-scale-total{color:var(--cyan-text);font-size:11px;font-weight:600;flex:none}
 .token-scale-mark{color:var(--amber-text);flex:none}
 .token-scale-fact{min-width:0;color:var(--ink-strong);font-weight:600;overflow:hidden;text-overflow:ellipsis}
-.token-scale-details{margin-left:auto;flex:none;color:var(--dim);font:9px var(--mono);letter-spacing:.14em}
+.token-scale-details{margin-left:auto;flex:none;color:var(--dim);font:11px var(--mono);letter-spacing:.14em}
 .token-scale-details summary{list-style:none;cursor:pointer;border-bottom:1px dotted var(--dim)}
 .token-scale-details summary::-webkit-details-marker{display:none}
 .token-scale-details summary:focus-visible{outline:1px solid var(--cyan);outline-offset:3px;color:var(--cyan-text)}
@@ -258,7 +258,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
   font-family:var(--mono);font-size:12px;padding:7px 9px;outline:none;border-radius:var(--r-sm);
   transition:border-color .12s,box-shadow .12s}
 :where(input:not([type=checkbox]):not([type=radio]),select,textarea):focus{border-color:var(--amber);box-shadow:var(--ring)}
-input::placeholder,textarea::placeholder{color:var(--faint);opacity:1}
+input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
 input[type=checkbox],input[type=radio]{accent-color:var(--amber);cursor:pointer}
 select{min-width:120px;cursor:pointer}
 select[multiple]{padding:4px;min-height:96px;cursor:default}
@@ -387,7 +387,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 #network-access fieldset{
   margin:14px 0;padding:12px;border:1px solid var(--hair);border-radius:var(--r-sm);display:grid;gap:9px
 }
-#network-access legend{padding:0 7px;color:var(--amber);letter-spacing:.06em}
+#network-access legend{padding:0 7px;color:var(--amber-text);letter-spacing:.06em}
 #network-access fieldset>label{display:flex;gap:8px;align-items:flex-start;min-height:48px;padding:4px 0}
 .modal-dialog button,#net-confirm button,#network-access button,#agent-connect .scopy{
   min-width:48px;min-height:48px
@@ -429,9 +429,12 @@ body.mode-lite .advanced-only{display:none !important}
 .starter .t{font-weight:600;color:var(--ink-strong)}
 .starter .b{font-size:12px;color:var(--dim)}
 .docs-wrap{display:grid;grid-template-columns:180px 1fr 160px;gap:16px}
+.docs-wrap>*{min-width:0}
+.docs-nav .search{display:block;width:100%;min-width:0;box-sizing:border-box}
 @media (max-width:1100px){ .docs-wrap{grid-template-columns:1fr} .docs-pagetoc{display:none} }
 .docs-nav nav a,.docs-pagetoc a{display:block;color:var(--dim);text-decoration:none;padding:2px 0;font-size:12px}
 .docs-nav nav a.active,.docs-pagetoc a:hover,.docs-nav nav a:hover{color:var(--amber)}
+#docs-search-empty{margin:10px 0 0;font-size:12px}
 .docs-nav .sec{color:var(--ink);font-weight:600;margin:10px 0 4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
 .docs-body{color:var(--ink);line-height:1.6;max-width:760px}
 .docs-body h1,.docs-body h2,.docs-body h3{color:var(--ink-strong);margin:18px 0 8px}
@@ -530,7 +533,7 @@ body.mode-lite .advanced-only{display:none !important}
 #ef-sched .msg{margin:6px 0 0;display:block}
 .ef-folder{margin-top:14px;padding-top:10px;border-top:1px solid var(--hair)}
 .ef-flabel{display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
-.ef-flink{background:none;border:0;padding:0;color:var(--amber);font:inherit;letter-spacing:.06em;cursor:pointer}
+.ef-flink{background:none;border:0;padding:0;color:var(--amber-text);font:inherit;letter-spacing:.06em;cursor:pointer}
 .ef-flink:hover{text-decoration:underline}
 .ef-fpath{display:block;font-size:11px;word-break:break-all;color:var(--ink)}
 .ef-folder input{width:100%;font-size:12px}
@@ -570,7 +573,7 @@ body.mode-lite .advanced-only{display:none !important}
 .ef-tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:1px 7px;vertical-align:1px}
 .ef-tag.ok{color:var(--green);border-color:var(--green)}
 .ef-fn{line-height:0}
-.ef-quote{background:none;border:1px solid var(--hair);border-radius:var(--r-xs);color:var(--amber-text);font-family:var(--mono);font-size:9px;padding:0 4px;cursor:pointer;margin-left:1px}
+.ef-quote{background:none;border:1px solid var(--hair);border-radius:var(--r-xs);color:var(--amber-text);font-family:var(--mono);font-size:11px;padding:0 4px;cursor:pointer;margin-left:1px}
 .ef-quote:hover{border-color:var(--amber);background:var(--amber-tint)}
 .ef-sources{margin-top:14px;font-size:12px;color:var(--dim)}
 .ef-sources summary{cursor:pointer}
@@ -609,8 +612,10 @@ body.mode-lite .advanced-only{display:none !important}
 .formrow .ef-check{flex-direction:row;align-items:center;gap:6px;padding-bottom:7px;font-size:12px}
 .ef-actions{display:flex;align-items:center;gap:12px;margin:6px 0 8px}
 .ef-actions .msg{margin-left:0}
-.ef-danger{margin-left:auto;background:none;border:1px solid var(--red);color:var(--red)}
-.ef-danger:hover{background:var(--red-tint)}
+/* destructive actions read as destructive in both skins */
+button.danger,.ef-danger{background:none;border:1px solid var(--red);color:var(--red)}
+button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var(--red);color:var(--red)}
+.ef-danger{margin-left:auto}
 .ef-tpls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
 .ef-tpl{display:flex;flex-direction:column;gap:6px;text-align:left;text-transform:none;letter-spacing:normal;background:var(--panel2);border:1px solid var(--hair);border-radius:var(--r);color:var(--ink);padding:14px;cursor:pointer;font:inherit}
 .ef-tpl:hover{border-color:var(--amber)}
@@ -712,7 +717,6 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="topbar">
     <button id="nav-menu" class="nav-toggle" title="Menu" aria-label="Open menu">&#9776;</button>
     <div class="page-head">
-      <span id="page-eyebrow">LlamaForge</span>
       <span id="page-title">Models</span>
       <span id="page-lede"></span>
     </div>
@@ -753,7 +757,7 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="view" id="view-context"><div class="skel">LOADING CONTEXT...</div></div>
   <div class="view" id="view-help">
     <div class="docs-wrap">
-      <aside class="docs-nav"><input id="docs-search" class="search" placeholder="Search docs…"><nav id="docs-toc-nav"></nav></aside>
+      <aside class="docs-nav"><input id="docs-search" class="search" type="search" placeholder="Search docs…" aria-label="Search docs"><p id="docs-search-empty" class="note" hidden></p><nav id="docs-toc-nav"></nav></aside>
       <article id="docs-body" class="docs-body"></article>
       <aside id="docs-page-toc" class="docs-pagetoc"></aside>
     </div>

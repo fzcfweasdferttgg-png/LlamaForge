@@ -14,7 +14,7 @@ export async function loadDocs() {
   ).join(""));
   $$("a[data-slug]", nav).forEach(a =>
     a.onclick = e => { e.preventDefault(); openDoc(a.dataset.slug); });
-  $("#docs-search").oninput = e => filterDocs(e.target.value.toLowerCase());
+  $("#docs-search").oninput = e => filterDocs(e.target.value.trim().toLowerCase());
   // The rendered body carries sibling crosslinks as `slug.md` (the canonical
   // reference the static site rewrites to .html). Here we resolve them by slug
   // instead of letting the browser navigate to a nonexistent .md URL. Delegated
@@ -40,11 +40,26 @@ async function openDoc(slug) {
   $("#docs-body").scrollTop = 0;
 }
 
+// Matches titles, headings and body text (docs.py lowercases `text` and drops
+// markdown punctuation). A section label hides when none of its pages match,
+// and an empty result says so instead of leaving a blank sidebar.
 function filterDocs(q) {
   const hits = new Set(DOCS.search
-    .filter(p => p.title.toLowerCase().includes(q) ||
-                 p.headings.some(h => h.toLowerCase().includes(q)))
+    .filter(p => !q || p.title.toLowerCase().includes(q) ||
+                 p.headings.some(h => h.toLowerCase().includes(q)) ||
+                 (p.text || "").includes(q))
     .map(p => p.slug));
-  $$("#docs-toc-nav a[data-slug]").forEach(a =>
-    a.style.display = (!q || hits.has(a.dataset.slug)) ? "" : "none");
+  let head = null, headHit = false, shown = 0;
+  const closeSection = () => { if (head) head.style.display = headHit ? "" : "none"; };
+  for (const el of $("#docs-toc-nav").children) {
+    if (el.classList.contains("sec")) { closeSection(); head = el; headHit = false; continue; }
+    if (!el.dataset.slug) continue;
+    const show = hits.has(el.dataset.slug);
+    el.style.display = show ? "" : "none";
+    if (show) { headHit = true; shown++; }
+  }
+  closeSection();
+  const empty = $("#docs-search-empty");
+  empty.hidden = shown > 0;
+  empty.textContent = shown ? "" : `Nothing in the docs mentions "${q}".`;
 }

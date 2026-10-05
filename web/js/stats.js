@@ -36,7 +36,7 @@ const FMT = { num: fmtNum, dur: fmtDur, int: n => String(Math.round(n)) };
 // `count` (a raw number and a FMT key) lets the first render count up to it.
 function statCard(label, val, count) {
   const c = count ? ` data-count="${esc(count[0])}" data-fmt="${esc(count[1])}"` : "";
-  return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div class="statnum"${c} style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
+  return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div class="statnum"${c} title="${esc(val)}" style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
 }
 
 // Odometer on the first paint of the tab only; the 4s refresh replaces these
@@ -141,7 +141,7 @@ export async function loadStats(silent) {
       ${statCard("Runs (approx)", fmtNum(t.total_runs), [t.total_runs, "num"])}
       ${statCard("Most used", t.most_used||"-")}
     </div>
-    <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:10px">(router offline)</span>`}</h3>
+    <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:12px">(router offline)</span>`}</h3>
       ${liveModels(loaded, live)}
       <div class="kv"><span class="k">generation${loaded.length>1?" (all models)":""}</span><span class="v">${(live.gen_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">prompt eval${loaded.length>1?" (all models)":""}</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
@@ -158,7 +158,7 @@ export async function loadStats(silent) {
             <div style="height:${hg}%;min-height:${d.generated?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div>
             <div style="height:${hp}%;min-height:${d.prompt?2:0}px;background:var(--cyan);opacity:.55"></div></div>`;}).join("")}
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px">
+      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:11px">
         <span>${esc(daily[0].date)}</span>
         <span><span style="color:var(--amber)">&#9632;</span> generated &nbsp;<span style="color:var(--cyan)">&#9632;</span> prompt</span>
         <span>${esc(daily[daily.length-1].date)}</span></div>`
@@ -168,7 +168,6 @@ export async function loadStats(silent) {
       <div class="note" style="margin:0 0 6px">Usage is scraped from the router's own metrics and totalled per model across all clients. Per-client / per-IP breakdown isn't available: clients hit the llama.cpp router directly, so the dashboard never sees individual request origins.</div>
       ${rows.length?`<div class="toolbar" style="margin:6px 0 0">
         ${Object.keys(SORT_COLS).map(c=>`<span class="chip ${statsSort===c?"on":""}" data-sort="${c}">${SORT_COLS[c]}</span>`).join("")}
-        <span class="chip" data-statsreset style="margin-left:auto;color:var(--red);border-color:var(--red)" title="zero all usage statistics">Reset stats</span>
       </div>
       <div class="list" style="margin-top:12px">${rows.map(m=>`
         <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto auto">
@@ -179,7 +178,9 @@ export async function loadStats(silent) {
           <span class="stat">${fmtNum(m.runs)} runs</span>
           <span class="stat">${fmtDur(m.loaded_secs)}</span>
           <span class="stat">${fmtAgo(m.last_used)}</span>
-        </div></div>`).join("")}</div>`
+        </div></div>`).join("")}</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:18px">
+        <button class="danger" data-statsreset title="zero all usage statistics">Reset stats&hellip;</button></div>`
       :`<div class="note">No models have logged usage yet.</div>`}
     </div></div>`);
   if (!silent) countUp(v);

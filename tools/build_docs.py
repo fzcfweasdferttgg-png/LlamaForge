@@ -54,7 +54,7 @@ def _nav(pages, current):
         secs.setdefault(p["section"], []).append(p)
     parts = []
     for sec, items in secs.items():
-        parts.append('<div class="sec">%s</div>' % html.escape(sec.replace("-", " ").title()))
+        parts.append('<div class="sec">%s</div>' % html.escape(docs.section_title(sec)))
         for p in items:
             cls = ' class="active"' if p["slug"] == current else ""
             parts.append('<a href="%s.html"%s>%s</a>' % (p["slug"], cls, html.escape(p["title"])))
