@@ -41,6 +41,105 @@ class TestPaths(unittest.TestCase):
             self.assertEqual(tts.find_model(d)[1], None)
 
 
+def _gguf(path, arch):
+    """A header-only GGUF carrying general.architecture, enough for gguf.metadata."""
+    key, val = b"general.architecture", arch.encode()
+    with open(path, "wb") as f:
+        f.write(b"GGUF" + struct.pack("<IQQ", 3, 0, 1))
+        f.write(struct.pack("<Q", len(key)) + key + struct.pack("<I", 8))
+        f.write(struct.pack("<Q", len(val)) + val)
+
+
+class TestModels(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def touch(self, *parts):
+        p = os.path.join(self.d, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+        return p
+
+    def test_root_pair_then_one_pair_per_subfolder(self):
+        self.touch("Qwen3-TTS-Q8_0.gguf"); self.touch("mmproj-Qwen3-TTS-Q8_0.gguf")
+        self.touch("pocket-tts-en", "pocket-tts-en.gguf")
+        self.touch("pocket-tts-en", "mmproj-pocket-tts-en.gguf")
+        self.touch("half", "lonely.gguf")                        # no mmproj: skipped
+        ids = [m["id"] for m in tts.list_models(self.d)]
+        self.assertEqual(ids, ["Qwen3-TTS-Q8_0", "pocket-tts-en"])
+        self.assertEqual(tts.list_models(os.path.join(self.d, "nope")), [])
+
+    def test_each_quant_pairs_with_the_closest_mmproj(self):
+        for n in ("Qwen3-TTS-Q4_K_M.gguf", "Qwen3-TTS-Q8_0.gguf",
+                  "mmproj-Qwen3-TTS-Q8_0.gguf", "mmproj-zzz.gguf"):
+            self.touch(n)
+        ms = tts.list_models(self.d)
+        self.assertEqual([os.path.basename(m["mmproj"]) for m in ms],
+                         ["mmproj-Qwen3-TTS-Q8_0.gguf"] * 2)
+
+    def test_engine_comes_from_the_gguf_architecture(self):
+        _gguf(self.touch("p", "pocket.gguf"), "pockettts")
+        self.touch("p", "mmproj-pocket.gguf")
+        _gguf(self.touch("q.gguf"), "qwen3tts")
+        self.touch("mmproj-q.gguf")
+        by = {m["id"]: m for m in tts.list_models(self.d)}
+        self.assertTrue(by["pocket"]["needs_voice"])
+        self.assertFalse(by["pocket"]["langs"])
+        self.assertEqual(by["pocket"]["engine"], "Pocket TTS")
+        self.assertFalse(by["q"]["needs_voice"])
+        self.assertTrue(by["q"]["langs"])
+
+    def test_unreadable_header_behaves_like_qwen(self):
+        self.touch("x.gguf"); self.touch("mmproj-x.gguf")
+        m = tts.list_models(self.d)[0]
+        self.assertFalse(m["needs_voice"])
+        self.assertTrue(m["langs"])
+
+    def test_pick_by_id_else_first(self):
+        ms = [{"id": "a"}, {"id": "b"}]
+        self.assertEqual(tts.pick_model(ms, "b")["id"], "b")
+        self.assertEqual(tts.pick_model(ms, "tts-1")["id"], "a")
+        self.assertIsNone(tts.pick_model([], "a"))
+
+
+class TestCatalog(unittest.TestCase):
+    def test_entries_are_complete(self):
+        ids = [e["id"] for e in tts.CATALOG]
+        self.assertEqual(ids[0], "qwen3-tts")             # the default Get
+        self.assertIn("pocket-tts-en", ids)
+        for e in tts.CATALOG:
+            for k in ("label", "repo", "files", "bytes", "subdir", "license", "note"):
+                self.assertIn(k, e)
+            self.assertTrue(any(f.startswith("mmproj") for f in e["files"]))
+
+    def test_installed_when_every_file_is_there(self):
+        with tempfile.TemporaryDirectory() as d:
+            e = tts.catalog_entry("pocket-tts-en")
+            self.assertFalse(tts.installed(d, e))
+            dest = tts.entry_dir(d, e)
+            os.makedirs(dest)
+            for f in e["files"]:
+                open(os.path.join(dest, f), "w").close()
+            self.assertTrue(tts.installed(d, e))
+        self.assertIsNone(tts.catalog_entry("nope"))
+
+    def test_fetch_voice_saves_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            def opener(url):
+                calls.append(url)
+                return _wav(b"\x00\x00" * 48000)
+            e = tts.catalog_entry("pocket-tts-en")
+            self.assertTrue(tts.fetch_voice(d, e["voice"], opener))
+            self.assertEqual(tts.list_voices(d), [e["voice"]["name"]])
+            self.assertFalse(tts.fetch_voice(d, e["voice"], opener))   # already there
+            self.assertEqual(len(calls), 1)
+
+
 class TestVoices(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -127,6 +226,9 @@ class TestCommand(unittest.TestCase):
         cmd = tts.build_cmd("t", "m", "mm", "hi", "o.wav")
         self.assertNotIn("--tts-speaker-file", cmd)
 
+    def test_no_lang_flag_for_single_language_models(self):
+        self.assertNotIn("--tts-lang", tts.build_cmd("t", "m", "mm", "hi", "o.wav", lang=None))
+
     def test_frame_budget_grows_with_text(self):
         short = tts.build_cmd("t", "m", "mm", "hi", "o")
         long_ = tts.build_cmd("t", "m", "mm", "x" * 1500, "o")
@@ -140,7 +242,8 @@ class TestRequest(unittest.TestCase):
     def test_parses_an_openai_speech_body(self):
         r = tts.parse_request({"model": "tts-1", "input": " Hello ", "voice": "alloy",
                                "response_format": "pcm"})
-        self.assertEqual(r, {"text": "Hello", "voice": "alloy", "lang": "en", "format": "pcm"})
+        self.assertEqual(r, {"text": "Hello", "voice": "alloy", "lang": "en", "format": "pcm",
+                             "model": "tts-1"})
 
     def test_formats_other_than_pcm_are_served_as_wav(self):
         for f in (None, "mp3", "wav", "opus"):
@@ -233,6 +336,54 @@ class TestSpeaker(unittest.TestCase):
             sp.speak({"server_bin": "", "tts_dir": self.cfg["tts_dir"]},
                      {"text": "hi", "voice": "", "lang": "en", "format": "wav"})
         self.assertEqual(run.calls, [])
+
+    def add_pocket(self):
+        d = os.path.join(self.cfg["tts_dir"], "models", "pocket")
+        os.makedirs(d)
+        _gguf(os.path.join(d, "pocket.gguf"), "pockettts")
+        open(os.path.join(d, "mmproj-pocket.gguf"), "w").close()
+
+    def test_status_lists_models_and_the_catalog(self):
+        self.add_pocket()
+        s = tts.status(self.cfg)
+        self.assertEqual([m["id"] for m in s["models"]], ["v", "pocket"])
+        self.assertEqual(s["model_id"], "v")
+        self.assertEqual([c["id"] for c in s["catalog"]], [e["id"] for e in tts.CATALOG])
+        self.assertIn("installed", s["catalog"][0])
+
+    def test_request_model_picks_the_backbone(self):
+        self.add_pocket()
+        run = FakeRun()
+        tts.Speaker(run=run).speak(self.cfg, {"text": "hi", "voice": "me", "lang": "en",
+                                              "format": "wav", "model": "pocket"})
+        cmd = run.calls[0]
+        self.assertTrue(cmd[cmd.index("-m") + 1].endswith("pocket.gguf"))
+        self.assertNotIn("--tts-lang", cmd)                  # Pocket's language is in its weights
+
+    def test_voice_model_falls_back_to_any_saved_voice(self):
+        self.add_pocket()
+        run = FakeRun()
+        tts.Speaker(run=run).speak(self.cfg, {"text": "hi", "voice": "alloy", "lang": "en",
+                                              "format": "wav", "model": "pocket"})
+        cmd = run.calls[0]
+        self.assertTrue(cmd[cmd.index("--tts-speaker-file") + 1].endswith("me.wav"))
+
+    def test_voice_model_without_any_voice_is_a_400(self):
+        self.add_pocket()
+        os.remove(os.path.join(self.cfg["tts_dir"], "voices", "me.wav"))
+        run = FakeRun()
+        with self.assertRaises(tts.TtsError) as cm:
+            tts.Speaker(run=run).speak(self.cfg, {"text": "hi", "voice": "", "lang": "en",
+                                                  "format": "wav", "model": "pocket"})
+        self.assertEqual(cm.exception.status, 400)
+        self.assertIn("voice", str(cm.exception))
+        self.assertEqual(run.calls, [])
+
+    def test_not_set_up_is_a_503(self):
+        with self.assertRaises(tts.TtsError) as cm:
+            tts.Speaker(run=FakeRun()).speak({"server_bin": "", "tts_dir": self.cfg["tts_dir"]},
+                                             {"text": "hi", "voice": "", "lang": "en", "format": "wav"})
+        self.assertEqual(cm.exception.status, 503)
 
     def test_temp_files_are_cleaned_up(self):
         sp = tts.Speaker(run=FakeRun())

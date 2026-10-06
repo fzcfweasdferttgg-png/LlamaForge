@@ -2450,8 +2450,8 @@ def post_audio_speech(req):
     except ValueError as e:
         return _openai_err(400, str(e), "invalid_request_error")
     except tts.TtsError as e:
-        msg = str(e)
-        return _openai_err(503 if "not set up" in msg else 500, msg, "server_error")
+        kind = "invalid_request_error" if e.status == 400 else "server_error"
+        return _openai_err(e.status, str(e), kind)
 
 
 def post_tts_speak(req):
@@ -2461,7 +2461,7 @@ def post_tts_speak(req):
     except ValueError as e:
         raise ApiError(400, str(e))
     except tts.TtsError as e:
-        raise ApiError(503 if "not set up" in str(e) else 500, str(e))
+        raise ApiError(e.status, str(e))
 
 
 def get_tts_status(req):
@@ -2474,8 +2474,21 @@ def get_tts_status(req):
 
 
 def post_tts_get(req):
-    """Download the default speech model (Qwen3-TTS 1.7B, Q8_0 + mmproj)."""
-    started = TTS_DOWNLOADS.start(tts.REPO, list(tts.REPO_FILES), tts.models_dir(cfg()))
+    """Download a catalog speech model (default: Qwen3-TTS 1.7B, Q8_0 + mmproj)."""
+    e = tts.catalog_entry(req.body.get("id") or tts.CATALOG[0]["id"])
+    if not e:
+        raise ApiError(400, "unknown speech model")
+    c = cfg()
+    started = TTS_DOWNLOADS.start(e["repo"], list(e["files"]),
+                                  tts.entry_dir(tts.models_dir(c), e))
+    if started and e.get("voice"):
+        # A 640 KB clip from another repo: fetched beside the job, best effort.
+        def fetch(folder=tts.voices_dir(c), voice=e["voice"]):
+            try:
+                tts.fetch_voice(folder, voice)
+            except Exception:
+                pass
+        threading.Thread(target=fetch, daemon=True).start()
     return 200, {"started": started}
 
 
