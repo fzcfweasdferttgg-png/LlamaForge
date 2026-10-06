@@ -84,7 +84,7 @@ def files(repo, vram_mib=0):
     shard_totals, singles, mmproj, mtp = {}, [], [], []
     for f in ggufs:
         p, size = f["path"], f.get("size", 0)
-        if os.path.basename(p).lower().startswith("mmproj"):
+        if scanner._is_mmproj(p):
             mmproj.append({"path": p, "size": size})
             continue
         if os.path.basename(p).lower().startswith("mtp-"):
