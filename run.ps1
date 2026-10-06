@@ -151,7 +151,7 @@ if (-not (Listening $cfg.router_port)) {
   $owner = Port-Owner $cfg.router_port
   if ($owner.Name -and $owner.Name -notmatch "llama") {
     Write-Host "port $($cfg.router_port) is already in use by '$($owner.Name)' (PID $($owner.Pid))." -ForegroundColor Yellow
-    Write-Host "The router was not started. Stop that process, or change router_port in the Setup tab." -ForegroundColor Yellow
+    Write-Host "The router was not started. Stop that process, or set a free router_port in config.json and run this again." -ForegroundColor Yellow
   }
 }
 
