@@ -84,8 +84,16 @@ def last_attempt(text, model):
             if child.match(ln) or (i > at and exited.search(ln))]
 
 
-def _oom_fix(settings):
+def _oom_fix(settings, tensor=False):
     pins = [f"{k} = {settings[k]}" for k in _PIN_KEYS if settings.get(k)]
+    if tensor:
+        # llama.cpp's fit has no SPLIT_MODE_TENSOR support: it aborts and loads
+        # exactly as configured, so clearing pins alone would not help.
+        ctx = f" Or lower ctx-size = {settings['ctx-size']}." if settings.get("ctx-size") else \
+              " Or set a smaller ctx-size."
+        return ("This model uses split-mode = tensor, and llama.cpp's automatic fit does "
+                "not work with tensor split, so nothing was shrunk to fit your VRAM. "
+                "Set split-mode = layer to let it fit." + ctx)
     if pins:
         return ("This model pins " + ", ".join(pins) + ", which switches off llama.cpp's "
                 "automatic fit to your VRAM. Clear those settings and load again, or pick "
@@ -120,7 +128,9 @@ def diagnose(log_text, settings=None, model=None):
             continue
         line = _clean(hits[-1])
         if kind == "oom":
-            fix = _oom_fix(settings)
+            tensor = (str(settings.get("split-mode", "")).lower() == "tensor"
+                      or any("SPLIT_MODE_TENSOR" in ln for ln in lines))
+            fix = _oom_fix(settings, tensor)
         elif kind == "argument":
             fix = fix.format(arg=_arg_name(line))
         elif kind == "quant":

@@ -75,6 +75,32 @@ class TestRules(unittest.TestCase):
         self.assertIn("fit", r["suggestion"])
         self.assertIn("cudaMalloc failed", r["error"])
 
+    def test_oom_under_tensor_split_names_split_mode(self):
+        """llama.cpp's fit has no SPLIT_MODE_TENSOR support: it aborts and loads
+        exactly as pinned, so pinning less would not help. Say so."""
+        log = attempt("m", 58308, (
+            "W common_fit_params: failed to fit params to free device memory: "
+            "llama_params_fit is not implemented for SPLIT_MODE_TENSOR, abort\n"
+            "E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1059.13 MiB on device 1: "
+            "cudaMalloc failed: out of memory\n"
+            "E graph_reserve: failed to allocate compute buffers"), status=1)
+        r = diag.diagnose(log, {"split-mode": "tensor", "ctx-size": "160000"}, model="m")
+        self.assertIn("split-mode = tensor", r["suggestion"])
+        self.assertIn("split-mode = layer", r["suggestion"])
+        self.assertIn("ctx-size = 160000", r["suggestion"])
+        self.assertNotIn("Clear those settings", r["suggestion"])
+
+    def test_tensor_split_read_from_the_log_when_settings_are_unknown(self):
+        log = ("W common_fit_params: failed to fit params to free device memory: "
+               "llama_params_fit is not implemented for SPLIT_MODE_TENSOR, abort\n"
+               "E graph_reserve: failed to allocate compute buffers")
+        self.assertIn("split-mode = tensor", diag.diagnose(log)["suggestion"])
+
+    def test_tensor_fit_warning_alone_is_not_a_failure(self):
+        self.assertIsNone(diag.diagnose(
+            "W common_fit_params: failed to fit params to free device memory: "
+            "llama_params_fit is not implemented for SPLIT_MODE_TENSOR, abort"))
+
     def test_oom_without_pins_suggests_a_smaller_quant(self):
         r = diag.diagnose("llama_kv_cache: failed to allocate buffer for kv cache")
         self.assertIn("smaller quant", r["suggestion"])
