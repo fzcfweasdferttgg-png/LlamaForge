@@ -4,7 +4,7 @@ model entries the router understands. Portable: no hardcoded paths.
 Rules:
 - skip mmproj* (vision projectors; attached to their model instead)
 - skip recycle bin and obvious non-model shards handling
-- attach an mmproj sibling only to vision-capable models
+- attach a same-folder mmproj only when it provably belongs to the model
 - treat *embed* models as embedding endpoints
 - multi-shard sets (foo-00001-of-00005.gguf) collapse to the first shard
 - disambiguate duplicate names by parent-folder prefix
@@ -14,12 +14,6 @@ from collections import defaultdict
 
 import osplat
 from gguf import total_size
-
-# Architectures known to use an mmproj sidecar (vision/multimodal).
-_VISION_ARCHES = frozenset({
-    "clip", "mllama", "qwen2_vl", "llava", "moondream", "nanollava",
-    "idefics3", "minicpm_v", "molmo", "pixtral", "granite_vision",
-})
 
 def _windows_drives():
     import string, ctypes
@@ -71,7 +65,9 @@ def _slug(s):
     return re.sub(r"-+", "-", s).strip("-")
 
 def _base(p): return os.path.basename(p)
-def _is_mmproj(p): return _base(p).lower().startswith("mmproj")
+def _is_mmproj(p):
+    """mmproj-*.gguf, or a <model>-mmproj-*.gguf token match (not a substring)."""
+    return re.search(r"(?:^|[-_.])mmproj(?:[-_.]|$)", _base(p), re.I) is not None
 def _is_mtp(p):    return _base(p).lower().startswith("mtp-")
 def _is_embed(p):  return "embed" in _base(p).lower()
 def _shard(p):
@@ -112,13 +108,65 @@ def mtp_pairs(mains, sidecars):
             pairs[dir_mains[0]] = dir_sidecars[0]
     return pairs
 
+_PRECISION_RANK = {"f16": 0, "bf16": 1, "f32": 2}
+_PRECISION_TAIL = re.compile(r"[-.](f16|bf16|f32|q\d+(?:-\d+|-k(?:-[sml])?)?)$")
+
+def _projector_rank(path):
+    """Deterministic preference among sibling projectors: F16, BF16, F32, then name."""
+    m = _PRECISION_TAIL.search(_model_stem(path))
+    return (_PRECISION_RANK.get(m.group(1) if m else "", 3), _base(path).lower())
+
+def _projector_target(path):
+    """The model stem a projector names: mmproj-Swift-27B-F16 and
+    Swift-27B-mmproj-F16 both -> swift-27b.
+    Empty for generic names like mmproj-F16."""
+    tail = re.sub(r"(?:^|[-.])mmproj(?=[-.]|$)", "", _model_stem(path)).strip("-.")
+    return _PRECISION_TAIL.sub("", tail) if tail not in _PRECISION_RANK else ""
+
+def mmproj_pairs(mains, projectors):
+    """Return {main_path: mmproj_path} for same-directory projectors that fit.
+
+    A projector fits a model when its clip projection_dim equals the model's
+    embedding_length (llama.cpp rejects the pair otherwise). Among fitting
+    projectors, one whose name targets the model wins; a generic one (mmproj-F16)
+    is used only when every model in the folder is the same base model, so a
+    shared folder never hands one model's projector to an unrelated model.
+    """
+    import gguf
+    mains_by_dir, projs_by_dir = defaultdict(list), defaultdict(list)
+    for path in mains:
+        mains_by_dir[os.path.dirname(path)].append(path)
+    for path in projectors:
+        projs_by_dir[os.path.dirname(path)].append(path)
+
+    pairs = {}
+    for directory, dir_projs in projs_by_dir.items():
+        dir_mains = mains_by_dir.get(directory)
+        if not dir_mains:
+            continue
+        info = {pj: i for pj in dir_projs if (i := gguf.projector_info(pj)) is not None}
+        if not info:
+            continue
+        meta = {m: gguf.metadata(m) or {} for m in dir_mains}
+        one_base = len({(md.get("architecture"), md.get("embedding_length"))
+                        for md in meta.values()}) == 1
+        for main in dir_mains:
+            emb = meta[main].get("embedding_length")
+            fits = [pj for pj, i in info.items()
+                    if emb is None or i.get("projection_dim") in (None, emb)]
+            named = [pj for pj in fits if _projector_target(pj)
+                     and _model_stem(main).startswith(_projector_target(pj))]
+            pick = named or (fits if one_base else [])
+            if pick:
+                pairs[main] = min(pick, key=_projector_rank)
+    return pairs
+
 def build_entries(paths):
     """Return list of {id, model, mmproj?, embeddings?, gib, existing_id?}."""
-    mmproj_by_dir = {}
-    mtp_sidecars = []
+    projectors, mtp_sidecars = [], []
     for p in paths:
         if _is_mmproj(p):
-            mmproj_by_dir[os.path.dirname(p)] = p
+            projectors.append(p)
         elif _is_mtp(p):
             mtp_sidecars.append(p)
 
@@ -136,6 +184,7 @@ def build_entries(paths):
         mains.append(p)
 
     mtp_by_main = mtp_pairs(mains, mtp_sidecars)
+    mmproj_by_main = mmproj_pairs(mains, projectors)
 
     stem_counts = defaultdict(int)
     for p in mains:
@@ -154,13 +203,9 @@ def build_entries(paths):
         except OSError:
             gib = 0
         e = {"id": mk_id(p), "model": p.replace("\\", "/"), "gib": gib}
-        # Only attach mmproj if the model is vision-capable.
-        mm = mmproj_by_dir.get(os.path.dirname(p))
+        mm = mmproj_by_main.get(p)
         if mm:
-            from gguf import metadata
-            arch = (metadata(p) or {}).get("architecture", "")
-            if arch in _VISION_ARCHES:
-                e["mmproj"] = mm.replace("\\", "/")
+            e["mmproj"] = mm.replace("\\", "/")
         # Attach an mtp-* sibling as a speculative draft model. Attaching alone
         # is inert; only enable spec-type=draft-mtp when the sidecar actually
         # declares NextN layers, the signal llama.cpp itself gates on.
