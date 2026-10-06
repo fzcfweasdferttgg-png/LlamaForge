@@ -102,7 +102,7 @@ else
   case "$owner_name" in
     *llama*|"") ;;
     *) echo "port $router_port is already in use by '$owner_name' (PID $owner)."
-       echo "The router was not started. Stop that process, or change router_port in the Setup tab." ;;
+       echo "The router was not started. Stop that process, or set a free router_port in config.json and run this again." ;;
   esac
 fi
 
