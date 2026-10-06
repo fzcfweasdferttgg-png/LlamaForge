@@ -12,7 +12,7 @@ Three skins (**Stowage**, the default, **Hearth** and **Classic**), each with li
 
 ### Skins
 
-**Stowage** is the default. It is built like a ship's stowage plan: a hull-navy sidebar, a pale chart-grey page, Barlow Condensed headings, a coloured band under each page title in that section's hue, and a safety-yellow primary action. Its centrepiece is the **bay plan** on the Models page: each GPU is drawn as a cargo hold ruled in 1 GB cells, all on one shared scale, with every loaded model stowed in it as a container at its real size (orange for the main model, blue and green for workers, slate for system and other apps). When you open a model that is not loaded, its predicted footprint appears as a dashed **booked** box; if it would not fit, the overflow is drawn hatched as **Short X GB**. The ledger beside each hold adds up exactly: used + booked + free = total.
+**Stowage** is the default. It is built like a ship's stowage plan: a hull-navy sidebar, a pale chart-grey page, Barlow Condensed headings, a coloured band under each page title in that section's hue, and a safety-yellow primary action. Its centrepiece is the **bay plan**, on the Models page and again on Stats: each GPU is drawn as a cargo hold ruled in 1 GB cells, all on one shared scale, with every loaded model stowed in it as a container at its real size (orange for the main model, blue and green for workers, slate for system and other apps). On Models, when you open a model that is not loaded, its predicted footprint appears as a dashed **booked** box; if it would not fit, the overflow is drawn hatched as **Short X GB**. The ledger beside each hold adds up exactly: used + booked + free = total.
 
 Per-model sizes come from the footprints of models this panel loaded in multi-model mode. Memory nothing accounts for is shown as one honest remainder block: "System + other apps", "System", or, when exactly one loaded model has no measured footprint, "*model* + system", since the two cannot be told apart there.
 
@@ -66,7 +66,7 @@ Resolution order, most specific first:
 | Stowage stylesheet | `web/css/stowage.css` | Every rule scoped to `:root[data-skin="stowage"]`; own dark, light and CVD token blocks. |
 | Hearth stylesheet | `web/css/hearth.css` | Every rule scoped to `:root[data-skin="hearth"]`; own dark, light and CVD token blocks. |
 | Fonts | `web/css/fonts.css`, `web/fonts/` | Every face the three skins use, self-hosted as Latin-subset woff2 under the SIL OFL (`web/fonts/OFL.txt`). No font CDN is contacted. |
-| Bay plan | `web/js/models.js` `bayPlans()` | Stowage's GPU view; sizes from `slots.footprints` in `/api/state`, the booked box from the open row's fit verdict. |
+| Bay plan | `web/js/bays.js` `bayPlans()` | Stowage's GPU view on Models and Stats; sizes from `slots.footprints` in `/api/state`. Models adds the booked box from the open row's fit verdict; Stats has no open row, so no booking. |
 | Apply skin | `web/js/ui.js` `applySkin(k)` | Sets `data-skin` (anything unknown means Stowage), syncs `#skin-toggle`, swaps the tab icon to that skin's mark, fires an `lf-skin` event so the GPU view redraws. |
 | Persist skin | `web/js/ui.js` `setSkin(k)` | `applySkin` + `localStorage.setItem("skin", k)` + `POST /api/config` (`skin` key: `""` = Stowage default, `"stowage"`, `"hearth"`, `"classic"`). |
 | Dark palette (Classic) | `web/index.html` `:root{...}` | Base CSS custom properties for all colors, fonts, and surfaces. |
