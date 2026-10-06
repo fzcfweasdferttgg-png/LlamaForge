@@ -18,11 +18,13 @@ class FakeSpeaker:
     busy = False
 
     def __init__(self, out=b"RIFFfake", err=None):
-        self.out, self.err, self.calls = out, err, []
+        self.out, self.err, self.calls, self.status = out, err, [], None
 
     def speak(self, cfg, req):
         self.calls.append(req)
         if self.err:
+            if self.status:
+                raise tts.TtsError(self.err, self.status)
             raise tts.TtsError(self.err)
         return self.out
 
@@ -73,7 +75,7 @@ class TtsRoutesTest(unittest.TestCase):
         self.assertEqual(body["error"]["type"], "invalid_request_error")
 
     def test_openai_speech_not_ready_is_503(self):
-        self.speaker.err = "text-to-speech is not set up: missing model"
+        self.speaker.err, self.speaker.status = "text-to-speech is not set up: missing model", 503
         st, body = routes.POST_ROUTES["/v1/audio/speech"](Req(body={"input": "hi"}))
         self.assertEqual(st, 503)
         self.assertIn("not set up", body["error"]["message"])
@@ -113,6 +115,31 @@ class TtsRoutesTest(unittest.TestCase):
         self.assertEqual(repo, tts.REPO)
         self.assertEqual(files, tts.REPO_FILES)
         self.assertEqual(dest, tts.models_dir(self.cfg))
+
+    def test_get_a_catalog_model_into_its_own_subfolder(self):
+        e = tts.catalog_entry("pocket-tts-en")
+        with mock.patch.object(routes.TTS_DOWNLOADS, "start", return_value=True) as start, \
+             mock.patch.object(routes.threading, "Thread") as thread:
+            st, body = routes.POST_ROUTES["/api/tts/get"](Req(body={"id": "pocket-tts-en"}))
+        self.assertTrue(body["started"])
+        repo, files, dest = start.call_args[0]
+        self.assertEqual((repo, files), (e["repo"], e["files"]))
+        self.assertEqual(dest, os.path.join(tts.models_dir(self.cfg), "pocket-tts-en"))
+        thread.assert_called_once()                       # the CC0 starter voice comes along
+
+    def test_get_unknown_catalog_id_is_400(self):
+        with self.assertRaises(ApiError) as cm:
+            routes.POST_ROUTES["/api/tts/get"](Req(body={"id": "kokoro"}))
+        self.assertEqual(cm.exception.status, 400)
+
+    def test_error_status_comes_from_the_tts_error(self):
+        self.speaker.err = "Pocket TTS needs a voice clip"
+        self.speaker.status = 400
+        st, body = routes.POST_ROUTES["/v1/audio/speech"](Req(body={"input": "hi"}))
+        self.assertEqual(st, 400)
+        with self.assertRaises(ApiError) as cm:
+            routes.POST_ROUTES["/api/tts/speak"](Req(body={"input": "hi"}))
+        self.assertEqual(cm.exception.status, 400)
 
     def test_tts_downloads_never_register_into_models_ini(self):
         self.assertIsNot(routes.TTS_DOWNLOADS, routes.DOWNLOADS)

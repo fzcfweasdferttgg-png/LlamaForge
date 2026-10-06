@@ -1,5 +1,5 @@
 // Voice tab: text-to-speech through llama.cpp's llama-tts (backend/tts.py).
-// Set up (binary + Qwen3-TTS model), speak, keep reference voices (recorded
+// Set up (binary + a Qwen3-TTS or Pocket TTS model), speak, keep reference voices (recorded
 // here or uploaded) and copy the OpenAI-style /v1/audio/speech snippet.
 //
 // Clips are decoded and resampled to 24 kHz mono in the browser (Web Audio
@@ -8,11 +8,14 @@
 import { $, $$, api, esc, setHTML, toast, askYes, askText } from "./core.js";
 import { encodeWav, wavPeaks, trimSilence, toBase64 } from "./wav.js";
 
-const RATE = 24000;             // what Qwen3-TTS writes and what clips are stored at
+const RATE = 24000;             // what llama-tts writes and what clips are stored at
 const MAX_REC_S = 30;
-const V = { st: null, poll: null, rec: null, url: "", lang: "en", voice: "" };
+const V = { st: null, poll: null, rec: null, url: "", lang: "en", voice: "",
+            model: localStorage.getItem("lf_tts_model") || "" };
 
-const gib = b => (b / 1073741824).toFixed(1) + " GiB";
+const gib = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GiB" : Math.round(b / 1048576) + " MiB";
+/** The model Speak uses: the remembered pick if it is still there, else the first. */
+const active = st => st.models.find(m => m.id === V.model) || st.models[0] || null;
 const secs = s => s < 60 ? s.toFixed(1) + " s" : Math.floor(s / 60) + " min " + Math.round(s % 60) + " s";
 
 export async function loadVoice() {
@@ -34,46 +37,56 @@ export async function loadVoice() {
 function setupCard(st) {
   const d = st.download || {};
   const fetching = d.running || d.phase === "downloading";
-  if (st.ready && !fetching) {
-    return `<div class="card"><h3>Speech</h3>
-      <div class="note">Text to speech runs on your GPU through llama.cpp&rsquo;s own
-        <b>llama-tts</b> with Qwen3-TTS. Each request loads the model, speaks and exits,
-        so nothing sits in VRAM between requests.</div>
-      <div class="kv"><span class="k">engine</span><span class="v">${esc(st.binary)}</span>
-        <span class="k">model</span><span class="v">${esc(st.model)}</span></div></div>`;
-  }
   const noBin = st.missing.includes("binary");
-  const noModel = st.missing.includes("model");
   const bar = fetching
     ? `<div class="msg work" id="tts-dl">${esc(dlText(d))}</div>`
     : d.phase === "failed" ? `<div class="msg err">Download failed: ${esc(d.error)}</div>` : "";
-  return `<div class="card"><h3>Set up speech</h3>
-    <div class="note">LlamaForge speaks with llama.cpp&rsquo;s <b>llama-tts</b> tool and the
-      Qwen3-TTS model. Nothing here runs until both are present.</div>
+  const have = st.models.map(m => `<div class="kv"><span class="k">${esc(m.engine || "model")}</span>
+      <span class="v">${esc(m.id)}</span></div>`).join("");
+  const offers = st.catalog.filter(c => !c.installed).map((c, i) => `<div class="kv">
+      <span class="k">${esc(c.label)}</span><span class="v">${esc(c.note)}
+        <span class="note">${esc(c.repo)}, ${esc(c.license)}.</span>
+        <button type="button" class="${!st.models.length && i === 0 ? "primary" : "ghost"}"
+          data-tts-get="${esc(c.id)}" ${fetching ? "disabled" : ""}>Get (${esc(gib(c.bytes))})</button></span></div>`).join("");
+  return `<div class="card"><h3>${st.ready ? "Speech" : "Set up speech"}</h3>
+    <div class="note">LlamaForge speaks with llama.cpp&rsquo;s own <b>llama-tts</b> tool.
+      Each request loads the model, speaks and exits, so nothing sits in VRAM between
+      requests.${st.ready ? "" : " Nothing here runs until the tool and a model are present."}</div>
     ${noBin ? `<div class="msg warn">llama-tts was not found next to llama-server. Official
       llama.cpp builds include it; for a source build, rebuild from the Build tab
       (or build the <b>llama-tts</b> target).</div>` : ""}
-    ${noModel ? `<div class="note">Model: <b>${esc(st.repo)}</b>, Q8_0 backbone plus its audio
-      projector, ${esc(gib(st.repo_bytes))}, saved to ${esc(st.models_dir)}.</div>
-      <div class="actions"><button type="button" class="primary" id="tts-get"
-        ${fetching ? "disabled" : ""}>Get Qwen3-TTS (${esc(gib(st.repo_bytes))})</button></div>` : ""}
+    ${have}
+    ${offers ? `<div class="slabel">${st.models.length ? "More speech models" : "Get a speech model"}</div>${offers}
+      <div class="note">Saved to ${esc(st.models_dir)}.</div>` : ""}
     ${bar}</div>`;
 }
 
 function speakCard(st) {
-  const opts = [`<option value="">${st.default_voice ? "Default (" + esc(st.default_voice) + ")" : "Default voice"}</option>`]
+  const m = active(st);
+  const needsVoice = !!(m && m.needs_voice);
+  const noClip = needsVoice && !st.voices.length;
+  const dflt = st.default_voice ? "Default (" + esc(st.default_voice) + ")"
+    : needsVoice ? (st.voices.length ? "First saved voice" : "No voice saved yet") : "Default voice";
+  const opts = [`<option value="">${dflt}</option>`]
     .concat(st.voices.map(v => `<option value="${esc(v)}"${v === V.voice ? " selected" : ""}>${esc(v)}</option>`));
   const langs = st.langs.map(l => `<option${l === V.lang ? " selected" : ""}>${esc(l)}</option>`);
+  const models = st.models.map(x => `<option value="${esc(x.id)}"${m && x.id === m.id ? " selected" : ""}>${esc(x.id)}</option>`);
+  const lang = !m || m.langs
+    ? `<div class="f"><span class="lbl">Language</span><select id="tts-lang">${langs.join("")}</select></div>`
+    : `<div class="f"><span class="lbl">Language</span><span class="note">set by the model</span></div>`;
   return `<div class="card"><h3>Speak</h3>
     <textarea id="tts-text" maxlength="${esc(st.max_chars)}"
       placeholder="Type what you want said."></textarea>
     <div class="formrow">
+      ${models.length > 1 ? `<div class="f"><span class="lbl">Model</span><select id="tts-model">${models.join("")}</select></div>` : ""}
       <div class="f"><span class="lbl">Voice</span><select id="tts-voice">${opts.join("")}</select></div>
-      <div class="f"><span class="lbl">Language</span><select id="tts-lang">${langs.join("")}</select></div>
+      ${lang}
       <div class="f grow"><span class="lbl">&nbsp;</span><span class="note" id="tts-count">0 / ${esc(st.max_chars)}</span></div>
     </div>
+    ${noClip ? `<div class="note">${esc(m.engine)} always speaks in a clip&rsquo;s voice.
+      Record or upload one under Voices first.</div>` : ""}
     <div class="actions"><button type="button" class="primary" id="tts-speak"
-      ${st.ready ? "" : "disabled"}>Speak</button></div>
+      ${st.ready && !noClip ? "" : "disabled"}>Speak</button></div>
     <div id="tts-out"></div></div>`;
 }
 
@@ -81,10 +94,11 @@ function voicesCard(st) {
   const rows = st.voices.length
     ? st.voices.map(v => `<div class="kv"><span class="k">${esc(v)}</span><span class="v">
         <button type="button" class="ghost" data-del-voice="${esc(v)}">Remove</button></span></div>`).join("")
-    : `<div class="note">No voices yet. Without one, the model picks its own voice.</div>`;
+    : `<div class="note">No voices yet. Without one, Qwen3-TTS picks its own voice and
+        Pocket TTS cannot speak.</div>`;
   return `<div class="card"><h3>Voices</h3>
     <div class="note">A voice is a short reference clip (5 to 20 seconds of clear speech
-      works best). Qwen3-TTS speaks in the voice of the clip. Only clone voices you have
+      works best). The model speaks in the voice of the clip. Only clone voices you have
       permission to use: your own, or someone who said yes.</div>
     ${rows}
     <div class="actions">
@@ -106,6 +120,8 @@ ${auth}  -H "Content-Type: application/json" \\
     <div class="note">The panel serves an OpenAI-style <b>POST /v1/audio/speech</b>.
       Audio comes back as WAV (or raw 24 kHz PCM with <code>"response_format":"pcm"</code>).
       Voice names you haven&rsquo;t saved, like OpenAI&rsquo;s "alloy", use the default voice.
+      ${st.models.length > 1 ? `Pick a model with <code>"model"</code>: ${st.models.map(x => `<code>${esc(x.id)}</code>`).join(", ")};
+      anything else, like "tts-1", gets the first.` : ""}
       ${st.needs_key ? "Your router is reachable from the network, so this endpoint asks for the router&rsquo;s API key too." : ""}</div>
     <div class="slabel">curl</div><div class="snip"><button type="button" class="qbtn scopy"
       id="tts-copy" aria-label="Copy curl">Copy</button>${esc(curl)}</div></div>`;
@@ -116,15 +132,23 @@ function wire(host, st) {
   const text = $("#tts-text", host), count = $("#tts-count", host);
   text.oninput = () => { count.textContent = `${text.value.length} / ${st.max_chars}`; };
   $("#tts-voice", host).onchange = e => { V.voice = e.target.value; };
-  $("#tts-lang", host).onchange = e => { V.lang = e.target.value; };
-  $("#tts-speak", host).onclick = speak;
-  const get = $("#tts-get", host);
-  if (get) get.onclick = async () => {
-    get.disabled = true;
-    const r = await api("/api/tts/get", {});
-    if (r.error) { toast(r.error, "err"); get.disabled = false; return; }
-    loadVoice();
+  const lang = $("#tts-lang", host);
+  if (lang) lang.onchange = e => { V.lang = e.target.value; };
+  const model = $("#tts-model", host);
+  if (model) model.onchange = e => {
+    V.model = e.target.value;
+    localStorage.setItem("lf_tts_model", V.model);
+    loadVoice();                                  // the voice and language rows depend on it
   };
+  $("#tts-speak", host).onclick = speak;
+  for (const get of $$("[data-tts-get]", host)) {
+    get.onclick = async () => {
+      get.disabled = true;
+      const r = await api("/api/tts/get", { id: get.dataset.ttsGet });
+      if (r.error) { toast(r.error, "err"); get.disabled = false; return; }
+      loadVoice();
+    };
+  }
   $("#tts-rec", host).onclick = toggleRecord;
   $("#tts-up-btn", host).onclick = () => $("#tts-up", host).click();
   $("#tts-up", host).onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) addClip(f); };
@@ -171,7 +195,7 @@ async function speak() {
   try {
     const r = await fetch("/api/tts/speak", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, voice: V.voice, language: V.lang }),
+      body: JSON.stringify({ input, voice: V.voice, language: V.lang, model: active(V.st)?.id || "" }),
     });
     if (!r.ok) {
       let msg = r.status + "";
@@ -200,7 +224,7 @@ async function speak() {
 /** Peaks -> a small mirrored bar waveform in the accent colour. */
 function wave(peaks) {
   const w = 4, h = 48;
-  // Scale to the clip's own peak: Qwen3-TTS speaks around -20 dBFS.
+  // Scale to the clip's own peak: Qwen3-TTS often speaks around -20 dBFS.
   const top = Math.max(...peaks, 1e-6);
   peaks = peaks.map(p => p / top);
   const bars = peaks.map((p, i) => {
