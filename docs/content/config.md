@@ -55,6 +55,8 @@ order: 1
 | `vram_predict_enabled` | bool | `True` | Whether the offline VRAM-fit/tok-s estimate is computed (Discover, on expand). |
 | `docs_dir` | string | `""` | Directory the in-app docs viewer reads from. Empty string resolves to `<repo root>/docs/content`. |
 | `embers_dir` | string | `""` | Where ember wikis and `embers.db` live. Empty string resolves to `<repo root>/embers`. |
+| `tts_dir` | string | `""` | Where the speech model (`models/`) and voice clips (`voices/`) live. Empty string resolves to `<repo root>/tts`. |
+| `tts_default_voice` | string | `""` | Voice clip name used when a speech request names no known voice. Empty = the model's own default voice. |
 | `embers_scheduler` | bool | `True` | Run due ember jobs inside the dashboard process. |
 | `embers_swap_models` | bool | `True` | Let an ember load its pinned model when the router is idle. |
 | `multi_model` | bool | `False` | Let the router hold several models at once. Off keeps one model at a time. Changing it restarts a running router. |

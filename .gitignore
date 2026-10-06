@@ -41,3 +41,5 @@ docs/x-header.*
 
 # downloaded prebuilt engines
 engines/
+# speech model + recorded voice clips (tts.py)
+/tts/

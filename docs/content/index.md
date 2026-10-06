@@ -25,7 +25,7 @@ LlamaForge runs three local HTTP services:
 
 | Component | Default address | Role |
 |---|---|---|
-| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Chat, Embers, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Always binds to `127.0.0.1` only. |
+| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Chat, Voice, Embers, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Always binds to `127.0.0.1` only. |
 | Router | `http://127.0.0.1:8080` | llama.cpp's own server process, started by LlamaForge with `--models-preset models.ini`. Serves the OpenAI-compatible API. Always runs with an API key. |
 | Chat | `http://127.0.0.1:8091` | llama.cpp's chat UI on its own origin, shown in the dashboard's Chat tab. The router key is added server-side. |
 
