@@ -339,6 +339,12 @@ def run(task, model, endpoint, key="", cwd=None, tools="read", timeout=DEFAULT_T
             out["error"] = ev["error"]
         elif not ev["stop"]:
             out["error"] = "pi produced no answer" + (f": {tail}" if tail else "")
+        elif (not out["text"].strip() and out["tool_calls"]
+              and all(t["error"] for t in out["tool_calls"])):
+            # pi stops cleanly, but nothing worked: a model that can't do tool calls
+            out["error"] = (f"pi gave no answer and every tool call failed "
+                            f"({len(out['tool_calls'])}); this model may not handle tool "
+                            "calling - try a larger model or quant")
         out["ok"] = not out["error"]
         if len(out["text"]) > MAX_TEXT:
             out["text"] = out["text"][:MAX_TEXT] + "\n...[truncated]"

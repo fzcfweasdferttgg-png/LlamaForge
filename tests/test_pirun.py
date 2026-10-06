@@ -228,6 +228,13 @@ FAKE_PI = textwrap.dedent(r'''
         out(type="message_end", message={"role": "assistant", "content": [],
             "stopReason": "error", "errorMessage": "Connection error.", "usage": {}})
         sys.exit(0)
+    if mode in ("flail", "quiet"):
+        for ok in ([False, False] if mode == "flail" else [True]):
+            out(type="tool_execution_start", toolName="read")
+            out(type="tool_execution_end", toolName="read", isError=not ok)
+        out(type="message_end", message={"role": "assistant", "stopReason": "stop",
+            "content": [], "usage": {}})
+        sys.exit(0)
     cfg = json.load(open(os.path.join(os.environ["PI_CODING_AGENT_DIR"], "models.json")))
     prov = cfg["providers"]["llamaforge"]
     out(type="tool_execution_start", toolName="read")
@@ -286,6 +293,19 @@ class Run(unittest.TestCase):
         out = self.run_pi()
         self.assertFalse(out["ok"])
         self.assertEqual(out["error"], "Connection error.")
+
+    def test_no_answer_and_every_tool_failed_is_a_failure(self):
+        """A model too weak for tool calling (seen live: a 2-bit 4B) ends with
+        stop, no text and only failed tools; that is not a success."""
+        os.environ["FAKE_MODE"] = "flail"
+        out = self.run_pi()
+        self.assertFalse(out["ok"], out)
+        self.assertIn("every tool call failed", out["error"])
+
+    def test_no_answer_after_a_working_tool_is_still_ok(self):
+        os.environ["FAKE_MODE"] = "quiet"
+        out = self.run_pi()
+        self.assertTrue(out["ok"], out)
 
     def test_crash_reports_stderr(self):
         os.environ["FAKE_MODE"] = "crash"
