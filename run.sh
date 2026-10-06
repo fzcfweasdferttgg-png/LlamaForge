@@ -82,6 +82,9 @@ if ! listening "$router_port"; then
       args=(--models-preset "$models_ini" --models-max 1 --offline
             --host "$router_host" --port "$router_port" --metrics)
       while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done <<<"$auth"
+      # Logs are appended to across restarts; past 50 MB one becomes .1 (7 kept).
+      "$PY" "$here/backend/logfiles.py" --rotate \
+        "$logdir/router.out.log" "$logdir/router.err.log" || true
       nohup "$server_bin" "${args[@]}" \
         >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
       echo "$!" >"$logdir/router.pid"   # stop.sh stops only this router (backend/procs.py)

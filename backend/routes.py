@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server, piinstall, tts
+import mcp_server, piinstall, tts, logfiles
 from builder import BuildManager
 from embers import panel as embers_panel
 
@@ -135,10 +135,7 @@ def vllm_dl():
 
 
 def _tail_file(path, n):
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        return f.readlines()[-n:]
+    return logfiles.tail_lines(path, n)   # never the whole file (issue #26)
 
 
 def router_log_tail(n=400):

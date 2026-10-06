@@ -11,7 +11,7 @@ Pure stdlib.
 """
 import os, re, time, threading, urllib.request
 
-import wsl
+import logfiles, wsl
 
 MAX_INSTANCES = 1                     # v1 guard; raise for concurrency
 READY_TIMEOUT = 600                   # seconds before a stuck load -> failed
@@ -71,10 +71,8 @@ class Manager:
             if len(self.instances) >= MAX_INSTANCES:
                 return False, "a vLLM model is already running (stop it first)"
             os.makedirs(self.logdir, exist_ok=True)
-            out = open(os.path.join(self.logdir, "vllm.out.log"), "a",
-                       encoding="utf-8", errors="replace")
-            err = open(os.path.join(self.logdir, "vllm.err.log"), "a",
-                       encoding="utf-8", errors="replace")
+            out = logfiles.open_append(os.path.join(self.logdir, "vllm.out.log"))
+            err = logfiles.open_append(os.path.join(self.logdir, "vllm.err.log"))
             wsl.popen(build_serve_script(self.venv),
                       model_ref, self.port, *(flags or []),
                       stdout=out, stderr=err, distro=self.distro)

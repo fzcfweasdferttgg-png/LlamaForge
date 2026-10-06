@@ -17,7 +17,7 @@ thread composes them. Pure stdlib.
 import hashlib, json, os, re, shutil, stat, subprocess, tarfile, threading, time
 import urllib.request, zipfile
 
-import osplat
+import logfiles, osplat
 
 API = "https://api.github.com/repos/ggml-org/llama.cpp"
 UA = {"User-Agent": "LlamaForge (+https://github.com/dadwritestech/LlamaForge)",
@@ -340,11 +340,7 @@ class Installer:
             f.write(msg.rstrip("\n") + "\n")
 
     def tail(self, n=80):
-        try:
-            with open(self.log_path, encoding="utf-8", errors="replace") as f:
-                return "".join(f.readlines()[-n:])
-        except OSError:
-            return ""
+        return "".join(logfiles.tail_lines(self.log_path, n))
 
     def progress(self):
         return dict(self.state)

@@ -32,6 +32,7 @@ import time
 import urllib.error
 import urllib.request
 
+import logfiles
 import osplat
 import procs
 
@@ -202,7 +203,7 @@ def argv_for(server_bin, mid, settings, dst, src=(), api_key=""):
 
 def _popen(argv, log):
     os.makedirs(os.path.dirname(log), exist_ok=True)
-    out = open(log, "a", encoding="utf-8", errors="replace")
+    out = logfiles.open_append(log)
     try:
         out.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {subprocess.list2cmdline(argv)}\n")
         out.flush()
@@ -327,14 +328,8 @@ class Manager:
         return os.path.join(self.logdir, f"slot-{safe}-{tag}.log")
 
     def log_tail(self, mid, lines=200):
-        try:
-            with open(self.log_path(mid), "rb") as f:
-                f.seek(0, os.SEEK_END)
-                f.seek(max(0, f.tell() - 65536))
-                text = f.read().decode("utf-8", "replace")
-        except OSError:
-            return ""
-        return "\n".join(text.splitlines()[-lines:])
+        return "\n".join(ln.rstrip("\n")
+                         for ln in logfiles.tail_lines(self.log_path(mid), lines))
 
     # ---------- lifecycle ----------
     def _state(self, mid, rec):
