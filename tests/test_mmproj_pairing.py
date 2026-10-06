@@ -10,7 +10,7 @@ import conftest_paths  # noqa: F401
 import os, struct, tempfile, unittest
 from unittest import mock
 
-import gguf, scanner
+import gguf, hub, scanner
 
 
 def _entries(paths, models, projectors):
@@ -100,6 +100,21 @@ class SuffixNamedProjectorTest(unittest.TestCase):
 
     def test_word_containing_mmproj_is_not_a_projector(self):
         self.assertFalse(scanner._is_mmproj("/m/notmmprojector-7B-Q4_K_M.gguf"))
+
+
+class HubFilesTest(unittest.TestCase):
+    """The Hub download view must offer a suffix-named projector as a projector."""
+
+    def test_suffix_named_projector_listed_as_mmproj(self):
+        tree = [{"path": "Ternary-Bonsai-2-27B-PQ2_0.gguf", "size": 9},
+                {"path": "Ternary-Bonsai-2-27B-mmproj-BF16.gguf", "size": 1},
+                {"path": "notmmprojector-7B-Q4_K_M.gguf", "size": 5}]
+        with mock.patch.object(hub, "_get_json", return_value=tree):
+            out = hub.files("prism-ml/Ternary-Bonsai-2-27B-gguf")
+        self.assertEqual([f["path"] for f in out["mmproj"]],
+                         ["Ternary-Bonsai-2-27B-mmproj-BF16.gguf"])
+        self.assertEqual(sorted(f["path"] for f in out["files"]),
+                         ["Ternary-Bonsai-2-27B-PQ2_0.gguf", "notmmprojector-7B-Q4_K_M.gguf"])
 
 
 class SeveralProjectorsTest(unittest.TestCase):
