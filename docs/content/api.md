@@ -23,6 +23,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/v1/messages` | Anthropic Messages API-compatible endpoint. Requires `anthropic_shim_enabled: true` in `config.json` (the default) and uses conditional `_shim_auth_ok`: auth is skipped for local router scope (and current behavior also skips when no key is configured); when enforced, it accepts either `x-api-key` or `Authorization: Bearer <key>`. Supports `"stream": true` (SSE) via `_anthropic_stream`, translates to the OpenAI-shaped request, and forwards to the router. |
 | POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same enable and conditional auth behavior as `/v1/messages`. |
 | POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
+| POST | `/v1/audio/speech` | OpenAI speech-compatible text to speech through llama.cpp's `llama-tts` (see [Voice](voice.md)). Body: `input`, optional `voice`, `language`, `response_format` (`pcm` or WAV). Same conditional `_shim_auth_ok` behavior. Returns `audio/wav` or `audio/pcm`; errors in the OpenAI shape. |
 | POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. With multi-model on, the body also takes `role` (`main` or `worker`) and `evict`, and the load goes through the placement planner; a refusal comes back with a `reason`. |
 | POST | `/api/unload` | Unload a model from the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/unload`. |
 | POST | `/api/unload_all` | Unload every currently loaded/loading model (except the router's `default` entry). |
@@ -144,6 +145,17 @@ The Embers tab's endpoints. See [Embers](embers.md) for what each does.
 | POST | `/api/embers/forge` | One turn of the Forge interview that builds an ember. Uses a model that is already loaded. |
 | POST | `/api/embers/push/test` | Send a test notification through an ember's push settings: `{id}`. |
 | POST | `/api/embers/folder` | Point the panel at another embers folder: `{path}` (`""` = the default). Nothing is moved. |
+
+## Voice (text to speech)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/tts/status` | Whether `llama-tts` and the model are present (`ready`, `missing`), the saved voices, languages, the model download's progress (`download`), `busy`, and `needs_key` for `/v1/audio/speech`. |
+| GET | `/api/tts/progress` | Just the model download's progress (the `download` object above). |
+| POST | `/api/tts/speak` | The Voice tab's speak call. Same body and audio as `/v1/audio/speech`, panel-style `{"error"}` on failure. |
+| POST | `/api/tts/get` | Download Qwen3-TTS (Q8_0 + mmproj) into `<tts_dir>/models`. Not registered as a chat model. |
+| POST | `/api/tts/voice` | Save a reference clip. Body: `{"name", "wav_b64"}`; a 1 to 60 second WAV. |
+| POST | `/api/tts/voice/delete` | Remove a saved voice. Body: `{"name"}`. |
 
 ## vLLM (WSL) management
 

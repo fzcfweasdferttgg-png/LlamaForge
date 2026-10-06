@@ -65,6 +65,7 @@ every server flag instead of a curated subset.
   - Presets, launch profiles (model + preset + pinned llama.cpp build in one click), side-by-side compare, and copy-paste client snippets.
   - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own llama.cpp (or ik_llama.cpp) build.
 - **Chat**: llama.cpp's own chat UI (markdown, reasoning, images) inside the dashboard, on its own port, with the API key added for you.
+- **Voice**: text to speech on your GPU through llama.cpp's own `llama-tts` and Qwen3-TTS, in 10 languages, optionally in a voice you record or upload (only clone voices you may use).
 - **Embers**: small local agents that keep watch on a topic, keep their own wiki and write you a brief on a schedule. A wiki item only counts if it quotes its source verbatim. **Forge** builds one by interviewing you; **Model Scout** needs no setup. Embers have no browser or tools, and nothing leaves the machine unless you turn on push notifications.
 - **Discover**: Hugging Face GGUF search that opens on what's new this week. Every quant gets a rough fit rating for your VRAM before you download (FITS / TIGHT / CPU OFFLOAD). Downloads resume after interruption, register themselves, and end in **Load & Chat**.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
@@ -82,6 +83,7 @@ Anything that speaks the OpenAI API (Open WebUI, SillyTavern, Continue, Cline, A
 base URL, key and model id ready to paste.
 
 - **Anthropic-compatible** `POST /v1/messages` on the panel, with streaming and tool use.
+- **OpenAI speech-compatible** `POST /v1/audio/speech` on the panel (WAV or PCM), backed by `llama-tts`.
 - **Connect an agent** writes the config for **Claude Code**, **Codex** and **pi.dev** (any file it touches is backed up first).
 - Load/unload endpoints let an agent swap models on demand.
 - **MCP server** (stdio, `backend/mcp_server.py`): Claude Code, Codex or any MCP client can see what's loaded,

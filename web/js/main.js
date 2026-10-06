@@ -17,6 +17,7 @@ import { leaveSetup, loadSetup } from "./setup.js";
 import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
 import { loadChat } from "./chat.js";
+import { loadVoice } from "./voice.js";
 import { loadEmbers, poll as pollEmbers } from "./embers.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
@@ -25,6 +26,7 @@ import { on } from "./bus.js";
 
 /* ---------- tab loaders ---------- */
 ui.onTabShown("chat", loadChat);
+ui.onTabShown("voice", loadVoice);
 ui.onTabShown("embers", loadEmbers);
 ui.onTabShown("build", loadBuild);
 ui.onTabShown("setup", loadSetup);
