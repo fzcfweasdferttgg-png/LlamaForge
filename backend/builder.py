@@ -38,10 +38,11 @@ class BuildManager:
         br = self._git(src, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
         return {"ok": True, "hash": h, "subject": s, "date": d, "branch": br}
 
-    def check_updates(self, src, remote_branch="origin/master", force=False, now=None):
+    def check_updates(self, src, remote_branch=None, force=False, now=None):
         """Upstream check with a TTL cache: opening the Build tab must not
         `git fetch` GitHub on every click. force=True bypasses the cache
-        (the UI's Refresh button); a finished build clears it."""
+        (the UI's Refresh button); a finished build clears it. remote_branch
+        None means the checkout's own default (see resolve_remote_branch)."""
         if not src:
             return {"ok": False, "error": "no source dir"}
         now = time.time() if now is None else now
@@ -55,17 +56,39 @@ class BuildManager:
         self._upd_cache[key] = (now, res)
         return dict(res, cached=False, checked_secs_ago=0)
 
-    def _check_updates_fresh(self, src, remote_branch):
+    def resolve_remote_branch(self, src):
+        """The remote's default branch as "origin/<name>", or None.
+
+        llama.cpp's default is master but ik_llama.cpp's is main, so a hardcoded
+        origin/master made `rev-list` fail on the latter. Ask the checkout first
+        (origin/HEAD), then probe main and master for clones that lack it.
+        """
+        r = self._git(src, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+        cands = ([r.stdout.strip()] if r.returncode == 0 else []) + ["origin/main", "origin/master"]
+        for c in cands:
+            if self._git(src, "rev-parse", "--verify", "--quiet", f"refs/remotes/{c}").returncode == 0:
+                return c
+        return None
+
+    def _check_updates_fresh(self, src, remote_branch=None):
         try:
             self._git(src, "fetch", "--quiet", "origin", timeout=120)
+            remote_branch = remote_branch or self.resolve_remote_branch(src)
+            if not remote_branch:
+                return {"ok": False, "error": "no origin/HEAD, origin/main or origin/master "
+                                              "in this checkout; cannot tell what upstream is"}
+            cnt = self._git(src, "rev-list", "--count", f"HEAD..{remote_branch}")
+            latest = self._git(src, "log", "-1", "--pretty=%h|%s", remote_branch)
         except Exception as e:
             return {"ok": False, "error": f"fetch failed: {e}"}
-        cnt = self._git(src, "rev-list", "--count", f"HEAD..{remote_branch}").stdout.strip()
-        latest = self._git(src, "log", "-1", "--pretty=%h|%s", remote_branch).stdout.strip()
-        lh, ls = (latest.split("|", 1) + ["", ""])[:2]
-        try: behind = int(cnt)
-        except ValueError: behind = 0
-        return {"ok": True, "behind": behind,
+        for r in (cnt, latest):
+            if r.returncode != 0:
+                # An unreadable count is not "0 behind": say so instead of
+                # reporting up to date forever.
+                return {"ok": False, "error": r.stderr.strip() or f"git failed against {remote_branch}"}
+        lh, ls = (latest.stdout.strip().split("|", 1) + ["", ""])[:2]
+        behind = int(cnt.stdout.strip())
+        return {"ok": True, "behind": behind, "branch": remote_branch,
                 "latest": {"hash": lh, "subject": ls}, "up_to_date": behind == 0}
 
     # ---- build ----
