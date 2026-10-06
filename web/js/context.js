@@ -1,6 +1,6 @@
 // Context tab: markdown context docs, named profiles composed from them, the
 // per-model active profile, and export into an agent's CLAUDE.md / AGENTS.md.
-import { $, esc, setHTML, api, toast } from "./core.js";
+import { $, esc, setHTML, api, toast, askText } from "./core.js";
 import { S, models } from "./state.js";
 
 export async function loadContext() {
@@ -66,8 +66,8 @@ export async function loadContext() {
   };
   load();
   $("#wk-doc").onchange = load;
-  $("#wk-new").onclick = () => {
-    const n = prompt("Doc name (e.g. style)");
+  $("#wk-new").onclick = async () => {
+    const n = await askText("Doc name", {title: "New doc", ok: "Create", placeholder: "style"});
     if (n) {
       $("#wk-text").value = "";
       $("#wk-doc").insertAdjacentHTML("beforeend", `<option selected>${esc(n.endsWith(".md")?n:n+".md")}</option>`);

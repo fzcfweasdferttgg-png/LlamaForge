@@ -7,7 +7,7 @@
 // carries on every poll (no planner, no nvidia-smi). The planner itself
 // (/api/slots/plan) runs only for the open row, and again only when the set
 // of loaded models changes.
-import { $, esc, setHTML, api, toast } from "./core.js";
+import { $, esc, setHTML, api, toast, askYes } from "./core.js";
 import { S, models as modelRows } from "./state.js";
 
 const UP = new Set(["loaded", "sleeping"]);
@@ -150,7 +150,8 @@ export function renderBanner() {
 }
 
 export async function applyPool() {
-  if (!confirm("Restart the router with multi-model on? Every loaded model is unloaded.")) return false;
+  if (!(await askYes("Every loaded model is unloaded.",
+      {title: "Restart the router with multi-model on", ok: "Restart", danger: true}))) return false;
   toast("Restarting the router...", "ok");
   const r = await api("/api/slots/apply", {});
   toast(r && r.ok ? (r.restarted ? "Router restarted with multi-model" : "Already running with multi-model")

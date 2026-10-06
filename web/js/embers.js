@@ -5,7 +5,7 @@
 // escapes every piece of model or source text before it builds markup (the
 // same contract as the Help tab's docs renderer). Everything this file
 // interpolates itself goes through esc().
-import { $, $$, api, esc, setHTML, toast } from "./core.js";
+import { $, $$, api, esc, setHTML, toast, askYes } from "./core.js";
 import { models } from "./state.js";
 import { showModal } from "./models.js";
 import { forgeReset, forgeSend, initForge, renderForge } from "./forge.js";
@@ -511,7 +511,8 @@ async function pushTest() {
 
 async function remove() {
   const c = card(E.sel);
-  if (!confirm(`Remove "${c.name}"? It stops running. Its wiki stays on disk in ${c.root}.`)) return;
+  if (!(await askYes(`It stops running. Its wiki stays on disk in ${c.root}.`,
+    {title: `Remove ${c.name}`, ok: "Remove", danger: true}))) return;
   const d = await api("/api/embers/delete", { id: c.id }).catch(() => null);
   if (!d || d.error) return toast(d ? d.error : "The panel didn't answer.", "err");
   toast("Removed. The wiki is still on disk.", "ok");

@@ -1,6 +1,6 @@
 // Setup tab: prerequisites, detected hardware, drive scanning, startup options,
 // LAN access, the agent-connect panel, and vLLM/WSL installation.
-import { $, $$, esc, setHTML, api, toast } from "./core.js";
+import { $, $$, esc, setHTML, api, toast, askYes } from "./core.js";
 import { S, models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 import { applyPool } from "./slots.js";
@@ -546,7 +546,8 @@ function wireSlots(generation) {
     if (!Object.keys(changed).length) return msg("nothing changed", "ok");
     const up = models().filter(m => UP.has(m.status)).length;
     if (POOL_KEYS.some(k => k in changed) && up &&
-        !confirm(`Saving restarts the router, which unloads the ${up} loaded model${up > 1 ? "s" : ""}. Continue?`)) return;
+        !(await askYes(`Saving restarts the router, which unloads the ${up} loaded model${up > 1 ? "s" : ""}.`,
+          {title: "Restart the router", ok: "Save and restart", danger: true}))) return;
     msg("saving...", "work");
     const r = await api("/api/config", changed).catch(() => null);
     if (!setupViewActive(generation)) return;
@@ -908,7 +909,8 @@ async function renderPiInstall(generation, said = "") {
   for (const b of $$("[data-pi]", host)) {
     b.onclick = async () => {
       const action = b.dataset.pi;
-      if (action === "remove" && !confirm("Remove LlamaForge's copy of pi?")) return;
+      if (action === "remove" && !(await askYes("This deletes the copy in LlamaForge's own folder; a pi you installed yourself is left alone.",
+        {title: "Remove pi", ok: "Remove", danger: true}))) return;
       const r = await api(`/api/pi/${action}`, {});
       if (r.error) { toast(r.error, "err"); return; }
       watchPi(generation, action);

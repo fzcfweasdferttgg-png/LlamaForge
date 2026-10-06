@@ -3,7 +3,7 @@
 // Saved from a model's editor ("Save as profile"), which emits "profile-save".
 // Profiles share as recipes (readable JSON, backend/recipes.py) and import back;
 // "browse recipes" lists the community gallery (repo recipes/ folder, backend/gallery.py).
-import { $, esc, setHTML, api, toast } from "./core.js";
+import { $, esc, setHTML, api, toast, askYes } from "./core.js";
 import { config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { showModal } from "./models.js";
@@ -217,7 +217,7 @@ export function initProfiles() {
     if (del) {
       e.stopPropagation();
       const n = del.dataset.profDel;
-      if (!confirm(`Delete profile "${n}"? The model and its settings stay.`)) return;
+      if (!(await askYes("The model and its settings stay.", {title: `Delete profile "${n}"`, ok: "Delete", danger: true}))) return;
       await api("/api/profiles/delete", {name: n});
       toast("Profile deleted", "ok"); emit("refresh", true);
       return;

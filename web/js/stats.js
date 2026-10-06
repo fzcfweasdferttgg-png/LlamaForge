@@ -1,5 +1,5 @@
 // Stats tab: totals, live throughput, a daily activity chart, per-model usage.
-import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK } from "./core.js";
+import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK, askYes } from "./core.js";
 import { createFactRotator, normalizeVram } from "./stats-facts.js";
 import { bayPlans, bayInputs, cargoHue } from "./bays.js";
 
@@ -19,7 +19,8 @@ const SORT_COLS = {tokens:"Total", prompt:"Prompt", generated:"Gen",
 function setStatsRange(n) { statsRange = n; loadStats(true); }
 function sortStats(c) { statsSort = c; loadStats(true); }
 async function resetStats() {
-  if (!confirm("Reset ALL usage statistics? Per-model and daily history will be zeroed. This cannot be undone.")) return;
+  if (!(await askYes("Per-model and daily history will be zeroed. This cannot be undone.",
+      {title: "Reset all usage statistics", ok: "Reset", danger: true}))) return;
   await api("/api/stats/reset", {});
   toast("Stats reset", "ok");
   loadStats(true);
