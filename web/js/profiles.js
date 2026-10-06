@@ -30,7 +30,7 @@ function render() {
       + `&#9654; ${esc(n)}`
       + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="share as a recipe">&#8599;</span>`)
       + `<span class="px" data-prof-del="${esc(n)}" title="delete profile">&times;</span></span>`).join("")}
-    <span class="pchip" data-prof-gallery title="tested setups shared by the community">&#9776; browse recipes</span>
+    <span class="pchip" data-prof-gallery title="tested setups shared by the community"><span class="g g-list" aria-hidden="true">&#9776;</span> browse recipes</span>
     <span class="pchip" data-prof-import title="paste a recipe someone shared">+ import recipe</span>
   </div>`);
 }

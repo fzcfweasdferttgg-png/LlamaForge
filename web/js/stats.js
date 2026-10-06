@@ -1,9 +1,12 @@
 // Stats tab: totals, live throughput, a daily activity chart, per-model usage.
 import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK } from "./core.js";
 import { createFactRotator, normalizeVram } from "./stats-facts.js";
+import { bayPlans, bayInputs } from "./bays.js";
 
 let statsSort = "tokens", statsRange = 14, statsRequest = 0;
 let gpuRequest = null, lastGpuPayload, hasGpuPayload = false;
+const seenBoxes = new Map();      // bays.js: when each box was first drawn on this tab
+const stowage = () => document.documentElement?.dataset.skin === "stowage";
 const tokenFact = createFactRotator();
 const SORT_COLS = {tokens:"Total", prompt:"Prompt", generated:"Gen",
                    avg_tps:"Tok/s", runs:"Runs", loaded_secs:"Loaded"};
@@ -28,6 +31,12 @@ export function initStats() {
     const sort = e.target.closest("[data-sort]");
     if (sort) { sortStats(sort.dataset.sort); return; }
     if (e.target.closest("[data-statsreset]")) resetStats();
+  });
+  // a skin switch redraws from what we have, unless Stowage needs a fuller payload
+  document.addEventListener("lf-skin", () => {
+    if (!$("#stats-vram") || !hasGpuPayload) return;
+    if (stowage() && !(lastGpuPayload && lastGpuPayload.slots)) refreshStatsVram();
+    else setHTML($("#stats-vram"), vramView(lastGpuPayload));
   });
 }
 
@@ -97,14 +106,24 @@ export function renderTokenScale(generated, fact, open = false) {
   </div>`;
 }
 
+// Stowage draws the same bay plan as the Models tab (without a booking: no row
+// is open here), so it needs the footprints in /api/state; the other skins
+// only need the GPU counters. /api/state carries those too.
+function vramView(payload) {
+  if (!stowage()) return renderStatsVram(payload);
+  if (!payload || !Array.isArray(payload.gpus)) return `<div class="stats-vram-empty">VRAM TELEMETRY UNAVAILABLE</div>`;
+  return bayPlans(payload.gpus, {...bayInputs(payload), seen: seenBoxes});
+}
+
 function refreshStatsVram() {
   if (gpuRequest) return;
-  gpuRequest = api("/api/gpus").catch(() => null).then(payload => {
+  gpuRequest = api(stowage() ? "/api/state" : "/api/gpus").catch(() => null).then(payload => {
     lastGpuPayload = payload;
     hasGpuPayload = true;
-    setHTML($("#stats-vram"), renderStatsVram(payload));
+    setHTML($("#stats-vram"), vramView(payload));
   }).finally(() => { gpuRequest = null; });
 }
+
 
 export async function loadStats(silent) {
   const request = ++statsRequest;
@@ -132,7 +151,7 @@ export async function loadStats(silent) {
   setHTML(v, `
     <div class="stats-body${silent ? "" : " intro"}">
     ${renderTokenScale(t.generated, fact, detailsOpen)}
-    <div class="stats-vram" id="stats-vram" aria-label="GPU VRAM usage">${hasGpuPayload ? renderStatsVram(lastGpuPayload) : `<div class="stats-vram-empty">VRAM TELEMETRY LOADING...</div>`}</div>
+    <div class="stats-vram" id="stats-vram" aria-label="GPU VRAM usage">${hasGpuPayload ? vramView(lastGpuPayload) : `<div class="stats-vram-empty">VRAM TELEMETRY LOADING...</div>`}</div>
     <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       ${statCard("Tokens processed", fmtNum(t.tokens), [t.tokens, "num"])}
       ${statCard("Generated", fmtNum(t.generated), [t.generated, "num"])}

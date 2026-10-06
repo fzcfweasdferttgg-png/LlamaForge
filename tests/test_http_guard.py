@@ -228,6 +228,25 @@ class LiveServerTest(unittest.TestCase):
         self.assertEqual(self.seen, [])
         self.assertEqual(self._req("/api/_probe")[0], 200)
 
+    def test_web_fonts_are_served_as_woff2(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as web:
+            os.makedirs(os.path.join(web, "fonts"))
+            with open(os.path.join(web, "fonts", "x.woff2"), "wb") as f:
+                f.write(b"wOF2font")
+            with open(os.path.join(web, "fonts", "x.ttf"), "wb") as f:
+                f.write(b"ttf")
+            with mock.patch.object(routes, "WEB", web):
+                head = (f"GET /web/fonts/x.woff2 HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
+                        "Connection: close\r\n\r\n").encode()
+                status, headers, payload = self._raw(head, shutdown_write=False)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers["content-type"], "font/woff2")
+                self.assertEqual(payload, b"wOF2font")
+                # only the types the panel ships; other files under web/ stay private
+                status, _ = self._req("/web/fonts/x.ttf")
+                self.assertEqual(status, 404)
+
     def test_unknown_path_404s(self):
         status, _ = self._req("/api/nope")
         self.assertEqual(status, 404)

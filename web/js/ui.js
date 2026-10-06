@@ -64,11 +64,19 @@ export async function setCvd(on) {
    skin (the Stowage bay plan) to redraw. */
 const SKINS = ["stowage", "hearth", "classic"];
 const skinOf = k => SKINS.includes(k) ? k : "stowage";
+// each skin's mark doubles as the tab icon
+const FAVICON = {
+  stowage: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#13243f"/><rect x="2.5" y="2.5" width="27" height="27" fill="none" stroke="#ffc21a" stroke-width="2"/><rect x="6" y="6" width="12" height="9" fill="#e8661c"/><rect x="19.5" y="6" width="6.5" height="9" fill="#2c6fb7"/><rect x="6" y="17" width="8" height="9" fill="#26754f"/><rect x="15.75" y="17.75" width="9.5" height="7.5" fill="none" stroke="#a6bad0" stroke-width="1.5" stroke-dasharray="2 1.5"/></svg>',
+  hearth: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd27a"/><stop offset=".55" stop-color="#ff8a4c"/><stop offset="1" stop-color="#d94a1f"/></linearGradient></defs><path fill="url(#g)" d="M12 1.8c.9 4 6.2 6 6.2 12.2a6.2 6.2 0 0 1-12.4 0c0-3.6 2.4-5.2 2.6-8.4 1.2 1.4 2.3 2.5 3.6 2.7.3-2.1.3-4.3 0-6.5z"/><path fill="#fff1c9" d="M12 12.6c.5 1.9 2.9 2.8 2.9 5.6a2.9 2.9 0 0 1-5.8 0c0-1.6 1-2.4 1.2-3.7.6.6 1 1 1.7 1.1.1-1 .1-1.9 0-3z"/></svg>',
+  classic: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#080a0b"/><rect x="3.5" y="3.5" width="25" height="25" fill="none" stroke="#ffb000" stroke-width="2"/><rect x="9" y="10" width="14" height="2.6" fill="#ffb000"/><rect x="9" y="14.7" width="14" height="2.6" fill="#ffb000"/><rect x="9" y="19.4" width="14" height="2.6" fill="#ffb000"/></svg>',
+};
 export function applySkin(k) {
   const root = document.documentElement, was = root.dataset.skin;
   root.dataset.skin = skinOf(k);
   $$("#skin-toggle button").forEach(b =>
     b.classList.toggle("active", b.dataset.skin === root.dataset.skin));
+  const icon = document.querySelector('link[rel="icon"]');
+  if (icon) icon.href = "data:image/svg+xml," + encodeURIComponent(FAVICON[root.dataset.skin]);
   if (was !== root.dataset.skin) document.dispatchEvent(new Event("lf-skin"));
 }
 export async function setSkin(k) {

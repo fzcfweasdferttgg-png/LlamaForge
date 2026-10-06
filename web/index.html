@@ -18,10 +18,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LlamaForge</title>
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="%23080a0b"/><rect x="3.5" y="3.5" width="25" height="25" fill="none" stroke="%23ffb000" stroke-width="2"/><rect x="9" y="10" width="14" height="2.6" fill="%23ffb000"/><rect x="9" y="14.7" width="14" height="2.6" fill="%23ffb000"/><rect x="9" y="19.4" width="14" height="2.6" fill="%23ffb000"/></svg>'>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Chakra+Petch:wght@400;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,500..600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="%2313243f"/><rect x="2.5" y="2.5" width="27" height="27" fill="none" stroke="%23ffc21a" stroke-width="2"/><rect x="6" y="6" width="12" height="9" fill="%23e8661c"/><rect x="19.5" y="6" width="6.5" height="9" fill="%232c6fb7"/><rect x="6" y="17" width="8" height="9" fill="%2326754f"/><rect x="15.75" y="17.75" width="9.5" height="7.5" fill="none" stroke="%23a6bad0" stroke-width="1.5" stroke-dasharray="2 1.5"/></svg>'>
+<link rel="stylesheet" href="/web/css/fonts.css">
 <style>
 :root{
   --bg:#080a0b;--panel:#0f1315;--panel2:#141a1d;--hair:#1e262a;
@@ -733,7 +731,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
     <div class="tbl-head"><h2>Model Registry</h2><div class="count" id="count">--</div></div>
     <div class="toolbar">
       <input class="search" id="model-search" placeholder="filter models (e.g. qwen, vision, coder)...">
-      <span class="chip" id="fav-chip">&starf; Favorites only</span>
+      <span class="chip" id="fav-chip"><span class="g g-star" aria-hidden="true">&starf;</span> Favorites only</span>
       <span class="chip" id="cmp-chip" title="pick 2-3 models to compare their settings">Compare</span>
       <span class="chip" id="cmp-run" style="display:none">Compare (<span id="cmp-n">0</span>)</span>
       <span class="chip" id="unload-all" title="unload every loaded model">Unload all</span>

@@ -10,9 +10,13 @@ async function loadStatsModule() {
   const coreSource = await readFile(new URL("../web/js/core.js", import.meta.url), "utf8");
   const coreUrl = `data:text/javascript;base64,${Buffer.from(coreSource).toString("base64")}`;
   const factsUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+  const baysSource = (await readFile(new URL("../web/js/bays.js", import.meta.url), "utf8"))
+    .replace('"./core.js"', `"${coreUrl}"`);
+  const baysUrl = `data:text/javascript;base64,${Buffer.from(baysSource).toString("base64")}`;
   const statsSource = (await readFile(new URL("../web/js/stats.js", import.meta.url), "utf8"))
     .replace('"./core.js"', `"${coreUrl}"`)
-    .replace('"./stats-facts.js"', `"${factsUrl}"`);
+    .replace('"./stats-facts.js"', `"${factsUrl}"`)
+    .replace('"./bays.js"', `"${baysUrl}"`);
   return import(`data:text/javascript;base64,${Buffer.from(statsSource).toString("base64")}#${++moduleSerial}`);
 }
 
