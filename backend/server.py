@@ -291,10 +291,11 @@ class H(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------- static payloads
     _MODULE_TYPES = {".js": "application/javascript; charset=utf-8",
-                     ".css": "text/css; charset=utf-8"}
+                     ".css": "text/css; charset=utf-8",
+                     ".woff2": "font/woff2"}     # self-hosted fonts: no CDN call
 
     def _static_module(self, rel):
-        """Serve web/**.js so the frontend can use ES modules. Confined to routes.WEB."""
+        """Serve web/** modules, styles and fonts (by extension). Confined to routes.WEB."""
         if not rel or ".." in rel or os.path.isabs(rel) or ":" in rel:
             return self._send(404, {"error": "not found"})
         base = os.path.realpath(routes.WEB)

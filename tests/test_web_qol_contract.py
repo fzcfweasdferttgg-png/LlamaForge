@@ -47,3 +47,35 @@ class WebQolContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IndexHeadTest(unittest.TestCase):
+    """Text inside <head> makes the parser open <body> early, so every later
+    <link>/<style> lands in body as a grid item and the layout falls apart."""
+
+    def test_head_holds_no_stray_text(self):
+        from html.parser import HTMLParser
+
+        class P(HTMLParser):
+            def __init__(self):
+                super().__init__(); self.where = []; self.stray = []
+            def handle_starttag(self, tag, attrs):
+                if tag in ("head", "style", "script", "title"): self.where.append(tag)
+            def handle_endtag(self, tag):
+                if self.where and self.where[-1] == tag: self.where.pop()
+            def handle_data(self, data):
+                if self.where == ["head"] and data.strip(): self.stray.append(data.strip()[:40])
+
+        p = P(); p.feed(read("web/index.html"))
+        self.assertEqual(p.stray, [])
+
+    def test_no_font_cdn(self):
+        # a local panel must render offline and tell no third party it was opened
+        src = read("web/index.html")
+        for host in ("fonts.googleapis.com", "fonts.gstatic.com"):
+            self.assertNotIn(host, src)
+        self.assertIn('/web/css/fonts.css', src)
+        css = read("web/css/fonts.css")
+        for name in __import__("re").findall(r"/web/fonts/([\w.-]+\.woff2)", css):
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, "web", "fonts", name)), name)
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, "web", "fonts", "OFL.txt")))

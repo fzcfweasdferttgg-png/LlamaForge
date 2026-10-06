@@ -117,7 +117,7 @@
 :root[data-skin="stowage"]:not([data-theme="light"]) #sidebar{border-right:1px solid var(--rail-hair)}
 /* the mark: a hold with three containers stowed, one fixed scale */
 :root[data-skin="stowage"] .logo{width:32px;height:32px;border:0;border-radius:0;box-shadow:none;
-  background:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" fill="none" stroke="%23ffc21a" stroke-width="2"/><rect x="5" y="5" width="14" height="10" fill="%23e8661c"/><rect x="20" y="5" width="7" height="10" fill="%232c6fb7"/><rect x="5" y="17" width="9" height="10" fill="%232f8a62"/><g stroke="%2334507a" stroke-width="1"><path d="M15.5 17.5h11.5v9h-11.5z" fill="none"/></g></svg>') center/contain no-repeat}
+  background:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" fill="none" stroke="%23ffc21a" stroke-width="2"/><rect x="5" y="5" width="14" height="10" fill="%23e8661c"/><rect x="20" y="5" width="7" height="10" fill="%232c6fb7"/><rect x="5" y="17" width="9" height="10" fill="%2326754f"/><g stroke="%2334507a" stroke-width="1"><path d="M15.5 17.5h11.5v9h-11.5z" fill="none"/></g></svg>') center/contain no-repeat}
 :root[data-skin="stowage"] .logo::before{display:none}
 :root[data-skin="stowage"] .brand-word{font-family:var(--cond);font-weight:700;font-size:21px;letter-spacing:.06em;text-transform:uppercase;
   color:#ffffff;line-height:1}
@@ -164,10 +164,9 @@
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="help"]){--sec:var(--s-help)}
 :root[data-skin="stowage"] .side-settings{border-top:1px solid var(--rail-hair);padding-top:14px;gap:9px}
 :root[data-skin="stowage"] .cvd-toggle{font-size:12.5px;color:var(--rail-dim);display:flex;gap:8px;align-items:center;padding:0 2px}
-:root[data-skin="stowage"] .cvd-toggle input{accent-color:var(--amber)}
+:root[data-skin="stowage"] .cvd-toggle input{accent-color:var(--rail-ink)}
 :root[data-skin="stowage"] .sicon{border-radius:0;border-color:var(--rail-hair);background:transparent;color:var(--rail-dim)}
 :root[data-skin="stowage"] .sicon:hover,:root[data-skin="stowage"] .sicon.on{color:#ffffff;border-color:#34507a;background:var(--rail-hover)}
-:root[data-skin="stowage"] #rail-skin{color:var(--amber)}
 
 /* segmented toggles (mode / theme / skin) */
 :root[data-skin="stowage"] .mode-toggle{background:var(--rail-inset);border:1px solid var(--rail-hair);border-radius:0;padding:2px;gap:2px}
@@ -175,7 +174,6 @@
   padding:4px 8px;color:var(--rail-dim);border-radius:0;border:0;background:transparent}
 :root[data-skin="stowage"] .mode-toggle button:hover{color:#ffffff;background:var(--rail-hover)}
 :root[data-skin="stowage"] .mode-toggle button.active{background:#20395f;color:#ffffff;box-shadow:none}
-:root[data-skin="stowage"] #skin-toggle button.active{background:var(--amber);color:var(--on-amber)}
 
 /* ---------- page header: condensed caps over the section's band ---------- */
 :root[data-skin="stowage"] #content{padding:0 40px 28px}
@@ -359,17 +357,21 @@
 :root[data-skin="stowage"] .led.loading{background:var(--amber);box-shadow:none}
 :root[data-skin="stowage"] .led.failed{background:var(--c-off);box-shadow:none}
 /* drawn marks instead of text glyphs (star, chevron, menu), at the nav icons' weight */
-:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu){font-size:0;line-height:0}
-:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu)::before{content:"";display:inline-block;width:14px;height:14px;background:currentColor;
+:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu,.g){font-size:0;line-height:0}
+:root[data-skin="stowage"] :is(.fav,.chev,#nav-menu,.g)::before{content:"";display:inline-block;width:14px;height:14px;background:currentColor;
   -webkit-mask:var(--glyph) center/contain no-repeat;mask:var(--glyph) center/contain no-repeat}
-:root[data-skin="stowage"] .fav{color:var(--faint);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z'/%3E%3C/svg%3E")}
+:root[data-skin="stowage"] .fav{color:var(--faint);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z' fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] .fav:hover{color:var(--ink-hi)}
-:root[data-skin="stowage"] .fav.on{color:#d99a00;text-shadow:none}
+:root[data-skin="stowage"] .fav.on{color:var(--ink-strong);text-shadow:none;--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] .chev{color:var(--dim);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5.5 2.5L11 8l-5.5 5.5' fill='none' stroke='black' stroke-width='2.2'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] .chev::before{width:12px;height:12px}
 :root[data-skin="stowage"] .row.open .chev{color:var(--ink-strong)}
 :root[data-skin="stowage"] #nav-menu{--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 3.5h13M1.5 8h13M1.5 12.5h13' stroke='black' stroke-width='2'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] #nav-menu::before{width:16px;height:16px}
+:root[data-skin="stowage"] .g{display:inline-block;vertical-align:-1px;margin-right:2px}
+:root[data-skin="stowage"] .g::before{width:12px;height:12px}
+:root[data-skin="stowage"] .g-star{--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z'/%3E%3C/svg%3E")}
+:root[data-skin="stowage"] .g-list{--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 3h2.5v2.5H1.5zM1.5 6.75h2.5v2.5H1.5zM1.5 10.5h2.5V13H1.5z'/%3E%3Cpath d='M6 4.25h8.5M6 8h8.5M6 11.75h8.5' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E")}
 /* yellow is only the primary action; preset and recipe chips are plain controls */
 :root[data-skin="stowage"] .presetbar .pchip{color:var(--ink-hi);border-color:var(--hair-hi);background:var(--panel)}
 :root[data-skin="stowage"] .presetbar .pchip:hover{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}

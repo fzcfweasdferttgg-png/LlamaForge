@@ -65,8 +65,9 @@ Resolution order, most specific first:
 | Skin | `<html data-skin>` | `"stowage"` (default), `"hearth"` or `"classic"`. |
 | Stowage stylesheet | `web/css/stowage.css` | Every rule scoped to `:root[data-skin="stowage"]`; own dark, light and CVD token blocks. |
 | Hearth stylesheet | `web/css/hearth.css` | Every rule scoped to `:root[data-skin="hearth"]`; own dark, light and CVD token blocks. |
+| Fonts | `web/css/fonts.css`, `web/fonts/` | Every face the three skins use, self-hosted as Latin-subset woff2 under the SIL OFL (`web/fonts/OFL.txt`). No font CDN is contacted. |
 | Bay plan | `web/js/models.js` `bayPlans()` | Stowage's GPU view; sizes from `slots.footprints` in `/api/state`, the booked box from the open row's fit verdict. |
-| Apply skin | `web/js/ui.js` `applySkin(k)` | Sets `data-skin` (anything unknown means Stowage), syncs `#skin-toggle`, fires an `lf-skin` event so the GPU view redraws. |
+| Apply skin | `web/js/ui.js` `applySkin(k)` | Sets `data-skin` (anything unknown means Stowage), syncs `#skin-toggle`, swaps the tab icon to that skin's mark, fires an `lf-skin` event so the GPU view redraws. |
 | Persist skin | `web/js/ui.js` `setSkin(k)` | `applySkin` + `localStorage.setItem("skin", k)` + `POST /api/config` (`skin` key: `""` = Stowage default, `"stowage"`, `"hearth"`, `"classic"`). |
 | Dark palette (Classic) | `web/index.html` `:root{...}` | Base CSS custom properties for all colors, fonts, and surfaces. |
 | Light palette | `web/index.html` `:root[data-theme="light"]{...}` | Overrides the same variable names; also disables scanlines and glow effects. |
