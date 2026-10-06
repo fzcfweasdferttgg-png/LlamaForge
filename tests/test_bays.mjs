@@ -64,3 +64,12 @@ test("no telemetry says so instead of drawing an empty hold", () => {
   assert.match(bays.bayPlans([], {}), /GPU telemetry unavailable/);
   assert.match(bays.bayPlans([{error: "nvidia-smi"}], {}), /GPU telemetry unavailable/);
 });
+
+test("cargoHue matches the bay plan: main orange, workers alternate by name, unmeasured gets none", () => {
+  const fps = {zeta: {"1": GiB}, big: {"0": 8 * GiB}, alpha: {"1": GiB}};
+  const hue = bays.cargoHue(fps, "big");
+  assert.deepEqual(["big", "alpha", "zeta", "ghost"].map(hue), ["main", "w1", "w2", ""]);
+  const html = bays.bayPlans([gpu(0, 10, 16), gpu(1, 4, 16)], {fps, main: "big", up: ["big", "alpha", "zeta"]});
+  assert.match(html, /class="box w1[^"]*"[^>]*title="alpha/);
+  assert.match(html, /class="box w2[^"]*"[^>]*title="zeta/);
+});

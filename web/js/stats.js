@@ -1,12 +1,17 @@
 // Stats tab: totals, live throughput, a daily activity chart, per-model usage.
 import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK } from "./core.js";
 import { createFactRotator, normalizeVram } from "./stats-facts.js";
-import { bayPlans, bayInputs } from "./bays.js";
+import { bayPlans, bayInputs, cargoHue } from "./bays.js";
 
 let statsSort = "tokens", statsRange = 14, statsRequest = 0;
 let gpuRequest = null, lastGpuPayload, hasGpuPayload = false;
 const seenBoxes = new Map();      // bays.js: when each box was first drawn on this tab
 const stowage = () => document.documentElement?.dataset.skin === "stowage";
+// Live Throughput matches the bay plan's colours once /api/state has arrived.
+const liveHue = () => {
+  const sl = stowage() && lastGpuPayload && lastGpuPayload.slots;
+  return sl ? cargoHue(sl.footprints, sl.main) : undefined;
+};
 const tokenFact = createFactRotator();
 const SORT_COLS = {tokens:"Total", prompt:"Prompt", generated:"Gen",
                    avg_tps:"Tok/s", runs:"Runs", loaded_secs:"Loaded"};
@@ -65,7 +70,8 @@ function countUp(root) {
 // One line per loaded model with its own live speed. live.models comes from a
 // backend that scrapes each model (router pool + process slots); an older
 // backend only sends the names, so those rows show no numbers.
-export function liveModels(loaded, live) {
+// hue (Stowage only) gives each LED its model's container colour from bays.js.
+export function liveModels(loaded, live, hue = () => "") {
   if (!loaded.length)
     return `<div class="kv"><span class="k">loaded model</span><span class="v">none</span></div>`;
   const by = Object.fromEntries((live.models || []).map(m => [m.id, m]));
@@ -76,7 +82,7 @@ export function liveModels(loaded, live) {
     const nums = m
       ? `${(m.gen_per_sec||0).toFixed(1)} tok/s <span style="color:var(--dim)">&middot; prompt ${(m.prompt_per_sec||0).toFixed(1)} &middot; ${esc(m.requests_processing)} active</span>`
       : `<span style="color:var(--dim)">-</span>`;
-    return `<div class="kv"><span class="k" style="color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0"><span class="led loaded" style="flex:0 0 auto"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(id)}</span>${own}</span><span class="v" style="white-space:nowrap">${nums}</span></div>`;
+    return `<div class="kv"><span class="k" style="color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0"><span class="led loaded ${hue(id)}" style="flex:0 0 auto"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(id)}</span>${own}</span><span class="v" style="white-space:nowrap">${nums}</span></div>`;
   }).join("");
 }
 
@@ -161,7 +167,7 @@ export async function loadStats(silent) {
       ${statCard("Most used", t.most_used||"-")}
     </div>
     <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:12px">(router offline)</span>`}</h3>
-      ${liveModels(loaded, live)}
+      ${liveModels(loaded, live, liveHue())}
       <div class="kv"><span class="k">generation${loaded.length>1?" (all models)":""}</span><span class="v">${(live.gen_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">prompt eval${loaded.length>1?" (all models)":""}</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">active requests</span><span class="v">${esc(live.requests_processing)}</span></div>
