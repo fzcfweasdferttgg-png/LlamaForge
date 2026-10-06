@@ -1,5 +1,5 @@
 import conftest_paths  # noqa: F401
-import os, shutil, tempfile, unittest
+import os, shutil, subprocess, sys, tempfile, unittest
 from unittest import mock
 import logfiles
 
@@ -121,8 +121,111 @@ class RotateTest(_Tmp):
         p = self.write("r.log", "x" * 200)
         with logfiles.open_append(p, max_bytes=100, keep=2) as f:
             f.write("fresh\n")
-        self.assertEqual(open(p, encoding="utf-8").read(), "fresh\n")
+        self.assertEqual(self.read("r.log"), "fresh\n")
         self.assertEqual(os.path.getsize(p + ".1"), 200)
+
+
+# A child that writes "a" lines, waits for a line on stdin, then writes "b"
+# lines - so the test can trim its log while the child still holds it open.
+_CHILD = r"""
+import sys
+for i in range(50):
+    print("a" * 99); sys.stdout.flush()
+sys.stdin.readline()
+for i in range(3):
+    print("b" * 99); sys.stdout.flush()
+"""
+
+
+class TrimTest(_Tmp):
+    """Rotation during a run: copy the log to .1, then truncate it in place."""
+
+    def _child(self, f):
+        p = subprocess.Popen([sys.executable, "-c", _CHILD], stdout=f,
+                             stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        f.close()                        # the child holds its own handle
+        self.addCleanup(lambda: (p.kill(), p.wait()) if p.poll() is None else None)
+        return p
+
+    def _wait_for(self, path, size):
+        import time
+        end = time.time() + 15
+        while os.path.getsize(path) < size and time.time() < end:
+            time.sleep(0.02)
+
+    def test_small_log_is_left_alone(self):
+        p = self.write("r.log", "x" * 10)
+        self.assertFalse(logfiles.trim(p, max_bytes=100, keep=3))
+        self.assertEqual(sorted(os.listdir(self.d)), ["r.log"])
+
+    def test_missing_log_is_fine(self):
+        self.assertFalse(logfiles.trim(os.path.join(self.d, "nope"), max_bytes=1))
+
+    def test_trims_a_log_a_running_process_appends_to(self):
+        p = os.path.join(self.d, "router.out.log")
+        child = self._child(logfiles.open_append(p))
+        self._wait_for(p, 50 * 100)                   # all 50 "a" lines are in
+        self.assertTrue(logfiles.trim(p, max_bytes=1000, keep=3))
+        child.communicate(b"go\n", timeout=15)
+        with open(p, "rb") as f:
+            now = f.read()
+        with open(p + ".1", "rb") as f:
+            old = f.read()
+        self.assertNotIn(b"\0", now)          # the child wrote at the new end
+        self.assertEqual(now.split(), [b"b" * 99] * 3)
+        self.assertEqual(old.split(), [b"a" * 99] * 50)
+
+    def test_shifts_older_copies(self):
+        p = self.write("r.log", "new" * 100)
+        self.write("r.log.1", "gen1")
+        self.assertTrue(logfiles.trim(p, max_bytes=100, keep=3))
+        self.assertEqual(self.read("r.log"), "")
+        self.assertEqual(self.read("r.log.1"), "new" * 100)
+        self.assertEqual(self.read("r.log.2"), "gen1")
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle semantics")
+    def test_leaves_a_log_held_by_a_non_append_handle(self):
+        # A router run.ps1 or an older panel started: truncating under it
+        # would make it write past the new end and pad the file with NULs.
+        p = os.path.join(self.d, "router.out.log")
+        child = self._child(open(p, "a", encoding="utf-8"))
+        self._wait_for(p, 50 * 100)
+        self.assertFalse(logfiles.trim(p, max_bytes=1000, keep=3))
+        child.communicate(b"go\n", timeout=15)
+        self.assertFalse(os.path.exists(p + ".1"))
+        with open(p, "rb") as f:
+            self.assertEqual(len(f.read().split()), 53)
+
+    def test_a_failed_copy_does_not_raise(self):
+        p = self.write("r.log", "x" * 200)
+        with mock.patch("shutil.copyfile", side_effect=OSError("disk full")):
+            self.assertFalse(logfiles.trim(p, max_bytes=100, keep=3))
+        self.assertEqual(os.path.getsize(p), 200)     # nothing lost
+
+    def test_trim_all_covers_router_vllm_and_model_logs(self):
+        big = "x" * 200
+        for n in ("router.out.log", "router.err.log", "vllm.out.log",
+                  "vllm.err.log", "slot-m-abc123.log", "build.log", "panel.pid"):
+            self.write(n, big)
+        logfiles.trim_all(self.d, max_bytes=100)
+        rotated = sorted(n[:-2] for n in os.listdir(self.d) if n.endswith(".1"))
+        self.assertEqual(rotated, ["router.err.log", "router.out.log",
+                                   "slot-m-abc123.log", "vllm.err.log", "vllm.out.log"])
+
+
+class TrimmerTest(unittest.TestCase):
+    def test_runs_until_stopped(self):
+        import threading
+        calls = threading.Semaphore(0)
+        with mock.patch.object(logfiles, "trim_all", side_effect=lambda d: calls.release()):
+            stop = logfiles.start_trimmer("logs", every=0.01)
+            self.assertTrue(calls.acquire(timeout=5))
+            self.assertTrue(calls.acquire(timeout=5))     # it repeats
+            stop.set()
+        t = [t for t in threading.enumerate() if t.name == "log-trimmer"]
+        for th in t:
+            th.join(timeout=5)
+            self.assertFalse(th.is_alive())
 
 
 if __name__ == "__main__":

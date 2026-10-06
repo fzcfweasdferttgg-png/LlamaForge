@@ -444,6 +444,8 @@ def main():
     except Exception:
         pass
     stats.TRACKER.start()   # background usage poller
+    import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
+    logfiles.start_trimmer(routes.LOGDIR)
     chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
     try:                    # optional tray icon (no-op unless pystray+pillow present)
         import tray
