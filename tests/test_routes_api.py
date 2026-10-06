@@ -388,6 +388,17 @@ class ModelDiagTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("n-gpu-layers = 99", out["diag"]["suggestion"])
 
+    def test_router_log_tail_never_reads_a_whole_log(self):
+        # Issue #26: a 5.1 GB router.out.log was read whole on every poll.
+        self._logs("".join(f"out {i}\n" for i in range(5000)), "err line\n")
+        with mock.patch.object(routes.logfiles, "tail_lines",
+                               wraps=routes.logfiles.tail_lines) as tail:
+            text = routes.router_log_tail(400)
+        self.assertEqual(tail.call_count, 2)
+        self.assertIn("out 4999\n", text)
+        self.assertNotIn("out 4599\n", text)    # only the last 400
+        self.assertTrue(text.endswith("err line\n"))
+
     def test_other_models_failure_is_not_shown(self):
         self._logs("[50001] cudaMalloc failed: out of memory\n",
                    "I srv load: spawning server instance with name=other on port 50001\n")

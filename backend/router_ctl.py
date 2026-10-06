@@ -5,7 +5,7 @@ process bound to a port; Linux/macOS use lsof.
 """
 import json, os, signal, subprocess, time, socket, urllib.error, urllib.request
 
-import network_policy, osplat, procs
+import logfiles, network_policy, osplat, procs
 
 CREATE_NO_WINDOW = 0x08000000
 
@@ -174,8 +174,8 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", poo
         args.append("--no-models-autoload")
     args += network_policy.router_auth_args(host, api_key or local_key,
                                             supports_cors_origins(server_bin))
-    out = open(os.path.join(logdir, "router.out.log"), "a", encoding="utf-8", errors="replace")
-    err = open(os.path.join(logdir, "router.err.log"), "a", encoding="utf-8", errors="replace")
+    out = logfiles.open_append(os.path.join(logdir, "router.out.log"))
+    err = logfiles.open_append(os.path.join(logdir, "router.err.log"))
     kw = ({"creationflags": CREATE_NO_WINDOW} if osplat.IS_WIN
           else {"start_new_session": True})   # detach from the dashboard's session
     try:

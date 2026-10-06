@@ -3,7 +3,7 @@ combined stdout+stderr to a log file the UI polls — same UX as builder.py.
 """
 import os, threading, time
 
-import wsl
+import logfiles, wsl
 
 
 class WslJob:
@@ -18,10 +18,7 @@ class WslJob:
         return dict(self.state)
 
     def tail(self, n=300):
-        if not os.path.exists(self.log_path):
-            return ""
-        with open(self.log_path, encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-n:])
+        return "".join(logfiles.tail_lines(self.log_path, n))
 
     def start(self, script, distro):
         with self.lock:

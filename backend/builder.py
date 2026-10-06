@@ -4,6 +4,7 @@ Runs the build in a background thread, streaming output to a log file the UI
 polls. Backs up prior binaries before overwriting so a bad build is reversible.
 """
 import os, shutil, subprocess, threading, time, datetime, re
+import logfiles
 
 UPDATE_TTL      = 900   # seconds a successful upstream check stays cached
 UPDATE_TTL_FAIL = 60    # failed fetches retry sooner, but never per-click
@@ -97,10 +98,7 @@ class BuildManager:
             f.write(msg if msg.endswith("\n") else msg + "\n")
 
     def tail(self, n=200):
-        if not os.path.exists(self.log_path):
-            return ""
-        with open(self.log_path, encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-n:])
+        return "".join(logfiles.tail_lines(self.log_path, n))
 
     @staticmethod
     def binaries_dir(build_dir, isdir=os.path.isdir):
