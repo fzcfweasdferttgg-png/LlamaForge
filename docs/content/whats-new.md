@@ -8,9 +8,7 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
-## Unreleased (early preview)
-
-These are on `master` and not in a tagged release yet.
+## v0.16: Embers, several models at once, an MCP server
 
 - **Several models at once.** Multi-model mode places your main model on the fastest GPU that fits it and keeps worker models off that GPU. Fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. Workers are evicted least-recently-used, and only after you agree to it. A model with no context size set is refused, with the reason. The model rows get **Load as worker**, **Make main** and **Unload X and load**, and Setup has a Multi-model card. API: `/api/slots`, `/api/slots/plan`, `/api/slots/main`, `/api/slots/apply`.
 - **Per-model builds.** Pin a model to any installed llama.cpp build. An ik_llama build runs as its own `llama-server` on `127.0.0.1:8100` and up, with arguments translated between the builds. Crash exit codes are named instead of shown as raw numbers.
@@ -22,6 +20,7 @@ These are on `master` and not in a tagged release yet.
 - **No font CDN.** The panel's fonts ship with it, so it renders the same offline and no third party learns you opened it.
 - **Stats count every loaded model**, including models running as their own process, with live tokens per second for each. See [Stats](stats.md).
 - **Docs search reads the whole page**, not only titles and headings, and says so when nothing matches.
+- **Fixes.** An out-of-memory load on a model with `split-mode = tensor` now says that tensor split turns llama.cpp's fit off and suggests `split-mode = layer`. A `pi_run` that gave no answer and had every tool call fail is reported as a failure. The ik_llama update check reads ik_llama's own default branch (`main`). A busy router port points you at `config.json`.
 
 ## v0.15: llama.cpp sizes memory, honest diagnosis, safer by default
 
