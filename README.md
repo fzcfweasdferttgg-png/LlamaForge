@@ -25,7 +25,7 @@ Then **Install llama.cpp** (the official build for your GPU, no compiler) → **
 Early preview: Windows + NVIDIA is the most-tested path. Linux and macOS pass CI but have had little real-hardware use.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Install, fetch llama.cpp, find a model that fits, chat" width="100%">
+  <img src="docs/demo.gif" alt="Fetch the official llama.cpp build, see every model drawn into your GPUs at its real size, know a model will not fit before loading it, see what is new in llama.cpp, watch live speed per model" width="100%">
 </p>
 
 LlamaForge runs no models itself. It installs and drives llama.cpp's own `llama-server` router and
@@ -89,13 +89,13 @@ base URL, key and model id ready to paste.
 
 ## Screenshots
 
-| Models | Discover with fit ratings |
+| Models: each GPU drawn to scale, with the open model booked in | Stats: memory and live speed per model |
 |---|---|
-| ![Models](docs/content/img/models.png) | ![Discover](docs/content/img/discover.png) |
+| ![Models](docs/content/img/models.png) | ![Stats](docs/content/img/overview.png) |
 
-| Build / Update | Setup |
+| Discover: new in llama.cpp, then trending GGUFs | Build / Update |
 |---|---|
-| ![Build / Update](docs/content/img/build.png) | ![Setup](docs/content/img/setup.png) |
+| ![Discover](docs/content/img/discover.png) | ![Build / Update](docs/content/img/build.png) |
 
 ## Install
 

@@ -26,12 +26,20 @@ export function bayInputs(st) {
   return {fps: sl.footprints || {}, main: sl.main || "", up};
 }
 
+// The colour a model's container wears: orange for the main, then blue and
+// green alternating over the workers in name order, so a worker keeps its
+// colour on every GPU it spans and on every view that shows it. "" means the
+// model has no footprint, so no container to match.
+export function cargoHue(fps = {}, main = "") {
+  const workers = Object.keys(fps).filter(id => id !== main).sort();
+  return id => !fps[id] ? "" : id === main ? "main" : (workers.indexOf(id) % 2 ? "w2" : "w1");
+}
+
 export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId = "", seen = new Map()} = {}) {
   if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">GPU telemetry unavailable: nvidia-smi did not answer.</div></div>`;
   const unknown = up.filter(id => !fps[id]);           // loaded, but no footprint we can stow
-  // a worker keeps its colour on every GPU it spans
   const workers = Object.keys(fps).filter(id => id !== main).sort();
-  const hue = id => id === main ? "main" : (workers.indexOf(id) % 2 ? "w2" : "w1");
+  const hue = cargoHue(fps, main);
   const order = [...(fps[main] ? [main] : []), ...workers];
   const want = x => book && book.footprint ? +(book.footprint[String(x.index)] || 0) : 0;
   const evict = new Set(book && book.evict || []);
