@@ -27,6 +27,55 @@ export function toast(m, c = "") {
   t._t = setTimeout(() => t.className = "", 2600);
 }
 
+/* ---------- asking ----------
+ * The panel's own confirm() and prompt(). The native ones belong to the host
+ * browser, and some hosts answer "cancel" without showing anything (an app's
+ * embedded browser pane, a tab Chrome was told to stop showing dialogs for),
+ * so a Remove button just did nothing. These draw a <dialog> of their own, so
+ * asking from inside an open modal leaves that modal alone. */
+function askDialog(title, message, ok, danger, field) {
+  return new Promise(resolve => {
+    const returnTo = document.activeElement;
+    const dialog = document.createElement("dialog");
+    dialog.className = "modal-dialog ask-dialog";
+    dialog.setAttribute("aria-labelledby", "ask-title");
+    setHTML(dialog, `<form method="dialog" class="modal">
+      <h3 id="ask-title">${esc(title)}</h3>
+      ${message ? `<p class="ask-msg">${esc(message)}</p>` : ""}
+      ${field ? `<label class="f"><span class="lbl">${esc(field.label)}</span>
+        <input name="answer" autocomplete="off" value="${esc(field.value || "")}"
+          placeholder="${esc(field.placeholder || "")}"></label>` : ""}
+      <div class="actions">
+        <button type="button" value="" data-ask-cancel>Cancel</button>
+        <button type="submit" value="ok" class="${danger ? "danger" : "primary"}">${esc(ok)}</button>
+      </div>
+    </form>`);
+    const input = $("input", dialog);
+    $("[data-ask-cancel]", dialog).onclick = () => dialog.close("");
+    dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(""); });
+    dialog.addEventListener("close", () => {
+      const yes = dialog.returnValue === "ok";
+      dialog.remove();
+      if (returnTo && returnTo.isConnected) returnTo.focus();
+      resolve(field ? (yes && input.value.trim() ? input.value.trim() : null) : yes);
+    }, {once: true});
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    // a destructive question starts on Cancel, so Enter can't remove by accident
+    (input || $(danger ? "[data-ask-cancel]" : "button[type=submit]", dialog)).focus();
+  });
+}
+
+/** await askYes("Remove it?", {title: "Remove ember", ok: "Remove", danger: true}) -> true/false */
+export function askYes(message, {title = "Are you sure?", ok = "OK", danger = false} = {}) {
+  return askDialog(title, message, ok, danger, null);
+}
+
+/** await askText("Preset name", {placeholder: "coding"}) -> the trimmed text, or null */
+export function askText(label, {title = label, ok = "Save", value = "", placeholder = "", message = ""} = {}) {
+  return askDialog(title, message, ok, false, {label, value, placeholder});
+}
+
 /** JS-driven flourishes (count-ups, row ignition, the theme reveal) are part of
  *  the Hearth skin and respect the OS reduced-motion setting, like its CSS. */
 export function motionOK() {

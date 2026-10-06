@@ -4,7 +4,7 @@
 // it whole to /api/embers/forge, which re-checks every source against what the
 // user typed and builds the ember when the model says the user agreed. All
 // model text goes through esc().
-import { $, api, esc, setHTML, toast } from "./core.js";
+import { $, api, esc, setHTML, toast, askYes } from "./core.js";
 
 const KEY = "lf_forge";
 const MAX_MESSAGES = 100;           // panel.FORGE_MESSAGES
@@ -137,9 +137,10 @@ export async function forgeSend() {
   }
 }
 
-export function forgeReset() {
+export async function forgeReset() {
   if (busy) return;
-  if (S.messages.length > 1 && !confirm("Clear this Forge conversation? Embers it built stay.")) return;
+  if (S.messages.length > 1 && !(await askYes("Embers it built stay.",
+      {title: "Clear this Forge conversation", ok: "Clear", danger: true}))) return;
   S = fresh(); save(); draw();
   $("#fg-in").focus();
 }

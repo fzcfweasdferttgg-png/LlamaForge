@@ -7,7 +7,7 @@
 // scroll and half-typed knob values survive the 4-second poll. See syncEditor()
 // for how the editor separates what the server owns from what the user is
 // typing. Nothing here may re-render a knob input the user might be editing.
-import { $, $$, esc, setHTML, api, toast, meter, motionOK } from "./core.js";
+import { $, $$, esc, setHTML, api, toast, meter, motionOK, askYes, askText } from "./core.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
@@ -590,8 +590,8 @@ async function savePresetFrom(model) {
   const settings = {};
   $$("[data-k]", row).forEach(el => { const v = el.value.trim(); if (v !== "") settings[el.dataset.k] = v; });
   if (!Object.keys(settings).length) { toast("No knobs set to save", "err"); return; }
-  const name = prompt("Preset name (e.g. coding, creative, fast):");
-  if (!name || !name.trim()) return;
+  const name = await askText("Preset name", {title: "Save as preset", placeholder: "coding, creative, fast"});
+  if (!name) return;
   const r = await api("/api/presets/save", {name: name.trim(), settings});
   if (r.ok) { toast(`Saved preset "${name.trim()}"`, "ok"); await refresh(true); }
   else toast(r.error || "save failed", "err");
@@ -662,7 +662,7 @@ async function setBuild(sel) {
   const row = sel.closest(".row"), msg = row && $("[data-msg]", row);
   const m = modelRows().find(x => x.id === id);
   const up = m && (m.status === "loaded" || m.status === "loading" || m.status === "sleeping");
-  if (up && !confirm(`Switching the build unloads ${id}. Continue?`)) {
+  if (up && !(await askYes(`Switching the build unloads ${id}.`, {title: "Switch build", ok: "Switch and unload", danger: true}))) {
     if (row) row._live = null;                         // put the select back
     renderModels(); return;
   }
@@ -933,7 +933,7 @@ export function initModels() {
       if (pbind) { await bindPreset(pbind.dataset.presetBindModel, pbind.dataset.presetBind); return; }
       const pdel = e.target.closest("[data-preset-del]");
       if (pdel) {
-        if (!confirm(`Delete preset "${pdel.dataset.presetDel}"? This can't be undone.`)) return;
+        if (!(await askYes("This can't be undone.", {title: `Delete preset "${pdel.dataset.presetDel}"`, ok: "Delete", danger: true}))) return;
         await api("/api/presets/delete", {name: pdel.dataset.presetDel}); toast("Preset deleted","ok"); await refresh(true); return;
       }
       await applyPreset(pApply.dataset.presetModel, pApply.dataset.presetApply); return;
@@ -982,7 +982,7 @@ export function initModels() {
       } else if (act === "client") {
         await clientOpening; return;
       } else if (act === "unregister") {
-        if (!confirm(`Unregister ${id}? Its GGUF file will remain on disk.`)) { btn.disabled = false; return; }
+        if (!(await askYes("Its GGUF file stays on disk.", {title: `Unregister ${id}`, ok: "Unregister", danger: true}))) { btn.disabled = false; return; }
         msg.className = "msg work"; msg.textContent = "removing from models.ini...";
         const r = await api("/api/models/unregister", {model: id, backend: beOf(id)});
         if (r.ok) { toast("Unregistered — file kept on disk", "ok"); setOpenId(null); }
@@ -1001,7 +1001,7 @@ export function initModels() {
         msg.className = "msg work"; msg.textContent = "stopping vLLM...";
         await api("/api/vllm/unload", {model: id}); toast("vLLM stopped", "ok");
       } else if (act === "vdelete") {
-        if (!confirm(`Delete ${id} and its files from WSL? This cannot be undone.`)) return;
+        if (!(await askYes("Its files are deleted from WSL. This cannot be undone.", {title: `Delete ${id}`, ok: "Delete", danger: true}))) return;
         msg.className = "msg work"; msg.textContent = "deleting from WSL...";
         const r = await api("/api/vllm/delete", {model: id});
         r.ok ? toast("Deleted","ok") : (msg.className="msg err", msg.textContent=r.error||"delete failed");
