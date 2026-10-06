@@ -51,6 +51,9 @@ generated one. On startup the dashboard checks the router already running on
 would send, the dashboard restarts it with the current settings (for example
 after an upgrade from a build that ran it unkeyed).
 
+A model pinned to its own build runs as a separate `llama-server` process on
+127.0.0.1 (from `slot_port_base`, default `8100`). It is started with the same key.
+
 Apps you pointed at `http://127.0.0.1:8080` yourself now need the key: copy it
 from **Client Config**, or set your own key in **Network Access**.
 
@@ -90,7 +93,7 @@ such a local peer process.
 ## Supported versions
 
 Only the latest release gets security fixes. The running version is shown next
-to the LLAMAFORGE name in the sidebar.
+to the LlamaForge name in the sidebar.
 
 ## Reporting a vulnerability
 

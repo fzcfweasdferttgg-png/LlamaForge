@@ -6,7 +6,7 @@ order: 3
 
 # HTTP API
 
-The LlamaForge dashboard backend (`backend/server.py`) listens on `panel_port` (default `8090`) and serves the web UI, the `/api/*` management API, and two agent-facing, provider-compatible chat endpoints. All routes below are read directly from `do_GET`/`do_POST` in `backend/server.py`.
+The LlamaForge dashboard backend (`backend/server.py`) listens on `panel_port` (default `8090`) and serves the web UI, the `/api/*` management API, and two agent-facing, provider-compatible chat endpoints. The `/api/*` routes below are the `GET_ROUTES` and `POST_ROUTES` tables in `backend/routes.py`; `backend/server.py` holds the HTTP handler and serves `/v1/messages`, `/v1/chat/completions`, `/web/*` and `/docs/img/*` itself.
 
 `/api/*` request/response bodies are JSON. Every JSON response has
 `Cache-Control: no-store`.
@@ -23,7 +23,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/v1/messages` | Anthropic Messages API-compatible endpoint. Requires `anthropic_shim_enabled: true` in `config.json` (the default) and uses conditional `_shim_auth_ok`: auth is skipped for local router scope (and current behavior also skips when no key is configured); when enforced, it accepts either `x-api-key` or `Authorization: Bearer <key>`. Supports `"stream": true` (SSE) via `_anthropic_stream`, translates to the OpenAI-shaped request, and forwards to the router. |
 | POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same enable and conditional auth behavior as `/v1/messages`. |
 | POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
-| POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. |
+| POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. With multi-model on, the body also takes `role` (`main` or `worker`) and `evict`, and the load goes through the placement planner; a refusal comes back with a `reason`. |
 | POST | `/api/unload` | Unload a model from the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/unload`. |
 | POST | `/api/unload_all` | Unload every currently loaded/loading model (except the router's `default` entry). |
 
@@ -31,7 +31,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
+| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `skin`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
 | POST | `/api/models/unregister` | Remove a llama-family model from its `models.ini` registry without deleting the GGUF. Body: `{model, backend}`. Unloads it first when necessary. |
@@ -104,10 +104,46 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | GET | `/api/router/log` | Tail of the router's log. |
 | GET | `/api/stats` | Usage stats summary. |
 | POST | `/api/stats/reset` | Reset usage stats. |
-| POST | `/api/config` | Merge the request body into `config.json` and save. |
+| POST | `/api/config` | Merge an allowlisted subset of user-facing settings into `config.json` (the list is in [config.json Reference](config.md)); other keys are refused and named in the response. Changing `multi_model`, `slot_cap` or `slot_autoload` restarts a running router, and the response's `router` field says whether it did. |
 
 > [!NOTE]
 > There is no `GET /api/config` route; current config is read via `GET /api/state`'s `config` field instead.
+
+## Multi-model, per-model builds, pi, and MCP setup
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/slots` | Multi-model pool state: `enabled`, `multi_model`, the router's running `pool`, `restart_needed` (the setting is on but the running router was started single), the `main` model and the `loaded` list. |
+| GET | `/api/slots/plan` | Where a model would go if loaded: query `model` (required) and `role` (`worker` by default). Returns the verdict a load would get now (whether it fits and what would be evicted) without loading anything. |
+| POST | `/api/slots/main` | Set the pool's main model: `{model}` (`""` clears it). |
+| POST | `/api/slots/apply` | Restart the router with the pool the current settings ask for. Returns `{ok, restarted, error}`. |
+| POST | `/api/model/build` | Pin a model to an installed build: `{model, build}`; `build: ""` runs it on the router's own build. A model that is up is unloaded first. Returns `{ok, build, changed, was_running}`. |
+| GET | `/api/pi/status` | The pi coding agent: Node.js version against the minimum, whether LlamaForge has its own copy (`managed`), which pi is `active`, whether a job is `busy`, and the `last` result. |
+| POST | `/api/pi/install` / `/api/pi/remove` | Start a pi install (or update) or removal job; progress comes back through `GET /api/pi/status`. `409` if a job is already running. |
+| GET | `/api/mcp/setup` | Ready-to-paste client configs for LlamaForge's [MCP server](mcp.md), with this install's Python and script paths filled in. |
+
+## Embers
+
+The Embers tab's endpoints. See [Embers](embers.md) for what each does.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/embers` | Every ember as a card, the embers folder, and whether the scheduler is running. |
+| GET | `/api/embers/templates` | The templates a new ember can start from. |
+| GET | `/api/embers/brief` | An ember's brief: query `id`, optional `date`. |
+| GET | `/api/embers/pages` | An ember's wiki pages and recent source snapshots (query `id`). |
+| GET | `/api/embers/page` | One wiki page rendered (query `id`, `page`). |
+| GET | `/api/embers/raw` | One source snapshot (query `id`, `sha`). |
+| GET | `/api/embers/log` | Recent job runs and log lines (query `id`). |
+| POST | `/api/embers/create` | Create an ember from a template: `{template, bindings, id?}`. |
+| POST | `/api/embers/update` | Change `name`, `bindings`, `jobs`, `model`, `enabled` or `push` for `{id}`. |
+| POST | `/api/embers/delete` | Remove an ember: `{id}`. Its wiki stays on disk; the response's `kept` is the folder. `409` while a job is running. |
+| POST | `/api/embers/run` | Queue `{id, job}` where `job` is `run` (ingest then brief), `ingest`, `brief` or `lint`. |
+| POST | `/api/embers/cancel` | Drop an ember's queued jobs: `{id}`. |
+| POST | `/api/embers/ask` | Ask an ember's wiki a question: `{id, question}`. Uses a model that is already loaded. |
+| POST | `/api/embers/forge` | One turn of the Forge interview that builds an ember. Uses a model that is already loaded. |
+| POST | `/api/embers/push/test` | Send a test notification through an ember's push settings: `{id}`. |
+| POST | `/api/embers/folder` | Point the panel at another embers folder: `{path}` (`""` = the default). Nothing is moved. |
 
 ## vLLM (WSL) management
 
@@ -194,7 +230,7 @@ reachable by any page in your browser. Every request is therefore checked:
 - Management POSTs are limited to 4 MiB. `/v1/messages` and
   `/v1/chat/completions` use a 64 MiB inference-proxy limit. A body over its
   route-class limit is **413** before it is read or dispatched.
-- `POST /api/config` only accepts an allowlist of user-facing keys. See
+- `POST /api/config` only accepts an allowlist of user-facing keys (the list is in [config.json Reference](config.md)). See
   [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).
 
 See also [config.json Reference](config.md) for the settings `/api/config` and `/api/network` write, and [models.ini Format](models-ini.md) for the file `/api/save`, `/api/scan/apply`, `/api/scan/prune`, and `/api/hub/add` mutate.

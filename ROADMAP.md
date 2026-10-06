@@ -7,6 +7,21 @@ gets built next.
 
 ## Now (shipped)
 
+On `master`, not in a tagged release yet:
+
+- **Several models at once** — multi-model mode keeps a main model and workers
+  loaded together; a placement planner checks fit against footprints measured on
+  your machine, and a model can be pinned to its own llama.cpp or ik_llama build.
+- **Embers** — small local agents that watch a topic, keep a wiki and write a
+  brief on a schedule, with **Forge** building one from an interview.
+- **MCP server** — drive LlamaForge from Claude Code, Codex or any MCP client
+  (stdio), including `pi_run`, which hands a task to the pi coding agent on a
+  loaded local model. pi installs from Setup.
+- **Stowage, Hearth and Classic skins** — Stowage, the bay-plan look, is the new
+  default.
+
+Released:
+
 - **"New this week"** — the top of Discover lists the model architectures
   llama.cpp just merged, each marked **IN YOUR ENGINE** or **Update engine**
   against the build you run, plus a *new & trending (14 days)* Hugging Face sort
@@ -68,7 +83,7 @@ gets built next.
   file declares NextN layers. ([#3](https://github.com/dadwritestech/LlamaForge/issues/3))
 - **Robust first run** — `config.json`/`models.ini` auto-created, relative paths
   anchored, router port-conflict surfaced, freshly installed tools detected
-  without a restart, and partial builds reported as "built, with warnings."
+  without a restart, and partial builds reported as "built with warnings."
 - **Discover platform tags** — every result shows which OSes its backend runs
   on, plus GATED and INSTALLED badges.
 - **Agent-friendly API** — OpenAI-compatible endpoint plus load/unload so agents

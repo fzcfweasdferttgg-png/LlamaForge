@@ -63,7 +63,9 @@ every server flag instead of a curated subset.
   - Expand a model to edit every llama-server flag, grouped and searchable, next to a GGUF metadata card (architecture, quant, trained context, layers).
   - Save reloads the model in place. A failed load shows the last error from the router log with a best-guess hint.
   - Presets, launch profiles (model + preset + pinned llama.cpp build in one click), side-by-side compare, and copy-paste client snippets.
+  - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own llama.cpp (or ik_llama.cpp) build.
 - **Chat**: llama.cpp's own chat UI (markdown, reasoning, images) inside the dashboard, on its own port, with the API key added for you.
+- **Embers**: small local agents that keep watch on a topic, keep their own wiki and write you a brief on a schedule. A wiki item only counts if it quotes its source verbatim. **Forge** builds one by interviewing you; **Model Scout** needs no setup. Embers have no browser or tools, and nothing leaves the machine unless you turn on push notifications.
 - **Discover**: Hugging Face GGUF search that opens on what's new this week. Every quant gets a rough fit rating for your VRAM before you download (FITS / TIGHT / CPU OFFLOAD). Downloads resume after interruption, register themselves, and end in **Load & Chat**.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
 - **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) and, on Windows, [vLLM](https://github.com/vllm-project/vllm) in WSL2.
@@ -71,7 +73,7 @@ every server flag instead of a curated subset.
 - **Context**: Markdown context docs composed into profiles, injected into requests or written into `CLAUDE.md` / `AGENTS.md`.
 - **Recipes**: share a profile as readable JSON; others import it in one paste and LlamaForge downloads the model if missing. There's a [community gallery](recipes/).
 
-A first-run wizard and a **Lite / Advanced** toggle keep the deep knobs out of the way until you want them.
+A first-run wizard and a **Lite / Advanced** toggle keep the deep knobs out of the way until you want them. The default look, **Stowage**, draws each GPU as a bay plan ruled in 1 GiB cells; **Hearth** and **Classic** are one click away, and each comes in light, dark and colorblind-safe.
 
 ## Use it from other apps
 

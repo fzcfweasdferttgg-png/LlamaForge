@@ -24,7 +24,7 @@ The installer:
 
 1. finds Python 3.10+ (the backend is pure standard library, nothing to `pip install`). On Windows, if you have none, it drops a private, SHA-256-pinned copy of python.org's embeddable Python;
 2. downloads the latest LlamaForge release into `%LOCALAPPDATA%\LlamaForge` (Windows) or `~/.local/share/llamaforge` (Linux/macOS). Updating keeps your config, models and engines;
-3. adds a Start menu entry and an Apps & Features uninstaller (Windows), a `llamaforge` command plus an app-menu entry (Linux), or `~/Applications/LlamaForge.app` (macOS);
+3. adds Start menu and desktop shortcuts and an Apps & Features uninstaller (Windows), a `llamaforge` command plus an app-menu entry (Linux), or `~/Applications/LlamaForge.app` (macOS);
 4. starts LlamaForge and opens the dashboard.
 
 In the dashboard, click **Install llama.cpp**. It fetches the official llama.cpp release for your GPU (CUDA, Vulkan, Metal or CPU), verifies it and starts the router. Then continue to [First Run](first-run.md).
@@ -75,4 +75,4 @@ On Windows and macOS the Setup tab can install missing tools after you confirm (
 
 ## What the launcher does
 
-The launcher reads `config.json` and starts the llama.cpp router (`llama-server --models-preset <models.ini> --models-max 1 --offline --host <router_host> --port <router_port> --metrics --api-key <key>`) and the dashboard backend, each only if its port isn't already in use, then opens the dashboard. Running it twice is safe. Launch output goes to `logs/` in the install directory, so a router that fails to start leaves a log you can read.
+The launcher reads `config.json` and starts the llama.cpp router (`llama-server --models-preset <models.ini> --models-max <n> --offline --host <router_host> --port <router_port> --metrics --api-key <key>`) and the dashboard backend (`<n>` is `1`, or the `slot_cap` pool size when [multi-model](setup.md) is on), each only if its port isn't already in use, then opens the dashboard. Running it twice is safe. Launch output goes to `logs/` in the install directory, so a router that fails to start leaves a log you can read.

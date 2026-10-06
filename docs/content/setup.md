@@ -10,7 +10,7 @@ Check build prerequisites, install what is missing with your permission, scan yo
 
 ## What it does
 
-The Setup tab reports on four independent things, each backed by its own backend module.
+The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), multi-model, speed estimates and vLLM follow below.
 
 **Prerequisite detection.** `backend/prereqs.py` checks for four command-line tools — `git`, `cmake`, `ninja`, and `python` (via `shutil.which`, running `--version` to confirm and capture the installed version) — plus the platform C++ compiler and the CUDA toolkit. On Windows, the compiler check (`find_msvc()`) shells out to `vswhere.exe` to locate an MSVC install with the C++ desktop workload, falling back to a glob for `cl.exe` under `Program Files\Microsoft Visual Studio`. On macOS/Linux it looks for `clang++` or `g++` on `PATH`. CUDA detection reads `nvcc --version` (or `$CUDA_PATH`) and is skipped entirely on macOS, where Metal is used instead.
 
@@ -24,19 +24,23 @@ Each tool in `prereqs.TOOLS` carries its own `winget`/`choco`/`brew`/`pkg` ident
 
 After a successful install, the running process's `PATH` is refreshed from the registry (`osplat.refresh_path()`, Windows-only) and the tool is re-probed, so a freshly installed `ninja` or `cmake` is detected immediately. Only if it still isn't visible does the result ask you to restart LlamaForge — the old behavior (always MISSING until a restart) is gone.
 
-**Folder or drive scan for GGUFs.** `backend/scanner.py`'s `scan()` (via `POST /api/scan`) walks the folders entered in Setup, one path per line. Saving the list persists it as `model_dirs`; clearing it restores the platform defaults. Those defaults are every fixed drive letter on Windows (`GetLogicalDrives` + `GetDriveTypeW == DRIVE_FIXED`, so removable/network drives are excluded), `$HOME` plus `/Volumes` on macOS, and `$HOME` plus any of `/mnt`, `/media`, `/srv`, `/data` on Linux. The scanner finds `.gguf` files at least 50 MB while skipping recycle bins, `.git`, and `.trash` folders. Multi-shard GGUF sets collapse to their first shard, `mmproj*` files attach to their sibling model instead of appearing standalone, `mtp-*` speculative draft sidecars attach as a `spec-draft-model` (see [models.ini Format](models-ini.md)), and files with `embed` in the name are flagged as embedding endpoints. Confirmed results are written into `models.ini` via `POST /api/scan/apply`.
+**Folder or drive scan for GGUFs.** `backend/scanner.py`'s `scan()` (via `POST /api/scan`) walks the folders entered in Setup, one path per line. Saving the list persists it as `model_dirs`; clearing it restores the platform defaults. Those defaults are every fixed drive letter on Windows (`GetLogicalDrives` + `GetDriveTypeW == DRIVE_FIXED`, so removable/network drives are excluded), `$HOME` plus `/Volumes` on macOS, and `$HOME` plus any of `/mnt`, `/media`, `/srv`, `/data` on Linux. The scanner finds `.gguf` files at least 50 MB while skipping recycle bins, `.git`, and `.trash` folders. Multi-shard GGUF sets collapse to their first shard, `mmproj*` files attach to a sibling model of a known vision architecture instead of appearing standalone, `mtp-*` speculative draft sidecars attach as a `spec-draft-model` (see [models.ini Format](models-ini.md)), and files with `embed` in the name are flagged as embedding endpoints. Confirmed results are written into `models.ini` via `POST /api/scan/apply`.
 
 **Registry prune.** `POST /api/scan/prune` ("Check for deleted models") takes a list of model IDs, re-checks each one's `model` path in `models.ini` against disk, and — only for entries whose file no longer exists — unloads it from the router if currently loaded, then removes its section from `models.ini` with `config.remove_section()`. An entry whose file has reappeared since the check is left alone. This edits `models.ini` only; it never touches files on disk.
 
-The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the Build tab), lets you pick a **favourite model to auto-load on launch** (`auto_load_model` in `config.json`), and — on Windows — the vLLM/WSL2 install flow described in [vLLM Backend](vllm.md).
+The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the Build tab), lets you pick a model under **Startup** to auto-load on launch (`auto_load_model` in `config.json`), and — on Windows — the vLLM/WSL2 install flow described in [vLLM Backend](vllm.md).
+
+**Speed Estimates.** An optional card (marked advanced) with **VRAM GB/s**, **RAM GB/s** and **Disk GB/s** fields. They override the memory-bandwidth figures behind the "Will it run?" panel and Discover's speed badges (`vram_bandwidths` in `config.json`); blank means the detected preset or default.
+
+**Multi-model.** The **Multi-model (llama.cpp)** card turns on loading several models at once (`multi_model`), with **at most this many** (`slot_cap`, 2-4), **VRAM kept free per GPU (MiB)** (`slot_headroom_mib`) and **let client requests load models** (`slot_autoload`, which bypasses the VRAM check). Changing the switch, the count or client loading restarts the router and unloads every loaded model, so the card asks first. It needs llama.cpp: ik_llama has no router mode. See [Models & Tuning](models.md).
 
 ## How to use it
 
 1. Open the **Setup** tab. **Prerequisites** lists Git, CMake, Ninja, Python, your C++ compiler, and CUDA (if applicable), each marked present/missing with its detected version.
 2. Click **Install** next to a missing tool to install it with your OS's package manager (Windows: winget, falling back to choco; macOS: Homebrew). On Linux, copy the shown command into a terminal yourself — the dashboard never runs `sudo`.
 3. Review **Detected Hardware** — your CPU and any GPUs found, shared with the Build tab's flag recommendations.
-4. Enter one model folder per line and optionally click **Save folders**, then click **Scan for GGUF models**. Leave the list blank to scan all fixed drives (or `$HOME` plus mounted volumes); review the results and apply the ones you want registered.
-5. Click **Check for deleted models** to find registry entries whose backing file no longer exists on disk, then prune the ones you confirm.
+4. Under **Scan Drives for Models**, enter one folder per line and optionally click **Save folders**, then click **Scan for GGUF models**. Leave the list blank to scan all fixed drives (or `$HOME` plus mounted volumes); review the results and click **Add N models to config** to register them.
+5. Click **Check for deleted models** to find registry entries whose backing file no longer exists on disk, then click **Remove N missing** to prune them.
 6. Optionally pick a model under **Startup** to auto-load when LlamaForge launches.
 
 ## Network Access
@@ -46,8 +50,8 @@ panel and management API stay on `127.0.0.1`. Choose **This computer only** for
 the router's `127.0.0.1` scope or **Devices on my local network** for its
 `0.0.0.0` scope. LAN selection requires a usable key before Apply is enabled.
 
-Choose one unambiguous key action: **Keep current key**, **Generate / rotate**,
-**Replace**, or **Remove**. Remove is available only with local access; moving
+Choose one unambiguous key action: **Keep the configured key**, **Generate a new strong key**,
+**Replace with a key I provide**, or **Remove the key (local-only)**. Remove is available only with local access; moving
 from LAN back to local otherwise retains the key. Generating or replacing over an
 existing key, and removing an existing key, each require confirmation. Rotation
 warns because clients using the previous key will stop authenticating. A generated
@@ -76,7 +80,7 @@ Changing an agent or model selection does not fetch credentials. Press **Show
 configuration** to make the explicit POST preview, then choose **Apply** only if
 you want LlamaForge to write the agent's local config file. Agent setup supports
 the active llama-family backend; vLLM agent setup is deferred. Context injection
-for Codex and pi uses the loopback panel endpoint, so it is local-machine-only.
+for Codex and pi uses the loopback panel endpoint, so it is local-machine-only. The same card installs the pi coding agent and lists the MCP server snippets; see [Connect an Agent](agents.md) and [MCP Server](mcp.md).
 
 ## Screenshot
 

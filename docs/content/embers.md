@@ -66,7 +66,9 @@ Templates are treated as untrusted input. They never carry paths, credentials or
 
 ## Sharing the GPU
 
-The scheduler only contacts the router when a job is due. A job waits while the router is busy or down, and is skipped after an hour. An ember pinned to a different model swaps it in only after the router has been watched idle for 10 minutes, then puts your model back, unless you loaded something else meanwhile. If you load or unload a model while a job runs, the job stops cleanly and the GPU is yours.
+The scheduler only contacts the router when a job is due. A job waits while the router is busy or down, and is skipped after an hour. An ember pinned to a different model swaps it in only after the router has been watched idle for 10 minutes, then puts your model back, unless you loaded something else meanwhile. If you load or unload a model while a job runs, the job stops cleanly and the GPU is yours. Loading a model for an ember can be turned off with `embers_swap_models`; a job that needs another model then waits instead.
+
+With [multi-model](setup.md) on, an ember never evicts anything. A job whose model isn't up loads it as a worker beside yours, only when nothing is generating and the planner says it fits (no idle wait), then unloads it afterwards unless you made it the main model or are using it. A model pinned to its own build (outside the router) can't be used by an ember.
 
 ## Push notifications (optional)
 
@@ -78,6 +80,7 @@ An ember can push its brief to **ntfy** or a **webhook** (the payload works with
 |---|---|---|
 | Ember data folder | `config.json` `embers_dir`, or the folder chooser in the Embers tab | `<root>/embers` |
 | Automatic runs | `config.json` `embers_scheduler` | `true` (**Run now** works either way) |
+| Loading a model for an ember | `config.json` `embers_swap_models` | `true` |
 | Job times | ember **Settings** | `ingest 02:00`, `brief 07:00`, `lint sun 03:00` |
 
 Times are local, in `HH:MM` or `day HH:MM` form (`mon`–`sun`).

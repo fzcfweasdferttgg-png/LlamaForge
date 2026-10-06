@@ -1,7 +1,7 @@
 # Community recipes
 
 Tested llama.cpp setups for specific models, one JSON file each. LlamaForge lists
-this folder live (**Profiles → recipes**), so a merged recipe shows up for everyone
+this folder live (**browse recipes**, beside your launch profiles), so a merged recipe shows up for everyone
 without a release. Import one and you get the same model file (downloaded from
 Hugging Face if you don't have it) and the same settings.
 

@@ -40,7 +40,7 @@ See [Models & Tuning](models.md) and [HTTP API](api.md).
 
 ## Shareable recipes
 
-Any llama.cpp profile can be shared as a **recipe**: click ↗ on its chip and copy readable JSON with the model file, the Hugging Face repo it came from, its knobs, and the llama.cpp build it was made on. Paste a recipe into **+ import recipe** to get the same preset and profile. If you don't have the model, **Download & import** fetches it. Only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped.
+Any llama.cpp profile can be shared as a **recipe**: click ↗ on its chip and copy readable JSON with the model file, the Hugging Face repo it came from, its knobs, and the llama.cpp build it was made on. Paste a recipe into **+ import recipe** to get the same preset and profile. If you don't have the model, **Download from <repo> & import** fetches it. Only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped.
 
 See [Models & Tuning](models.md) and [HTTP API](api.md).
 
