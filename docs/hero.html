@@ -2,90 +2,148 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- Source for docs/hero.png. Regenerate at 1280x420 with Chrome headless:
-     chrome --headless --disable-gpu --force-device-scale-factor=2 \
-       --window-size=1280,420 --virtual-time-budget=4000 \
-       --screenshot=docs/_hero_2x.png file:///.../docs/hero.html
-     then downscale _hero_2x.png (2560x840) -> docs/hero.png with LANCZOS. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Source for docs/hero.png (still) and docs/hero.webp (the stow animation, plays once).
+     Fonts come from ../web/fonts, so render with file access allowed:
+       chrome --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
+         --force-device-scale-factor=2 --window-size=1280,420 --virtual-time-budget=3000 \
+         --screenshot=_hero_2x.png "file:///.../docs/hero.html"
+     then downscale 2560x840 -> 1280x420 with LANCZOS. Frames for the webp: append
+     ?t=<ms> (0..1800) and the animations are paused at that moment; the still is ?t=3000. -->
 <style>
+@font-face{font-family:'Barlow';font-weight:400;src:url(../web/fonts/barlow-400.woff2) format('woff2')}
+@font-face{font-family:'Barlow';font-weight:500;src:url(../web/fonts/barlow-500.woff2) format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-weight:600;src:url(../web/fonts/barlow-condensed-600.woff2) format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-weight:700;src:url(../web/fonts/barlow-condensed-700.woff2) format('woff2')}
 :root{
-  --bg:#080a0b;--panel:#0f1315;--panel2:#141a1d;--hair:#1e262a;
-  --ink:#c8d2d4;--dim:#6b7a7e;--amber:#ffb000;--amber-dim:#7a5600;
-  --cyan:#3fd7e6;--green:#39d98a;--red:#ff5c57;--grid:#0d1214;
-  --mono:'JetBrains Mono',ui-monospace,monospace;--disp:'Chakra Petch',var(--mono);
+  --hull:#13243f;--hull-2:#0e1b31;--hull-hair:#2a4268;--hull-ink:#dfe8f1;--hull-dim:#a6bad0;
+  --sheet:#e9eef1;--sheet-ink:#13243f;--sheet-dim:#46576a;--hold:#ffffff;--cell:rgba(19,36,63,.13);--hold-rule:#8696a5;
+  --yellow:#ffc21a;--main:#e8661c;--main-ink:#1a0d04;--w1:#2c6fb7;--w2:#26754f;--sys:#5d6b79;
+  --cond:'Barlow Condensed','Arial Narrow',sans-serif;--sans:'Barlow','Segoe UI',sans-serif;
+  --gb:22px; /* one GiB, on every hold */
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{width:1280px;height:420px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--mono)}
-.hero{position:relative;width:1280px;height:420px;overflow:hidden;border:1px solid var(--hair);
-  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:44px 44px;display:flex;align-items:center;justify-content:space-between;padding:0 60px}
-.hero::before{content:"";position:absolute;left:-120px;top:-160px;width:760px;height:620px;
-  background:radial-gradient(circle at center,rgba(255,176,0,.20),rgba(255,176,0,.05) 40%,transparent 66%);pointer-events:none}
-.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 1px,transparent 1px,transparent 3px);
-  mix-blend-mode:multiply;opacity:.5}
-.left{position:relative;z-index:2;display:flex;gap:26px;align-items:flex-start}
-.logo{width:74px;height:74px;border:2px solid var(--amber);position:relative;flex:none;margin-top:16px}
-.logo::before{content:"";position:absolute;left:14px;right:14px;top:50%;height:4px;transform:translateY(-2px);
-  background:var(--amber);box-shadow:0 -18px 0 var(--amber),0 18px 0 var(--amber)}
-h1{font-family:var(--disp);font-weight:700;letter-spacing:.10em;font-size:74px;line-height:.94;color:#fff}
-h1 span{color:var(--amber)}
-.sub{color:var(--dim);font-size:15px;letter-spacing:.30em;text-transform:uppercase;margin:14px 0 26px;font-family:var(--disp)}
-.chips{display:flex;flex-wrap:wrap;gap:11px;max-width:610px}
-.chip{background:var(--panel2);border:1px solid var(--hair);padding:11px 15px;font-size:13.5px;line-height:1.3}
-.chip b{font-family:var(--disp);font-weight:700;letter-spacing:.04em}
-.chip .amber{color:var(--amber)}.chip .green{color:var(--green)}.chip .cyan{color:var(--cyan)}
-.chip span{color:var(--dim)}
-.panel{position:relative;z-index:2;width:352px;background:rgba(15,19,21,.85);border:1px solid var(--hair);padding:16px 18px;flex:none}
-.phead{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
-.phead .g{color:var(--dim)}.phead .v{color:var(--amber);font-family:var(--disp);font-weight:600}
-.meter{height:26px;background:#0a0d0e;border:1px solid var(--hair);display:flex;gap:2px;padding:3px;margin:12px 0 16px}
-.seg{flex:1;background:#12181a}.seg.on{background:var(--amber);box-shadow:0 0 6px var(--amber-dim)}
-.mrow{display:flex;align-items:center;gap:10px;padding:10px 2px;border-top:1px solid #131a1c}
-.led{width:9px;height:9px;border-radius:50%;background:#33403f;flex:none}
-.led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}
-.mname{flex:1;color:#e6eeef;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mtag{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);padding:2px 7px}
-.mtag.load{color:var(--green);border:none}.mtag.fit{color:var(--green);border-color:#1f4a37}
-.be{font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--hair)}
-.be.cpp{color:var(--amber);border-color:var(--amber-dim)}.be.vllm{color:var(--green);border-color:#1c402c}
-.qbtn{font-family:var(--disp);font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:9px;
-  padding:4px 9px;border:1px solid var(--amber-dim);color:var(--amber)}
-.qbtn.stop{border-color:var(--hair);color:var(--dim)}
+html,body{width:1280px;height:420px;overflow:hidden;background:var(--hull)}
+.hero{position:relative;width:1280px;height:420px;display:flex;align-items:center;gap:56px;padding:0 56px;
+  font-family:var(--sans);color:var(--hull-ink);
+  background:linear-gradient(90deg,var(--hull) 0,var(--hull) 52%,var(--hull-2) 100%)}
+/* a drawing frame with a title block, like the sheet a stowage plan is printed on */
+.hero::before{content:"";position:absolute;inset:14px;border:1px solid var(--hull-hair);pointer-events:none}
+.block{position:absolute;right:14px;bottom:14px;display:flex;font-family:var(--cond);font-weight:600;font-size:12px;
+  letter-spacing:.16em;color:var(--hull-dim);text-transform:uppercase}
+.block span{border-left:1px solid var(--hull-hair);border-top:1px solid var(--hull-hair);padding:5px 12px}
+
+.left{flex:0 0 520px;position:relative}
+.brand{display:flex;align-items:center;gap:22px}
+.mark{width:84px;height:84px;flex:none}
+h1{font-family:var(--cond);font-weight:700;font-size:92px;line-height:.86;letter-spacing:.02em;color:#fff}
+h1 b{color:var(--yellow);font-weight:700}
+.tag{margin-top:26px;font-size:21px;line-height:1.35;color:#fff;white-space:nowrap}
+.tag span{color:var(--hull-dim)}
+.facts{margin-top:24px;display:flex;font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--hull-dim)}
+.facts span{padding:0 14px;border-left:1px solid var(--hull-hair)}
+.facts span:first-child{padding-left:0;border-left:0}
+
+/* the sheet */
+.sheet{flex:1;background:var(--sheet);color:var(--sheet-ink);padding:20px 24px 18px;position:relative;
+  box-shadow:0 0 0 1px #0a1628,10px 10px 0 rgba(6,12,22,.35)}
+.sheet h2{font-family:var(--cond);font-weight:700;font-size:15px;letter-spacing:.16em;text-transform:uppercase;
+  display:flex;justify-content:space-between;color:var(--sheet-dim);border-bottom:3px solid var(--main);padding-bottom:8px;margin-bottom:14px}
+.gpu + .gpu{margin-top:14px}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--cond);margin-bottom:6px}
+.ghead .n{font-weight:700;font-size:19px;letter-spacing:.04em;text-transform:uppercase}
+.ghead .n i{font-style:normal;font-weight:600;font-size:13px;letter-spacing:.14em;color:var(--sheet-dim);margin-left:8px}
+.ghead .u{font-weight:600;font-size:15px;letter-spacing:.06em;color:var(--sheet-dim);font-variant-numeric:tabular-nums}
+.ghead .u b{color:var(--sheet-ink);font-weight:700}
+.hold{position:relative;overflow:hidden;height:58px;width:calc(var(--gb) * 16);background:var(--hold);
+  border:1.5px solid var(--hold-rule);
+  background-image:linear-gradient(90deg,var(--cell) 1px,transparent 1px);background-size:var(--gb) 100%;background-position:-1px 0}
+.box{position:absolute;top:4px;bottom:4px;left:calc(var(--x) * var(--gb) + 3px);width:calc(var(--w) * var(--gb) - 3px);
+  padding:5px 7px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;
+  font-family:var(--cond);color:#fff;animation:stow .62s cubic-bezier(.2,.75,.25,1) both;animation-delay:calc(var(--i) * 170ms + 200ms)}
+.box .bn{font-weight:700;font-size:15px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+.box .bg{font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
+.main{background:var(--main);color:var(--main-ink)}
+.w1{background:var(--w1)}.w2{background:var(--w2)}.sys{background:var(--sys);padding:0}
+.book{background:rgba(255,194,26,.30);color:#14110a;outline:2px dashed #14110a;outline-offset:-2px;animation-name:book}
+.scale{display:flex;justify-content:space-between;width:calc(var(--gb) * 16);font-family:var(--cond);font-weight:600;
+  font-size:11.5px;letter-spacing:.06em;color:var(--sheet-dim);margin-top:3px}
+.row{display:flex;gap:18px;align-items:flex-start}
+.ledger{flex:1;font-family:var(--cond);font-size:14px;display:grid;grid-template-columns:1fr auto;row-gap:1px;padding-top:2px;
+  font-variant-numeric:tabular-nums}
+.ledger dt{font-weight:600;letter-spacing:.1em;color:var(--sheet-dim)}
+.ledger dd{font-weight:700;text-align:right}
+.ledger .t{border-top:1px solid var(--hold-rule);margin-top:2px;padding-top:2px}
+.social,.social body,.social .hero{height:640px}
+.social .hero{flex-direction:column;justify-content:center;align-items:stretch;gap:34px;padding:0 120px}
+.social .left{flex:none;display:flex;align-items:flex-end;justify-content:space-between}
+.social .tag{margin-top:0;text-align:right}
+.social .facts{display:none}
+.social{--gb:40px}
+.social .sheet{flex:none;padding:24px 30px 22px}
+.social .hold{height:76px}
+.social .box .bn{font-size:18px}.social .box .bg{font-size:15px}
+.social .row{gap:34px;justify-content:space-between}
+.social .ledger{flex:0 0 190px;font-size:16px}
+.social .gpu + .gpu{margin-top:18px}
+@keyframes stow{from{transform:translateY(-72px);opacity:0}62%{transform:translateY(3px);opacity:1}to{transform:none;opacity:1}}
+@keyframes book{0%,40%{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
 <div class="hero">
   <div class="left">
-    <div class="logo"></div>
-    <div>
-      <h1>LLAMA<span>FORGE</span></h1>
-      <div class="sub">a control panel for llama.cpp &middot; and vLLM</div>
-      <div class="chips">
-        <div class="chip"><b class="amber">220+</b> <span>knobs, per&#8209;model</span></div>
-        <div class="chip"><b class="green">llama.cpp</b> <span>+</span> <b class="green">vLLM</b></div>
-        <div class="chip"><b class="cyan">Win &middot; Linux &middot; macOS</b></div>
-        <div class="chip"><b class="cyan">VRAM&#8209;fit</b> <span>discovery</span></div>
-        <div class="chip"><b class="amber">presets</b> <span>&middot;</span> <b class="amber">compare</b> <span>&middot;</span> <b class="amber">resume</b></div>
-        <div class="chip"><b class="green">0</b> <span>dependencies</span></div>
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" fill="#13243f"/><rect x="2.5" y="2.5" width="27" height="27" fill="none" stroke="#ffc21a" stroke-width="2"/><rect x="6" y="6" width="12" height="9" fill="#e8661c"/><rect x="19.5" y="6" width="6.5" height="9" fill="#2c6fb7"/><rect x="6" y="17" width="8" height="9" fill="#26754f"/><rect x="15.75" y="17.75" width="9.5" height="7.5" fill="none" stroke="#a6bad0" stroke-width="1.5" stroke-dasharray="2 1.5"/></svg>
+      <h1>LLAMA<b>FORGE</b></h1>
+    </div>
+    <p class="tag">The real llama.cpp server, run from a browser tab.<br><span>Every model drawn into your GPUs at its real size.</span></p>
+    <div class="facts"><span>Official llama.cpp builds</span><span>Every server flag</span><span>MIT</span></div>
+  </div>
+
+  <div class="sheet">
+    <h2><span>Bay plan</span><span>1 cell = 1 GB</span></h2>
+    <div class="gpu">
+      <div class="ghead"><span class="n">RTX 5080<i>GPU 0</i></span><span class="u"><b>10.6</b> / 15.9 GiB</span></div>
+      <div class="row">
+        <div>
+          <div class="hold">
+            <div class="box main" style="--x:0;--w:10;--i:0"><span class="bn">gemma-4-12b</span><span class="bg">10.0</span></div>
+            <div class="box sys" style="--x:10;--w:.6;--i:1"></div>
+            <div class="box book" style="--x:10.6;--w:3.4;--i:4"><span class="bn">Booked</span><span class="bg">3.4</span></div>
+          </div>
+          <div class="scale"><span>0</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
+        </div>
+        <dl class="ledger"><dt>USED</dt><dd>10.6</dd><dt>BOOKED</dt><dd>3.4</dd><dt>FREE</dt><dd>1.9</dd><dt class="t">TOTAL</dt><dd class="t">15.9</dd></dl>
+      </div>
+    </div>
+    <div class="gpu">
+      <div class="ghead"><span class="n">RTX 5060 Ti<i>GPU 1</i></span><span class="u"><b>11.1</b> / 15.9 GiB</span></div>
+      <div class="row">
+        <div>
+          <div class="hold">
+            <div class="box w1" style="--x:0;--w:.45;--i:2;padding:0"></div>
+            <div class="box w2" style="--x:.45;--w:10.4;--i:3"><span class="bn">qwen3.5-9b</span><span class="bg">10.4</span></div>
+            <div class="box sys" style="--x:10.85;--w:.3;--i:3"></div>
+          </div>
+          <div class="scale"><span>0</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
+        </div>
+        <dl class="ledger"><dt>USED</dt><dd>11.1</dd><dt>FREE</dt><dd>4.8</dd><dt class="t">TOTAL</dt><dd class="t">15.9</dd></dl>
       </div>
     </div>
   </div>
-  <div class="panel">
-    <div class="phead"><span class="g">GPU 0 &middot; RTX 5080</span><span class="v">13.2 / 16 GB</span></div>
-    <div class="meter">
-      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
-      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
-      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
-      <div class="seg on"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div>
-    </div>
-    <div class="mrow"><span class="led loaded"></span><span class="mname">qwopus-coder</span><span class="be cpp">llama.cpp</span><span class="qbtn stop">Unload</span></div>
-    <div class="mrow"><span class="led"></span><span class="mname">gemma-4-12b</span><span class="be vllm">vLLM</span><span class="qbtn">Load</span></div>
-    <div class="mrow"><span class="led"></span><span class="mname">deepseek-v4-flash</span><span class="be cpp">llama.cpp</span><span class="mtag fit">Fits</span></div>
-  </div>
+  <div class="block"><span>Stowage plan</span><span>github.com/dadwritestech/LlamaForge</span></div>
 </div>
+<script>
+  const q = new URLSearchParams(location.search);
+  // ?social=1 is the 1280x640 repo social preview (docs/social-preview.png)
+  if (q.has("social")) document.documentElement.classList.add("social");
+  // ?t=ms freezes every animation at that moment, for rendering webp frames
+  const t = q.get("t");
+  if (t !== null) document.querySelectorAll(".box").forEach(b => {
+    const d = parseFloat(getComputedStyle(b).animationDelay) * 1000;
+    b.style.animationDelay = (d - +t) + "ms"; b.style.animationPlayState = "paused";
+  });
+</script>
 </body>
 </html>
