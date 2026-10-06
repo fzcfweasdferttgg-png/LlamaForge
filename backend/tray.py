@@ -6,16 +6,21 @@ harmless no-op when they're absent, so the default install stays stdlib-only and
 nothing here can break the dashboard. Enable it with `pip install pystray pillow`.
 
 The tray shows the loaded-model count in its tooltip, refreshes it on a timer,
-and offers Open dashboard / Quit from the menu.
+and offers Open dashboard / Quit from the menu. `mark_image()` also draws the
+app icons (web/icons/), so the tray, the shortcuts and the panel share one mark.
 """
 import threading
 import webbrowser
 
 try:                                    # optional deps - absence is fine
-    import pystray
     from PIL import Image, ImageDraw
-    _DEPS = True
+    _PIL = True
 except Exception:                       # ImportError, or a broken partial install
+    _PIL = False
+try:
+    import pystray
+    _DEPS = _PIL
+except Exception:
     _DEPS = False
 
 
@@ -23,16 +28,37 @@ def available():
     return _DEPS
 
 
-def _icon_image(loaded):
-    """A 64x64 amber-on-dark forge glyph; a green dot when a model is loaded."""
-    img = Image.new("RGBA", (64, 64), (8, 10, 11, 255))
-    d = ImageDraw.Draw(img)
-    d.rectangle([7, 7, 57, 57], outline=(255, 176, 0, 255), width=3)
-    for y in (20, 30, 40):              # three "forge bars"
-        d.rectangle([18, y, 46, y + 4], fill=(255, 176, 0, 255))
+# The Stowage mark on a 32-unit grid, the favicon's geometry (web/index.html):
+# an amber hold, orange + blue stowed on top, green bottom-left, one empty bay.
+_HULL, _AMBER, _EMPTY = "#13243f", "#ffc21a", "#a6bad0"
+_BOXES = (((6, 6, 18, 15), "#e8661c"), ((19.5, 6, 26, 15), "#2c6fb7"), ((6, 17, 14, 26), "#26754f"))
+
+
+def mark_image(size, loaded=False, rounded=False):
+    """The mark as a size x size RGBA image. `loaded` stows an amber container in
+    the empty bay; `rounded` gives the tile transparent rounded corners (app icons)."""
+    ss = 4                                         # supersample, then downscale
+    k = size * ss / 32
+    big = Image.new("RGBA", (size * ss, size * ss), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    u = lambda *v: [round(x * k) for x in v]
+    if rounded:
+        d.rounded_rectangle(u(0, 0, 32, 32), radius=round(4 * k), fill=_HULL)
+    else:
+        d.rectangle(u(0, 0, 32, 32), fill=_HULL)
+    d.rectangle(u(1.5, 1.5, 30.5, 30.5), outline=_AMBER, width=round(2 * k))
+    for box, colour in _BOXES:
+        d.rectangle(u(*box), fill=colour)
     if loaded:
-        d.ellipse([44, 44, 56, 56], fill=(57, 217, 138, 255))
-    return img
+        d.rectangle(u(15, 17, 26, 26), fill=_AMBER)
+    else:
+        d.rectangle(u(15, 17, 26, 26), outline=_EMPTY, width=round(1.5 * k))
+    return big.resize((size, size), Image.LANCZOS)
+
+
+def _icon_image(loaded):
+    """The 64x64 tray icon: the mark, with the empty bay filled while a model is loaded."""
+    return mark_image(64, loaded=loaded)
 
 
 def start(panel_port, counts_fn, refresh_secs=5):
