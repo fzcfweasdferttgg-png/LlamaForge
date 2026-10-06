@@ -225,6 +225,28 @@ def metadata(path):
     return {k: v for k, v in out.items() if v is not None}
 
 
+def projector_info(path):
+    """{"projection_dim": n} for an mmproj (clip) file, or None if the file is
+    unreadable or not a projector. projection_dim is the text-model width the
+    projector feeds; llama.cpp refuses a pair whose widths differ. Vision wins
+    over audio when both are present (they're equal in practice)."""
+    try:
+        with open(path, "rb") as f:
+            if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+                return None
+            _u64(f)
+            n_kv = _u64(f)
+            if n_kv > 1_000_000:
+                return None
+            kv = _read_header_kv(f, n_kv)
+    except Exception:
+        return None
+    if kv.get("general.architecture") != "clip":
+        return None
+    dim = kv.get("clip.vision.projection_dim") or kv.get("clip.audio.projection_dim")
+    return {"projection_dim": int(dim)} if dim else {}
+
+
 # Per-architecture header facts the memory footprint depends on (see footprint.py).
 _LAYOUT_KEYS = ("block_count", "embedding_length", "context_length", "expert_count",
                 "attention.head_count", "attention.head_count_kv", "attention.key_length",
