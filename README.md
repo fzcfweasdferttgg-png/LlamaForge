@@ -89,13 +89,13 @@ base URL, key and model id ready to paste.
 
 ## Screenshots
 
-| Models | Discover with fit ratings |
+| Models: each GPU drawn to scale, with the open model booked in | Stats: memory and live speed per model |
 |---|---|
-| ![Models](docs/content/img/models.png) | ![Discover](docs/content/img/discover.png) |
+| ![Models](docs/content/img/models.png) | ![Stats](docs/content/img/overview.png) |
 
-| Build / Update | Setup |
+| Discover: new in llama.cpp, then trending GGUFs | Build / Update |
 |---|---|
-| ![Build / Update](docs/content/img/build.png) | ![Setup](docs/content/img/setup.png) |
+| ![Discover](docs/content/img/discover.png) | ![Build / Update](docs/content/img/build.png) |
 
 ## Install
 
