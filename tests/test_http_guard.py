@@ -285,22 +285,27 @@ class LiveServerTest(unittest.TestCase):
         (WinError 10053). Force the losing order: the body arrives only after
         the server has answered, and the response must still come through."""
         closed = threading.Event()
+        real_process = self.httpd.process_request
         real_shutdown = self.httpd.shutdown_request
-        mine = []
+        mine, peers = [], {}
+
+        def process_request(request, client_address):
+            # note the peer now: once drained, both directions are closed and
+            # getpeername() raises ENOTCONN on Linux and macOS
+            peers[request] = client_address
+            real_process(request, client_address)
 
         def shutdown_request(request):
             # an earlier test's connection may still be closing; only ours counts
-            try:
-                ours = request.getpeername() in mine
-            except OSError:
-                ours = False
+            ours = peers.get(request) in mine
             real_shutdown(request)
             if ours:
                 closed.set()
         body = json.dumps({"a": 1}).encode()
         head = (f"POST /api/_probe HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
                 f"Content-Type: text/plain\r\nContent-Length: {len(body)}\r\n\r\n")
-        with mock.patch.object(self.httpd, "shutdown_request", shutdown_request), \
+        with mock.patch.object(self.httpd, "process_request", process_request), \
+                mock.patch.object(self.httpd, "shutdown_request", shutdown_request), \
                 socket.create_connection(("127.0.0.1", self.port), timeout=10) as sock:
             mine.append(sock.getsockname())
             sock.sendall(head.encode("ascii"))
