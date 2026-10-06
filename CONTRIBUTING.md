@@ -19,6 +19,14 @@ python -m unittest discover -s . -p "test_*.py"
 Tests must be run from `tests/`. Tests that touch config must point
 `config.CONFIG` at a temp file — never the real `config.json`.
 
+The frontend has Node tests too (CI uses Node 20), run from the repo root:
+```bash
+node --test tests/*.mjs
+```
+One of them fails the build if a view calls the native `confirm()`, `prompt()` or
+`alert()`; some hosts silently cancel them. Ask in the panel with `askYes()` /
+`askText()` from `web/js/core.js` instead.
+
 ## Running the UI
 `python backend/server.py` starts the panel on port 8090. It renders even with no
 engine running, which is handy for UI work.
@@ -26,7 +34,7 @@ engine running, which is handy for UI work.
 ## Pull requests
 - Keep PRs focused — one fix or feature each.
 - Include a screenshot for UI changes, ideally in both light and dark themes, and
-  check narrow widths (the sidebar changes layout below 900px and 600px).
+  check narrow widths (the sidebar changes layout below 900px, 760px and 600px).
 - Small PRs get reviewed fastest. For bigger ideas, open an issue or Discussion first.
 
 ## Good first issues

@@ -45,7 +45,7 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 | Search | `backend/hub.py` `search()` | Queries `huggingface.co/api/models?filter=gguf`, sorted by downloads/lastModified/likes. |
 | File listing | `backend/hub.py` `files()` | Lists a repo's `.gguf` files, collapsing sharded files and separating `mmproj` files. |
 | VRAM-fit rating | `vram_predict.fit_label()`, falling back to `hub.py` `_fit()` | Derived from the rough prediction (gpu-resident → `fits`; usable hybrid/offload → `tight`; slow/streaming → `offload`). Falls back to the size-only heuristic (`fits`: size × 1.15 ≤ VRAM; `tight`: ≤ VRAM; `offload`: > VRAM) when no prediction is available. |
-| Will-it-run panel | `GET /api/vram/predict` | Predicts regime + tok/s for a repo+quant using MoE-aware model size, GPU bandwidth (with Setup overrides), and quant factor. |
+| Will-it-run panel | `POST /api/vram/predict` | Predicts regime + tok/s for a repo+quant using MoE-aware model size, GPU bandwidth (with Setup overrides), and quant factor. |
 | Download engine | `backend/hub.py` `DownloadManager` | Background thread; one job at a time; progress polled via `/api/hub/progress`. |
 | Pause / resume | `DownloadManager.pause()` / `resume()` | Pause keeps the `.part` file; resume continues via an HTTP `Range` request from the bytes already on disk. |
 | Cancel | `DownloadManager.cancel()` | Stops the job and deletes the partial `.part` file. |

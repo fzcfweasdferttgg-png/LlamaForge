@@ -17,6 +17,7 @@ It then matches llama.cpp's actual error strings, most specific first. Healthy s
 | llama.cpp says | Suggested fix |
 |---|---|
 | `unknown model architecture` / `unknown pre-tokenizer type` | Update llama.cpp (Build / Update tab). The model is newer than your build. |
+| `has invalid ggml type N` | The file's quant type isn't one this build knows. The message says whether it needs a newer llama.cpp (Build / Update tab), ik_llama.cpp, or a fork the model card names. |
 | `error while handling argument "--x"` / `invalid argument: --x` | Clear that setting (the flag is named). If it's a newer flag, update llama.cpp. |
 | `... requires flash_attn to be enabled` | Set flash-attn on (or auto), or set cache-type-v back to f16. |
 | `cudaMalloc failed`, `out of memory`, `failed to allocate ... buffer` | If the model pins `n-gpu-layers`, `ctx-size` or `tensor-split`, those switch off llama.cpp's automatic fit: clear them and load again. Otherwise pick a smaller quant or a smaller ctx-size. |
@@ -28,7 +29,7 @@ It then matches llama.cpp's actual error strings, most specific first. Healthy s
 If nothing matches but the instance exited with a non-zero status, that status is shown. If the log has no load attempt for this model at all, no diagnosis is shown rather than a guess. A `common_fit_params: failed to fit params` warning on its own is not a failure: llama.cpp prints it and then loads anyway.
 
 > [!TIP]
-> The Router Log panel at the bottom of the Models tab has the full output. `diagnose()` reads the last 800 lines of each router log file.
+> The Router Log panel at the bottom of the Models tab has the full output. `diagnose()` reads the last 800 lines of the log: the model's own process log when it runs as a process slot, otherwise the router log.
 
 ## Setup tab: missing prerequisites
 
@@ -54,9 +55,9 @@ The **Setup** tab (`backend/prereqs.py`) checks for `git`, `cmake`, `ninja`, and
 ## First run
 
 - **`config.json` / `models.ini` missing** — no longer fatal. The launchers copy `config.example.json` to `config.json` on a fresh checkout, and a `[*]`-only `models.ini` is created if absent (the router won't start without it). Set your real paths in the Setup tab afterward.
-- **Router port already in use** — port `8080` collides with XAMPP/Apache and other dev servers. `run.ps1`/`run.sh` now name the process holding `router_port` and skip starting the router instead of leaving every model showing "offline" for no visible reason; free the port or change `router_port` in Setup.
+- **Router port already in use** — port `8080` collides with XAMPP/Apache and other dev servers. `run.ps1`/`run.sh` now name the process holding `router_port` and skip starting the router instead of leaving every model showing "offline" for no visible reason; free the port or change `router_port` in `config.json` (see [config.json Reference](config.md)). `run.ps1`'s own message says to change it in the Setup tab, but Setup has no field for it.
 - **All models "offline" / zero models after moving the folder** — a relative `models_ini` (the shipped default `./models.ini`) is now anchored to the repo root, so the router no longer reads an empty registry when launched from another directory. If you still see this, check `models_ini` in `config.json` points at the right file.
-- **Build shows "built, with warnings"** — `llama-server` built fine but a non-essential step (usually the npm/`sharp` UI assets on Windows) failed. The binary is usable; the failing step is in the Build Log. This is distinct from a red **BUILD FAILED**, which means no fresh `llama-server` was produced.
+- **Build shows "built with warnings"** — `llama-server` built fine but a non-essential step (usually the npm/`sharp` UI assets on Windows) failed. The binary is usable; the failing step is in the Build Log. This is distinct from a red **BUILD FAILED**, which means no fresh `llama-server` was produced.
 
 ## Everything else
 

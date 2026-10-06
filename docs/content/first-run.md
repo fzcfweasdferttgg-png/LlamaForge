@@ -20,24 +20,24 @@ Several things that used to derail a first run are now handled automatically, in
 
 ## Lite vs Advanced mode
 
-LlamaForge has two UI densities, toggled at any time from the mode switch in the dashboard header (`applyMode()` in `web/js/ui.js` toggles a `mode-lite` class on `<body>` and persists the choice via `PUT /api/config` with `ui_mode`):
+LlamaForge has two UI densities, toggled at any time from the **Lite / Advanced** switch in the sidebar (`applyMode()` in `web/js/ui.js` toggles a `mode-lite` class on `<body>`; `setMode()` persists the choice via `POST /api/config` with `ui_mode`):
 
-- **Lite** — a reduced set of controls, aimed at getting a model loaded quickly.
-- **Advanced** — every flag your `llama-server --help` lists (200+ on current builds) and every tab exposed.
+- **Lite** — a reduced set of knobs in each model's editor, aimed at getting a model loaded quickly.
+- **Advanced** — every flag your `llama-server --help` lists (200+ on current builds). The tabs are the same in both modes.
 
-Finishing the wizard sets `ui_mode` to `"lite"`; skipping it sets `ui_mode` to `"advanced"`. You can switch between them afterward at any time.
+Finishing the wizard and skipping it both set `ui_mode` to `"lite"` (skipping is "not now", not "I'm an expert"). You can switch between them afterward at any time.
 
 ## The onboarding wizard
 
-`wizMaybeStart()` shows the wizard automatically whenever the server reports `onboarding.onboarded` as false. It walks five steps, defined in `WIZ.steps` in `web/js/wizard.js`:
+`initWizard()` in `web/js/wizard.js` shows the wizard automatically whenever the server reports `onboarding.onboarded` as false. It walks five steps, defined in `WIZ.steps` in `web/js/wizard.js`:
 
-1. **Engine** — "Do you already have a llama.cpp build?" Choose *Yes, I have one built* or *No — clone & build it for me*, and a build flavor (official llama.cpp; a mainline fork; ik_llama is listed but disabled, marked "coming soon"). The clone path hands off to the same flow as the Build tab.
+1. **Engine** — "How do you want to get it?" Choose *Download the official build for this PC* (the default: about a minute, no compiler), *I already have llama-server built*, or *Build from source* (the Build tab; needs CMake and a compiler). The download choice shows the same engine card as the Build / Update tab, and its install keeps running in the background if you move on.
 2. **Hardware** — a read-only summary of detected GPUs and their VRAM (or "No GPU detected — CPU mode" if none).
-3. **Model** — pick an already-registered model from a dropdown. If none are registered, the step instead links to the Discover tab and closes the wizard so you can download one.
+3. **Model** — pick an already-registered model from a dropdown. If none are registered, the step offers **Get your first model**: starter models sized to your GPU, one click to download and add one (with a **best fit** tag on the recommended one), plus a link to browse Hugging Face in Discover.
 4. **Tune** — choose a goal (Balanced, Max speed, Max context, or Coding) and click **Auto-tune** to call `/api/autotune/recommend` for that model and intent; the resulting knobs and their rationale are shown in a table. An optional **Refine with a quick test (~1 min)** button calls `/api/autotune/refine` to try a few high-impact variants (e.g. alternate `ubatch-size`/`batch-size`) with one short generation each and keep the fastest. It is a quick check, not llama-bench: results move with whatever else the machine is doing.
 5. **Ready** — confirms the chosen settings will be applied to the selected model and it will be loaded.
 
-Finishing the wizard saves the recommended knobs with `/api/save`, loads the model with `/api/load`, and marks the config `onboarded: true, ui_mode: "lite"` regardless of whether the load itself succeeded (a failed load surfaces a toast telling you to load it manually from the Models tab). **Skip** instead marks the config `onboarded: true, ui_mode: "advanced"` and closes the wizard without touching any model.
+Finishing the wizard saves the recommended knobs with `/api/save`, loads the model with `/api/load`, and marks the config `onboarded: true, ui_mode: "lite"` regardless of whether the load itself succeeded (a failed load surfaces a toast telling you to load it manually from the Models tab). When the load works, the dashboard then opens the Chat tab on that model. **Skip** instead marks the config `onboarded: true, ui_mode: "lite"` and closes the wizard without touching any model.
 
 ## What auto-tune decides
 

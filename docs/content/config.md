@@ -19,8 +19,10 @@ order: 1
 | `model_dirs` | list | `[]` | Directories the Discover/scan feature searches for GGUF files. |
 | `router_port` | int | `8080` | Port `llama-server` (the router) listens on. |
 | `panel_port` | int | `8090` | Port the LlamaForge dashboard (`backend/server.py`) listens on. |
+| `chat_port` | int | `8091` | Port llama.cpp's own chat UI is proxied on, on its own origin (the Chat tab). |
 | `router_host` | string | `"127.0.0.1"` | Router bind address. The Network Access UI supports only `127.0.0.1` (local) and `0.0.0.0` (LAN). |
 | `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
+| `router_local_key` | string | `""` | The key LlamaForge generates for itself when you set none, so the router always runs keyed. Minted at startup; never shown in the dashboard. |
 | `wsl_distro` | string | `""` | WSL distro that runs vLLM. Empty string auto-picks the default distro. |
 | `vllm_port` | int | `8081` | Port vLLM serves on inside WSL (localhost-forwarded to Windows). |
 | `cmake_flags` | object | `{}` | Persisted CMake build flags, normally seeded from hardware detection. |
@@ -33,9 +35,12 @@ order: 1
 | `ik_llama_git_remote` | string | `"https://github.com/ikawrakow/ik_llama.cpp"` | Remote used to clone/update ik_llama. |
 | `ik_llama_cmake_flags` | object | `{}` | Persisted CMake build flags for the ik_llama build. |
 | `auto_load_model` | string | `""` | Model id to load automatically on launch. Empty string disables auto-load. |
+| `pi_bin` | string | `""` | The pi coding agent: a `.js` entry, a package directory or a binary. Empty resolves the copy LlamaForge installed, then `PATH`. See [Connecting Coding Agents](agents.md). |
 | `presets` | object | `{}` | Named knob sets: `{name: {knob: value}}`, managed from the dashboard. |
+| `profiles` | object | `{}` | Launch profiles — a model plus an optional preset and an optional pinned prebuilt engine, started in one click: `{name: {model, backend, preset, engine}}`. `engine` is an install directory name under `engines/`, never a path. |
 | `preset_bindings` | object | `{}` | Preset bound as each model's default, scoped by llama-family engine: `{engine: {model_id: preset_name}}`. |
 | `preset_binding_snapshots` | object | `{}` | Engine-scoped values materialized by a preset binding: `{engine: {model_id: {knob: value}}}`. LlamaForge uses these snapshots to retain model values you subsequently change yourself. |
+| `mtp_auto_owned` | object | `{}` | Bookkeeping for automatic MTP wiring: `{engine: {model_id: {key: value}}}` records the `models.ini` values LlamaForge wrote itself, so a value you changed or deleted is treated as yours and left alone. |
 | `ui_mode` | string | `"lite"` | `"lite"` shows a curated knob set; `"advanced"` exposes every flag your `llama-server --help` lists (200+ on current builds). |
 | `onboarded` | bool | `False` | Whether the first-run wizard has already been shown; set to `True` once dismissed. |
 | `anthropic_default_model` | string | `""` | Fallback local model id used by the Anthropic-compatible shim when a request doesn't map to one. |
@@ -43,13 +48,28 @@ order: 1
 | `wiki_dir` | string | `""` | Context-doc directory for the wiki feature. Empty string resolves to `<repo root>/wiki`. |
 | `wiki_profiles` | object | `{}` | Named context-doc profiles: `{name: {"docs": [...], "description": str}}`. |
 | `wiki_active` | object | `{}` | Active profile per model: `{model_id: profile_name}`. |
-| `theme` | string | `""` | UI theme. Empty string follows OS/`localStorage`; otherwise `"light"` or `"dark"`. |
+| `theme` | string | `""` | Light or dark. Empty string follows the OS/`localStorage`; otherwise `"light"` or `"dark"`. |
 | `cvd` | bool | `False` | Enables the colorblind-safe palette and non-color status cues. |
+| `skin` | string | `""` | UI skin. Empty string is the default, `"stowage"`; the others are `"hearth"` and `"classic"`. See [Theming](theming.md). |
 | `vram_bandwidths` | object | `{}` | Optional `{vram_bw, ram_bw, disk_bw}` GB/s overrides for the VRAM-fit estimate; empty uses GPU presets/defaults. |
 | `vram_predict_enabled` | bool | `True` | Whether the offline VRAM-fit/tok-s estimate is computed (Discover, on expand). |
 | `docs_dir` | string | `""` | Directory the in-app docs viewer reads from. Empty string resolves to `<repo root>/docs/content`. |
+| `embers_dir` | string | `""` | Where ember wikis and `embers.db` live. Empty string resolves to `<repo root>/embers`. |
+| `embers_scheduler` | bool | `True` | Run due ember jobs inside the dashboard process. |
+| `embers_swap_models` | bool | `True` | Let an ember load its pinned model when the router is idle. |
+| `multi_model` | bool | `False` | Let the router hold several models at once. Off keeps one model at a time. Changing it restarts a running router. |
+| `slot_cap` | int | `3` | Most models loaded together, 2–4. Changing it restarts a running router. |
+| `slot_headroom_mib` | int | `1536` | VRAM kept free per GPU beyond every plan, in MiB (0–32768). |
+| `slot_autoload` | bool | `False` | Let client requests load models themselves, which bypasses the placement planner. Changing it restarts a running router. |
+| `slots` | object | `{"main": "", "placed": {}}` | Multi-model bookkeeping: the main model id, and the `models.ini` keys LlamaForge wrote per placed model (so turning `multi_model` off can put the file back the way you wrote it). |
+| `model_builds` | object | `{}` | Per-model engine pin: `{model_id: install dir name or "ik_llama"}`. A model pinned to a build other than the router's own runs in its own process. |
+| `slot_port_base` | int | `8100` | First port used for those per-model processes. |
 
-36 keys total, matching `DEFAULTS` in `backend/config.py`.
+52 keys total, matching `DEFAULTS` in `backend/config.py`.
+
+`prebuilt_channel` (`"nightly"` or `"stable"`, the channel the Build / Update tab's prebuilt-engine card follows) is not in `DEFAULTS`: it is written the first time you install a prebuilt engine, and the card reads it as `"nightly"` until then.
+
+`POST /api/config` accepts only the settings the dashboard itself changes: `ui_mode`, `theme`, `cvd`, `skin`, `onboarded`, `auto_load_model`, `wsl_distro`, `vllm_port`, `model_dirs`, `anthropic_default_model`, `anthropic_shim_enabled`, `vram_bandwidths`, `vram_predict_enabled`, `multi_model`, `slot_cap`, `slot_headroom_mib` and `slot_autoload`. Any other key is refused and named in the response; the rest are edited by their own endpoints or by hand in `config.json`.
 
 ## Preset bindings
 
