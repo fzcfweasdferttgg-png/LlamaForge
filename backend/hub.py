@@ -226,6 +226,15 @@ class DownloadManager:
                 try: os.remove(tmp)            # never leave a poisoned .part behind
                 except OSError: pass
                 raise
+            # A dropped connection ends chunked read() with a plain b"" (no
+            # exception), so only the byte count tells a full transfer from a
+            # truncated one. Keep the .part: a restart resumes it via Range.
+            expected = self.state["total"]
+            got = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+            if expected and got != expected:
+                raise IOError("truncated download: got %d of %d bytes - "
+                              "partial kept, start the download again to resume"
+                              % (got, expected))
             os.replace(tmp, dest)
 
     def _run(self, repo, paths, dest_dir):

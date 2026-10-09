@@ -93,6 +93,32 @@ class TestResume(unittest.TestCase):
     def test_resume_refused_when_no_paused_job(self):
         self.assertFalse(hub.DownloadManager().resume())
 
+    def test_truncated_body_raises_and_keeps_partial(self):
+        # FakeResp's one-shot read() then b"" is exactly how a dropped
+        # connection looks to the chunk loop: the file must not be renamed.
+        dm = hub.DownloadManager()
+        self._patch(FakeResp(200, b"AAAAA", clen=10), {})   # 5 of 10 bytes
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "m.gguf")
+            with self.assertRaises(IOError):
+                dm._fetch("http://x", dest)
+            self.assertFalse(os.path.exists(dest))
+            self.assertEqual(os.path.getsize(dest + ".part"), 5)
+
+    def test_truncation_reports_failed_not_done(self):
+        dm = hub.DownloadManager()
+        self._patch(FakeResp(200, b"AAAAA", clen=10), {})
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(dm.start("r/x", ["m.gguf"], d))
+            for _ in range(50):
+                if not dm.state["running"]:
+                    break
+                threading.Event().wait(0.05)
+            st = dm.progress()
+            self.assertEqual(st["phase"], "failed")
+            self.assertIn("truncated", st["error"])
+            self.assertFalse(os.path.exists(os.path.join(d, "m.gguf")))
+
 
 class HubMtpSidecarTest(unittest.TestCase):
     def test_files_separates_mtp_and_pairs_only_the_matching_main(self):
