@@ -828,6 +828,9 @@ def get_state(req):
     s["active_engine"] = c.get("active_engine", "llamacpp")
     s["chat_port"] = c.get("chat_port", 8091)
     s["chat_host"] = c.get("chat_host", "127.0.0.1")
+    s["panel_host"] = c.get("panel_host", "127.0.0.1")
+    s["mcp_host"] = c.get("mcp_host", "")
+    s["mcp_port"] = c.get("mcp_port", 8092)
     s["config_error"] = config.LOAD_ERROR
     s["version"] = version.VERSION
     s["slots"] = _slots_state(c)

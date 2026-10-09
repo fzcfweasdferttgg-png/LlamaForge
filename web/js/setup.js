@@ -953,7 +953,7 @@ async function renderMcpConnect(generation) {
   try { r = await api("/api/mcp/setup"); } catch (e) { return; }
   const host = $("#mcp-connect");
   if (!host || !setupViewActive(generation) || !r || r.error) return;
-  const values = [r.claude, r.codex_toml, r.json];
+  const values = [r.claude, r.codex_toml, r.json, r.http_qwen, r.http_json];
   const snip = (label, text, i) =>
     // .snip keeps whitespace: nothing between the tag, the button and the text
     `<div class="slabel">${esc(label)}</div><div class="snip"><button type="button"
@@ -970,6 +970,9 @@ async function renderMcpConnect(generation) {
     snip("Claude Code (run once)", r.claude, 0) +
     snip("Codex (~/.codex/config.toml)", r.codex_toml, 1) +
     snip("Other clients (mcpServers JSON)", r.json, 2) +
+    (r.http_qwen ?
+      snip("HTTP - any MCP client (opt-in mcp_host)", r.http_qwen, 3) +
+      snip("HTTP (mcpServers JSON)", r.http_json, 4) : "") +
     `<div class="note">Tools: ${esc((r.tools || []).join(", "))}</div>`);
   for (const b of $$("[data-mcp-copy]", host)) {
     const text = values[Number(b.dataset.mcpCopy)] || "";

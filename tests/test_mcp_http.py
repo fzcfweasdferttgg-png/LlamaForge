@@ -87,5 +87,16 @@ class DisabledByDefaultTest(unittest.TestCase):
         self.assertIsNone(mcp_server.serve_http(lambda: {"mcp_host": ""}))
 
 
+class SetupInfoSeedsTest(unittest.TestCase):
+    """The Setup -> MCP server card renders these fields; the HTTP snippets
+    must be there for the GUI to show."""
+
+    def test_http_snippets_are_provided(self):
+        info = mcp_server.setup_info()
+        self.assertIn("http_qwen", info)
+        self.assertIn("--transport http", info["http_qwen"])
+        self.assertIn("httpUrl", info["http_json"])
+
+
 if __name__ == "__main__":
     unittest.main()

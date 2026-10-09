@@ -783,6 +783,9 @@ def setup_info(python=None, script=None):
         "codex_toml": toml,
         "json": json.dumps({"mcpServers": {"llamaforge": {"command": python, "args": [script]}}},
                            indent=2),
+        "http_qwen": "qwen mcp add --transport http llamaforge http://<host>:8092/mcp",
+        "http_json": json.dumps({"mcpServers": {"llamaforge": {
+            "httpUrl": "http://<host>:8092/mcp"}}}, indent=2),
         "tools": [t["name"] for t in Server(panel=object(), cfg=dict).tools],
     }
 
