@@ -8,6 +8,14 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
   <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
 </p>
 
+
+<h2 align="center">
+  English ·
+  <a href="docs/readme/README.ko.md">한국어</a> ·
+  <a href="docs/readme/README.ja.md">日本語</a> ·
+  <a href="docs/readme/README.zh-CN.md">简体中文</a> ·
+  <a href="docs/readme/README.ru.md">Русский</a>
+</h2>
 > [!IMPORTANT]
 > Fork build — tested on Ubuntu Server only. Differences from the original: [Fork differences](docs/content/fork-diff.md).
 

@@ -6,6 +6,8 @@ order: 3
 
 # Fork differences
 
+English · [한국어](../readme/fork-diff.ko.md) · [日本語](../readme/fork-diff.ja.md) · [简体中文](../readme/fork-diff.zh-CN.md) · [Русский](../readme/fork-diff.ru.md)
+
 The original LlamaForge plus the changes below. Everything else is upstream
 as-is. Tested on Ubuntu Server only.
 
