@@ -6,6 +6,13 @@ order: 1
 
 # LlamaForge
 
+> [!IMPORTANT]
+> **This build targets Ubuntu Server only.** Every change in it — LAN exposure
+> for the panel, chat and router ([Config](config.md), [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md)), the opt-in MCP HTTP
+> transport ([MCP Server](mcp.md)) and the DRM-sysfs GPU telemetry — is designed
+> for and was verified only on **Ubuntu Server**. Nothing here is tested on
+> Windows or macOS.
+
 LlamaForge runs the real [llama.cpp](https://github.com/ggml-org/llama.cpp) server from a browser tab. Pick a model, see if it fits your GPU, load it, chat. Every `llama-server` flag is still there when you want it, without hand-editing `models.ini` or long command lines.
 
 LlamaForge contains no llama.cpp source code. The backend (`backend/server.py`, pure Python standard library) drives llama.cpp's own router API, edits `models.ini`, fetches the official llama.cpp build for your GPU, and shells out to `git` / `cmake` only if you build from source. It also drives **vLLM** as a second, optional backend for full-precision and safetensors models.

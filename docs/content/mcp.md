@@ -10,7 +10,7 @@ LlamaForge ships an MCP server, so Claude Code, Codex or any MCP client can driv
 
 ## What it does
 
-`backend/mcp_server.py` is a stdio MCP server (newline-delimited JSON-RPC, stdlib only). It's a thin client over the panel's own HTTP API on `127.0.0.1:<panel_port>`. The panel admits a loopback caller that sends no `Origin`, so there's no token to manage and no new way in. It reads `config.json` for the panel port, pi's location and the router key, and never writes it.
+`backend/mcp_server.py` is a stdio MCP server (newline-delimited JSON-RPC, stdlib only; an opt-in Streamable HTTP transport is available, see [HTTP transport](#http-transport-opt-in) below). It's a thin client over the panel's own HTTP API on `127.0.0.1:<panel_port>`. The panel admits a loopback caller that sends no `Origin`, so there's no token to manage and no new way in. It reads `config.json` for the panel port, pi's location and the router key, and never writes it.
 
 ### Tools
 
