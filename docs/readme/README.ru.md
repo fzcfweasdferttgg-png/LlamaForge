@@ -9,6 +9,7 @@
   <a href="README.zh-CN.md">简体中文</a> ·
   Русский
 </h2>
+
 > [!IMPORTANT]
 > Сборка форка — тестировалась только на Ubuntu Server. Отличия от оригинала: [Отличия форка](fork-diff.ru.md).
 
