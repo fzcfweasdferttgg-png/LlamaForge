@@ -11,7 +11,7 @@
 </h2>
 
 > [!IMPORTANT]
-> Fork 构建 — 仅在 Ubuntu Server 上测试过。与原版的差异：[Fork 差异](fork-diff.zh-CN.md)。
+> [dadwritestech/LlamaForge](https://github.com/dadwritestech/LlamaForge) 的 Fork 构建 — 仅在 Ubuntu Server 上测试过。与原版的差异：[Fork 差异](fork-diff.zh-CN.md)。
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin

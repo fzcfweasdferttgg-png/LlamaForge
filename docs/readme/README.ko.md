@@ -11,7 +11,7 @@
 </h2>
 
 > [!IMPORTANT]
-> Fork 빌드 — Ubuntu Server에서만 테스트했습니다. 원본과의 차이: [Fork 차이](fork-diff.ko.md).
+> [dadwritestech/LlamaForge](https://github.com/dadwritestech/LlamaForge)의 포크 빌드 — Ubuntu Server에서만 테스트했습니다. 원본과의 차이: [Fork 차이](fork-diff.ko.md).
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin

@@ -11,7 +11,7 @@
 </h2>
 
 > [!IMPORTANT]
-> Сборка форка — тестировалась только на Ubuntu Server. Отличия от оригинала: [Отличия форка](fork-diff.ru.md).
+> Сборка форка [dadwritestech/LlamaForge](https://github.com/dadwritestech/LlamaForge) — тестировалась только на Ubuntu Server. Отличия от оригинала: [Отличия форка](fork-diff.ru.md).
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin

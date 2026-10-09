@@ -11,7 +11,7 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
 </h2>
 
 > [!IMPORTANT]
-> Fork build — tested on Ubuntu Server only. Differences from the original: [Fork differences](docs/content/fork-diff.md).
+> Fork build of [dadwritestech/LlamaForge](https://github.com/dadwritestech/LlamaForge) — tested on Ubuntu Server only. Differences from the original: [Fork differences](docs/content/fork-diff.md).
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin

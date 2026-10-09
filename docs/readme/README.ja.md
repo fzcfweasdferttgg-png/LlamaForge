@@ -11,7 +11,7 @@
 </h2>
 
 > [!IMPORTANT]
-> Fork ビルド — テストは Ubuntu Server のみ。オリジナルとの差分: [フォークの差分](fork-diff.ja.md)。
+> [dadwritestech/LlamaForge](https://github.com/dadwritestech/LlamaForge) のフォークビルド — テストは Ubuntu Server のみ。オリジナルとの差分: [フォークの差分](fork-diff.ja.md)。
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin
