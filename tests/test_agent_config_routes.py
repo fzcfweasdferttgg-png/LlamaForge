@@ -36,30 +36,22 @@ class FakeRegistry:
 class AgentEndpointMatrixTest(unittest.TestCase):
     def test_claude_is_always_panel_loopback(self):
         self.assertEqual(
-            routes._agent_endpoint_for("claude-code", False, CFG),
+            routes._agent_endpoint_for("claude-code", CFG),
             "http://127.0.0.1:8090",
         )
 
-    def test_codex_and_pi_injected_are_panel_loopback_v1(self):
-        for agent in ("codex", "pi"):
-            with self.subTest(agent=agent):
-                self.assertEqual(
-                    routes._agent_endpoint_for(agent, True, CFG),
-                    "http://127.0.0.1:8090/v1",
-                )
-
-    def test_direct_codex_and_pi_use_the_resolved_router_v1(self):
+    def test_codex_and_pi_use_the_resolved_router_v1(self):
         lan = dict(CFG, router_host="0.0.0.0")
         with mock.patch.object(routes.router_ctl, "lan_ip", return_value="192.168.1.8"):
             for agent in ("codex", "pi"):
                 with self.subTest(agent=agent, scope="local"):
                     self.assertEqual(
-                        routes._agent_endpoint_for(agent, False, CFG),
+                        routes._agent_endpoint_for(agent, CFG),
                         "http://127.0.0.1:8080/v1",
                     )
                 with self.subTest(agent=agent, scope="lan"):
                     self.assertEqual(
-                        routes._agent_endpoint_for(agent, False, lan),
+                        routes._agent_endpoint_for(agent, lan),
                         "http://192.168.1.8:8080/v1",
                     )
 
@@ -92,14 +84,14 @@ class AgentConfigRouteTest(unittest.TestCase):
 
     def test_preview_and_apply_use_the_same_resolved_endpoint(self):
         body = {"agent": "pi", "model": "main", "backend": "llamacpp",
-                "small": "", "inject": True}
+                "small": ""}
         patches = self._patch()
         with patches[0], patches[1], \
              mock.patch.object(routes.agentsetup, "generate",
                                return_value={"content": SECRET, "endpoint": "x"}) as generate:
             status, preview = routes.post_agent_config(Req(body=body))
         self.assertEqual(status, 200)
-        self.assertEqual(generate.call_args.args[1], "http://127.0.0.1:8090/v1")
+        self.assertEqual(generate.call_args.args[1], "http://127.0.0.1:8080/v1")
         self.assertIn(SECRET, json.dumps(preview))
 
         patches = self._patch()
@@ -109,12 +101,12 @@ class AgentConfigRouteTest(unittest.TestCase):
                                              "backup": None, "action": "created"}) as apply:
             status, written = routes.post_agent_apply(Req(body=body))
         self.assertEqual(status, 200)
-        self.assertEqual(apply.call_args.args[2], "http://127.0.0.1:8090/v1")
+        self.assertEqual(apply.call_args.args[2], "http://127.0.0.1:8080/v1")
         self.assertNotIn(SECRET, json.dumps(written))
 
     def test_claude_small_model_is_validated_on_same_backend(self):
         body = {"agent": "claude-code", "model": "main", "backend": "llamacpp",
-                "small": "small", "inject": False}
+                "small": "small"}
         patches = self._patch()
         with patches[0], patches[1], \
              mock.patch.object(routes.agentsetup, "generate",
@@ -126,37 +118,32 @@ class AgentConfigRouteTest(unittest.TestCase):
         self._assert_rejected_by_both([[]])
         self._assert_rejected_by_both({
             "agent": [], "model": "main", "backend": "llamacpp",
-            "small": "", "inject": False,
+            "small": "",
         })
 
     def test_rejection_matrix_validates_before_dependencies(self):
         cases = [
             ("empty array", [], LLAMA_ROWS, "llamacpp"),
             ("extra field", {"agent": "pi", "model": "main", "backend": "llamacpp",
-                             "small": "", "inject": False, "endpoint": "http://evil"},
-             LLAMA_ROWS, "llamacpp"),
-            ("bad inject", {"agent": "pi", "model": "main", "backend": "llamacpp",
-                            "small": "", "inject": "true"}, LLAMA_ROWS, "llamacpp"),
-            ("claude inject", {"agent": "claude-code", "model": "main",
-                               "backend": "llamacpp", "small": "", "inject": True},
+                             "small": "", "endpoint": "http://evil"},
              LLAMA_ROWS, "llamacpp"),
             ("malformed small", {"agent": "claude-code", "model": "main",
-                                 "backend": "llamacpp", "small": [], "inject": False},
+                                 "backend": "llamacpp", "small": []},
              LLAMA_ROWS, "llamacpp"),
             ("contradictory ownership", {"agent": "pi", "model": "main",
-                                         "backend": "llamacpp", "small": "", "inject": False},
+                                         "backend": "llamacpp", "small": ""},
              [{"id": "main", "backend": "ikllama", "status": "loaded"}], "llamacpp"),
             ("active vllm", {"agent": "pi", "model": "v", "backend": "vllm",
-                             "small": "", "inject": False},
+                             "small": ""},
              [{"id": "v", "backend": "vllm", "status": "loaded"}], "vllm"),
             ("non-claude small", {"agent": "pi", "model": "main", "backend": "llamacpp",
-                                  "small": "small", "inject": False}, LLAMA_ROWS, "llamacpp"),
+                                  "small": "small"}, LLAMA_ROWS, "llamacpp"),
             ("unknown backend", {"agent": "pi", "model": "main", "backend": "unknown",
-                                 "small": "", "inject": False}, LLAMA_ROWS, "llamacpp"),
+                                 "small": ""}, LLAMA_ROWS, "llamacpp"),
             ("stale backend", {"agent": "pi", "model": "main", "backend": "ikllama",
-                               "small": "", "inject": False}, LLAMA_ROWS, "llamacpp"),
+                               "small": ""}, LLAMA_ROWS, "llamacpp"),
             ("missing model", {"agent": "pi", "model": "missing", "backend": "llamacpp",
-                              "small": "", "inject": False}, LLAMA_ROWS, "llamacpp"),
+                              "small": ""}, LLAMA_ROWS, "llamacpp"),
         ]
         for name, body, rows, active in cases:
             with self.subTest(case=name):
@@ -164,17 +151,17 @@ class AgentConfigRouteTest(unittest.TestCase):
                     body, rows, active,
                     "agent configuration must be an object" if name == "empty array" else None)
 
-    def test_legacy_apply_shape_is_removed_after_frontend_cutover(self):
+    def test_missing_backend_is_rejected(self):
         patches = self._patch()
         with patches[0], patches[1], self.assertRaises(ApiError) as cm:
             routes.post_agent_apply(Req(body={
                 "agent": "pi", "model": "main", "small": ""}))
         self.assertEqual(cm.exception.status, 400)
-        self.assertIn("inject", str(cm.exception))
+        self.assertIn("backend", str(cm.exception))
 
     def test_preview_and_apply_failures_never_echo_the_router_key(self):
         body = {"agent": "pi", "model": "main", "backend": "llamacpp",
-                "small": "", "inject": False}
+                "small": ""}
         for handler, dependency in (
             (routes.post_agent_config, "generate"),
             (routes.post_agent_apply, "apply"),

@@ -100,10 +100,6 @@ Released:
 - **One-click agent setup** — a *Connect an Agent* panel that generates and
   optionally writes config for **Claude Code**, **Codex**, and **pi.dev**
   (Claude Code scoped to `127.0.0.1`; existing files backed up before any change).
-- **Context Wiki** — a directory of Markdown context docs composed into named
-  **profiles**, selected per model, and delivered by proxy injection (Anthropic
-  shim + OpenAI proxy) or exported into `CLAUDE.md` / `AGENTS.md` (marker region).
-  The stable prefix rides the router's prompt cache.
 - **Light/dark + colorblind-safe theming** — a Light theme adapting the terminal
   identity, plus an orthogonal colorblind-safe mode (universal Okabe–Ito status
   palette + non-color glyph/label cues). Layered persistence: localStorage >

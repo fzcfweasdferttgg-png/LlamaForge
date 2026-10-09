@@ -22,7 +22,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 |---|---|---|
 | POST | `/v1/messages` | Anthropic Messages API-compatible endpoint. Requires `anthropic_shim_enabled: true` in `config.json` (the default) and uses conditional `_shim_auth_ok`: auth is skipped for local router scope (and current behavior also skips when no key is configured); when enforced, it accepts either `x-api-key` or `Authorization: Bearer <key>`. Supports `"stream": true` (SSE) via `_anthropic_stream`, translates to the OpenAI-shaped request, and forwards to the router. |
 | POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same enable and conditional auth behavior as `/v1/messages`. |
-| POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
+| POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Forwards to the router. Supports `"stream": true`. |
 | POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. With multi-model on, the body also takes `role` (`main` or `worker`) and `evict`, and the load goes through the placement planner; a refusal comes back with a `reason`. |
 | POST | `/api/unload` | Unload a model from the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/unload`. |
 | POST | `/api/unload_all` | Unload every currently loaded/loading model (except the router's `default` entry). |
@@ -147,18 +147,8 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small, inject}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
-| POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`, `inject`). It may use the stored key internally but never returns a key. |
-| GET | `/api/wiki/docs` | List context-wiki documents. |
-| GET | `/api/wiki/doc` | Read a single document (query param `name`). |
-| POST | `/api/wiki/doc` | Create/update a document. |
-| POST | `/api/wiki/doc/delete` | Delete a document. |
-| GET | `/api/wiki/profiles` | List saved context profiles. |
-| POST | `/api/wiki/profile` | Save a named profile (its doc list + description). |
-| POST | `/api/wiki/profile/delete` | Delete a profile. |
-| GET | `/api/wiki/preview` | Preview the composed text for a profile (query param `profile`). |
-| POST | `/api/wiki/active` | Set the active profile for a model. |
-| POST | `/api/wiki/export` | Export composed context (e.g. to an agent's own file format). |
+| POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
+| POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`). It may use the stored key internally but never returns a key. |
 
 ## Docs viewer
 

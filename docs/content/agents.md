@@ -22,15 +22,10 @@ Shim auth (`backend/routes.py` `_shim_auth_ok()`, called from `server.py`) accep
 | Agent | Config file | Format | Endpoint it's given |
 |---|---|---|---|
 | `claude-code` | `~/.claude/settings.json` | JSON (`env` block) | The loopback Anthropic endpoint, `http://127.0.0.1:<panel_port>` — always local, never the LAN. |
-| `codex` | `~/.codex/config.toml` | TOML (appended provider block) | Direct mode uses the router's OpenAI-compatible endpoint, `http://<host>:<router_port>/v1`; injected mode uses the loopback panel endpoint `http://127.0.0.1:<panel_port>/v1`. |
-| `pi` | `~/.pi/agent/models.json` | JSON (`providers` block) | The same direct-router or injected-loopback choice as Codex. |
+| `codex` | `~/.codex/config.toml` | TOML (appended provider block) | The router's OpenAI-compatible endpoint, `http://<host>:<router_port>/v1`. |
+| `pi` | `~/.pi/agent/models.json` | JSON (`providers` block) | The same router endpoint as Codex. |
 
 Claude Code's generated `settings.json` sets `ANTHROPIC_BASE_URL` to the shim endpoint, `ANTHROPIC_AUTH_TOKEN` to the router key (your `router_api_key`, else the key LlamaForge generated for its own local router, else the literal string `llamaforge` — the shim needs a non-empty token even when auth is effectively open), `ANTHROPIC_MODEL`, and `ANTHROPIC_SMALL_FAST_MODEL`. Codex's TOML block declares a `[model_providers.llamaforge]` section with `wire_api = "chat"` and, if a router key exists (yours or the generated local one), an `env_key` pointing at a `LLAMAFORGE_API_KEY` environment variable the user must set — the key itself is never written to the TOML file. pi's `models.json` sets `api: "openai-completions"` with the key embedded directly in the config.
-
-Codex and pi can optionally be routed through the loopback panel proxy with
-`inject=true` — this is how those two agents pick up wiki context injection (see
-[Context Wiki](context-wiki.md)). An injected endpoint is local-machine-only;
-direct Codex/pi configuration uses the router endpoint instead.
 
 Preview generation returns config content and a human-readable target path/instructions without touching disk (used for "copy this into your config" display). Apply writes it — JSON targets are deep-merged into any existing file (`_deep_merge()`, so unrelated existing keys survive), and the Codex TOML target is appended only if the `[model_providers.llamaforge]` block isn't already present, commenting out any conflicting top-level `model`/`model_provider` line rather than deleting it. Apply backs up the target once, to `<path>.llamaforge.bak`, before its first write.
 
@@ -43,7 +38,7 @@ response never returns the key.
 
 1. Open the **Setup** tab, find the **Connect an agent** card, and pick Claude Code, Codex, or pi.dev under **Agent**.
 2. Choose a **Model** from the active llama-family engine (and, for Claude Code, a **Small model**). vLLM agent setup is deferred.
-3. Press **Show configuration**. This is the only preview action: it is an explicit POST and is not fetched on render or selection change. For Codex or pi.dev, tick **Inject local context through the panel (this machine only)** only when the agent runs on this same machine.
+3. Press **Show configuration**. This is the only preview action: it is an explicit POST and is not fetched on render or selection change.
 4. Review or copy the preview, then click **Apply** only to write the config into the agent's real local config file.
 5. Launch the agent. Claude Code must run on the same machine as LlamaForge — its endpoint is always `127.0.0.1`.
 
@@ -57,12 +52,10 @@ The same card carries a **pi coding agent** section and an **MCP server** sectio
 | Anthropic response translation | `backend/anthropic_shim.py` `to_anthropic_response()` / `stream_anthropic_events()` | OpenAI response/SSE -> Anthropic message / streaming content-block events. |
 | Token estimate | `backend/anthropic_shim.py` `count_tokens_estimate()` | Advisory only: `len(text) // 4` over the translated prompt. |
 | Shim auth | `backend/routes.py` `_shim_auth_ok()` | Accepts `x-api-key` or `Authorization: Bearer <key>`; skipped when `router_host` is `127.0.0.1` or no `router_api_key` is set. |
-| Endpoint per agent | `backend/routes.py` `_agent_endpoint_for()` | Claude Code -> loopback Anthropic endpoint; direct Codex/pi -> router at `<host>:router_port/v1`; injected Codex/pi -> loopback panel at `127.0.0.1:panel_port/v1`. |
-| Config preview | `POST /api/agent/config` | Explicit POST with `{agent, model, backend, small, inject}`; may deliberately contain Claude/pi credentials and does not write files. |
+| Endpoint per agent | `backend/routes.py` `_agent_endpoint_for()` | Claude Code -> loopback Anthropic endpoint; Codex/pi -> router at `<host>:router_port/v1`. |
+| Config preview | `POST /api/agent/config` | Explicit POST with `{agent, model, backend, small}`; may deliberately contain Claude/pi credentials and does not write files. |
 | Config apply | `POST /api/agent/apply` | Same targeting fields; writes to the real target path, JSON is deep-merged and Codex TOML appended if absent, original is backed up once. Apply never returns a key. |
 
 ## Troubleshooting
 
 If Claude Code can't reach LlamaForge, confirm it's running on the same machine — the shim endpoint is hardcoded to `127.0.0.1` and never the LAN IP, by design (`routes._agent_endpoint_for()` always returns the loopback panel address for Claude Code). If Codex or pi.dev requests fail auth after changing `router_host`, make sure `LLAMAFORGE_API_KEY` (Codex) or the embedded `apiKey` (pi) actually matches the current `router_api_key` in config — a stale key set before you edited config will keep failing. If re-applying a config seems to have no effect, check `<path>.llamaforge.bak` next to the target file: it holds the original from before LlamaForge ever touched it, since the backup is only ever written once.
-
-See also [Context Wiki](context-wiki.md) for how injected context reaches requests that go through the shim or router proxy.

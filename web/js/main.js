@@ -14,7 +14,6 @@ import { loadDiscover } from "./discover.js";
 import { loadWillRun } from "./willrun.js";
 import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
-import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
@@ -28,7 +27,6 @@ ui.onTabHidden("setup", leaveSetup);
 ui.onTabShown("discover", loadDiscover);
 ui.onTabShown("willrun", loadWillRun);
 ui.onTabShown("stats", stats.loadStats);
-ui.onTabShown("context", loadContext);
 ui.onTabShown("help", loadDocs);
 
 /* ---------- boot ---------- */

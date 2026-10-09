@@ -54,7 +54,7 @@
 
   /* section hues: every nav section owns one, the current one bands the title */
   --s-models:#e8661c;--s-stats:#2f8a62;--s-discover:#1d8a99;
-  --s-willrun:#c99a12;--s-build:#5d6f80;--s-setup:#4659a8;--s-context:#9b5a2a;--s-help:#5c8a3a;
+  --s-willrun:#c99a12;--s-build:#5d6f80;--s-setup:#4659a8;--s-help:#5c8a3a;
   --sec:var(--s-models);
 }
 
@@ -149,14 +149,12 @@
 :root[data-skin="stowage"] .navitem[data-tab="willrun"]{--h:var(--s-willrun)}
 :root[data-skin="stowage"] .navitem[data-tab="build"]{--h:var(--s-build)}
 :root[data-skin="stowage"] .navitem[data-tab="setup"]{--h:var(--s-setup)}
-:root[data-skin="stowage"] .navitem[data-tab="context"]{--h:var(--s-context)}
 :root[data-skin="stowage"] .navitem[data-tab="help"]{--h:var(--s-help)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="stats"]){--sec:var(--s-stats)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="discover"]){--sec:var(--s-discover)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="willrun"]){--sec:var(--s-willrun)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="build"]){--sec:var(--s-build)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="setup"]){--sec:var(--s-setup)}
-:root[data-skin="stowage"]:has(.navitem.active[data-tab="context"]){--sec:var(--s-context)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="help"]){--sec:var(--s-help)}
 :root[data-skin="stowage"] .side-settings{border-top:1px solid var(--rail-hair);padding-top:14px;gap:9px}
 :root[data-skin="stowage"] .cvd-toggle{font-size:12.5px;color:var(--rail-dim);display:flex;gap:8px;align-items:center;padding:0 2px}

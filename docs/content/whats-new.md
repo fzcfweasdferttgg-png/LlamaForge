@@ -120,12 +120,6 @@ A **Connect an Agent** panel generates — and optionally writes — the configu
 
 See [Connect an Agent](agents.md).
 
-## Context Wiki
-
-A working directory of Markdown context documents, composed into named **profiles** and selected **per model**. An active profile is delivered two ways: injected into requests through the Anthropic shim and the OpenAI proxy, or exported into an agent's native context file (`CLAUDE.md` / `AGENTS.md`) inside a managed marker region. Because the injected prefix is stable, the router's prompt-cache reuses it across requests.
-
-See [Context Wiki](context-wiki.md).
-
 ## Light and dark themes, plus a colorblind-safe mode
 
 The dashboard now offers a **Light** theme alongside the original dark one, and an independent **Colorblind-safe** mode that applies a universal Okabe–Ito status palette and adds non-color cues (glyphs and labels) so status never depends on hue alone. The two axes are orthogonal — all four combinations are valid — and each choice persists per device.

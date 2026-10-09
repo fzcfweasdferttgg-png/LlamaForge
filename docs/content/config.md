@@ -48,9 +48,6 @@ order: 1
 | `onboarded` | bool | `False` | Whether the first-run wizard has already been shown; set to `True` once dismissed. |
 | `anthropic_default_model` | string | `""` | Fallback local model id used by the Anthropic-compatible shim when a request doesn't map to one. |
 | `anthropic_shim_enabled` | bool | `True` | Whether `/v1/messages` (Anthropic-compatible) is served. |
-| `wiki_dir` | string | `""` | Context-doc directory for the wiki feature. Empty string resolves to `<repo root>/wiki`. |
-| `wiki_profiles` | object | `{}` | Named context-doc profiles: `{name: {"docs": [...], "description": str}}`. |
-| `wiki_active` | object | `{}` | Active profile per model: `{model_id: profile_name}`. |
 | `theme` | string | `""` | Light or dark. Empty string follows the OS/`localStorage`; otherwise `"light"` or `"dark"`. |
 | `cvd` | bool | `False` | Enables the colorblind-safe palette and non-color status cues. |
 | `skin` | string | `""` | UI skin. Empty string is the default, `"stowage"`; the others are `"hearth"` and `"classic"`. See [Theming](theming.md). |

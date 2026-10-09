@@ -25,7 +25,6 @@ MANIFEST = {
     "discover": "/#discover",
     "build": "/#build",
     "setup": "/#setup",
-    "context": "/#context",
     "help": "/#help",
 }
 

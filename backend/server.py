@@ -12,7 +12,7 @@ Pure Python stdlib.
 import json, os, socket, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, wiki, anthropic_shim, network_policy
+import config, anthropic_shim, network_policy
 import routes
 from routes import ApiError, Req
 
@@ -285,8 +285,7 @@ class H(BaseHTTPRequestHandler):
             if not routes._shim_auth_ok(headers):
                 return self._send(401, {"error": {"message": "invalid key",
                                                   "type": "authentication_error"}})
-            fwd = routes._inject_openai_system(
-                body, wiki.compose(wiki.active_profile(body.get("model", ""))))
+            fwd = body
             if fwd.get("stream"):
                 fwd.setdefault("stream_options", {"include_usage": True})
                 return self._openai_proxy_stream(fwd)
@@ -355,7 +354,6 @@ class H(BaseHTTPRequestHandler):
 
     def _anthropic_stream(self, body):
         model = routes._resolve_anthropic_model(body.get("model", ""))
-        body = routes._inject_anthropic_system(body, wiki.compose(wiki.active_profile(model)))
         oai = anthropic_shim.to_openai_request({**body, "model": model, "stream": True})
         oai["stream_options"] = {"include_usage": True}
         status, resp = routes._router_openai(oai, stream=True)

@@ -706,7 +706,6 @@ function agentRequest() {
     model,
     backend: row.backend,
     small: agent === "claude-code" ? $("#ac-small").value : "",
-    inject: agent !== "claude-code" && $("#ac-inject").checked,
   };
 }
 
@@ -714,8 +713,7 @@ function renderAgentConnect(generation) {
   const host = $("#agent-connect");
   if (!host) return;
   setHTML(host, `<h3>Connect an agent</h3>
-    <div class="note">Generate or apply configuration only when requested.
-      Context injection uses this machine's loopback-only panel.</div>
+    <div class="note">Generate or apply configuration only when requested.</div>
     <div class="agent-controls">
       <label>Agent
         <select id="ac-agent">
@@ -727,10 +725,6 @@ function renderAgentConnect(generation) {
       <label>Model <select id="ac-model">${agentModelOptions()}</select></label>
       <label id="ac-small-wrap">Small model
         <select id="ac-small">${agentModelOptions()}</select>
-      </label>
-      <label id="ac-inject-wrap" hidden>
-        <input id="ac-inject" type="checkbox">
-        Inject local context through the panel (this machine only)
       </label>
       <button id="ac-show" type="button">Show configuration</button>
       <button id="ac-apply" type="button" class="primary">Apply</button>
@@ -744,14 +738,11 @@ function renderAgentConnect(generation) {
   const sync = () => {
     const claude = $("#ac-agent").value === "claude-code";
     $("#ac-small-wrap").hidden = !claude;
-    $("#ac-inject-wrap").hidden = claude;
-    if (claude) $("#ac-inject").checked = false;
     clearAgentPreview();
   };
   $("#ac-agent").onchange = sync;
   $("#ac-model").onchange = () => clearAgentPreview();
   $("#ac-small").onchange = () => clearAgentPreview();
-  $("#ac-inject").onchange = () => clearAgentPreview();
   $("#ac-show").onclick = () => showAgentConfig(generation);
   $("#ac-apply").onclick = () => applyAgentConfig(generation);
   sync();

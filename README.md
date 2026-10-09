@@ -57,7 +57,6 @@ every server flag instead of a curated subset.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
 - **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) and, on Windows, [vLLM](https://github.com/vllm-project/vllm) in WSL2.
 - **Stats**: per-model tokens, speed and run counts from the router's own metrics. Per-client stats aren't possible, because clients talk to the router directly.
-- **Context**: Markdown context docs composed into profiles, injected into requests or written into `CLAUDE.md` / `AGENTS.md`.
 - **Recipes**: share a profile as readable JSON; others import it in one paste and LlamaForge downloads the model if missing. There's a [community gallery](recipes/).
 
 A first-run wizard and a **Lite / Advanced** toggle keep the deep knobs out of the way until you want them. The default look, **Stowage**, draws each GPU as a bay plan ruled in 1 GiB cells; **Hearth** and **Classic** are one click away, and each comes in light, dark and colorblind-safe.

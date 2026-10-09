@@ -21,7 +21,7 @@ tables: they write to the socket themselves and stay in server.py.
 import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
-import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
+import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, docs
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
@@ -174,29 +174,11 @@ def _agent_endpoint(agent):
     return f"http://{host}:{c['router_port']}/v1"
 
 
-def _agent_endpoint_for(agent, inject, c=None):
+def _agent_endpoint_for(agent, c=None):
     c = c or cfg()
     if agent == "claude-code":
         return f"http://{_panel_host(c)}:{c['panel_port']}"
-    if inject:
-        return f"http://{_panel_host(c)}:{c['panel_port']}/v1"
     return _llama_client_endpoint(c) + "/v1"
-
-
-_AGENT_CONTEXT_FILE = {"claude-code": ".claude/CLAUDE.md",
-                       "codex": ".codex/AGENTS.md", "pi": ".pi/AGENTS.md"}
-
-
-def _wiki_export(body):
-    agent = body.get("agent", "")
-    path = body.get("path", "")
-    composed = wiki.compose(body.get("profile", ""))
-    if not path:
-        rel = _AGENT_CONTEXT_FILE.get(agent)
-        if not rel:
-            return {"error": f"unknown agent: {agent}"}
-        path = os.path.join(os.path.expanduser("~"), *rel.split("/"))
-    return wiki.export_agent_file(path, composed)
 
 
 # ---------- router proxy ----------
@@ -607,33 +589,9 @@ def _router_openai(oai_body, stream=False):
         return 599, {"error": str(e)}
 
 
-def _inject_openai_system(body, composed):
-    if not composed:
-        return body
-    msgs = list(body.get("messages") or [])
-    if msgs and msgs[0].get("role") == "system":
-        merged = composed + "\n\n" + (msgs[0].get("content") or "")
-        msgs = [{"role": "system", "content": merged}] + msgs[1:]
-    else:
-        msgs = [{"role": "system", "content": composed}] + msgs
-    return {**body, "messages": msgs}
-
-
-def _inject_anthropic_system(body, composed):
-    if not composed:
-        return body
-    sys = body.get("system")
-    if isinstance(sys, str) and sys:
-        return {**body, "system": composed + "\n\n" + sys}
-    if isinstance(sys, list):
-        return {**body, "system": [{"type": "text", "text": composed}] + sys}
-    return {**body, "system": composed}
-
-
 def _anthropic_messages(body, headers):
     """Non-streaming /v1/messages: returns (status, anthropic_json)."""
     model = _resolve_anthropic_model(body.get("model", ""))
-    body = _inject_anthropic_system(body, wiki.compose(wiki.active_profile(model)))
     oai = anthropic_shim.to_openai_request({**body, "model": model, "stream": False})
     status, data = _router_openai(oai, stream=False)
     if status >= 400:
@@ -1120,7 +1078,7 @@ def post_client_config(req):
 def _resolve_agent_request(body):
     if not isinstance(body, dict):
         raise ApiError(400, "agent configuration must be an object")
-    allowed = {"agent", "model", "backend", "small", "inject"}
+    allowed = {"agent", "model", "backend", "small"}
     unknown = set(body) - allowed
     if unknown:
         raise ApiError(400, "unsupported agent-config fields: " + ", ".join(sorted(unknown)))
@@ -1129,11 +1087,6 @@ def _resolve_agent_request(body):
         raise ApiError(400, "agent must be a string")
     if agent not in agentsetup.AGENTS:
         raise ApiError(400, f"unknown agent: {agent}")
-    inject = body.get("inject")
-    if not isinstance(inject, bool):
-        raise ApiError(400, "inject must be a boolean")
-    if agent == "claude-code" and inject:
-        raise ApiError(400, "Claude Code always uses the local Anthropic endpoint")
 
     backend = body.get("backend", "")
     active = REGISTRY.active_engine()
@@ -1161,8 +1114,7 @@ def _resolve_agent_request(body):
         "model": row["id"],
         "backend": active,
         "small": small,
-        "inject": inject,
-        "endpoint": _agent_endpoint_for(agent, inject, c),
+        "endpoint": _agent_endpoint_for(agent, c),
         "api_key": network_policy.effective_key(c),
     }
 
@@ -1172,27 +1124,10 @@ def post_agent_config(req):
     try:
         out = agentsetup.generate(
             target["agent"], target["endpoint"], target["api_key"],
-            target["model"], target["small"], target["inject"])
+            target["model"], target["small"])
     except Exception:
         raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
-
-
-def get_wiki_docs(req):
-    return 200, {"docs": wiki.list_docs()}
-
-
-def get_wiki_doc(req):
-    name = req.q("name")
-    return 200, {"name": name, "text": wiki.read_doc(name)}
-
-
-def get_wiki_profiles(req):
-    return 200, {"profiles": wiki.get_profiles()}
-
-
-def get_wiki_preview(req):
-    return 200, {"text": wiki.compose(req.q("profile"))}
 
 
 def get_docs(req):
@@ -2283,47 +2218,6 @@ def post_agent_apply(req):
     return 200, out
 
 
-def post_wiki_doc(req):
-    try:
-        wiki.write_doc(req.body.get("name", ""), req.body.get("text", ""))
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    return 200, {"ok": True, "docs": wiki.list_docs()}
-
-
-def post_wiki_doc_delete(req):
-    try:
-        ok = wiki.delete_doc(req.body.get("name", ""))
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    return 200, {"ok": ok, "docs": wiki.list_docs()}
-
-
-def post_wiki_profile(req):
-    try:
-        profs = wiki.save_profile(req.body.get("name", ""), req.body.get("docs", []),
-                                  req.body.get("description", ""))
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    return 200, {"ok": True, "profiles": profs}
-
-
-def post_wiki_profile_delete(req):
-    return 200, {"ok": wiki.delete_profile(req.body.get("name", "")),
-                 "profiles": wiki.get_profiles()}
-
-
-def post_wiki_active(req):
-    wiki.set_active(req.body.get("model", ""), req.body.get("profile", ""))
-    return 200, {"ok": True}
-
-
-def post_wiki_export(req):
-    out = _wiki_export(req.body)
-    return (400 if out.get("error") else 200), out
-
-
-
 # ============================================================ prebuilt engine
 # Official ggml-org binaries: the no-compiler path (see prebuilt.py).
 
@@ -2473,10 +2367,6 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
-    "/api/wiki/docs":         get_wiki_docs,
-    "/api/wiki/doc":          get_wiki_doc,
-    "/api/wiki/profiles":     get_wiki_profiles,
-    "/api/wiki/preview":      get_wiki_preview,
     "/api/docs":              get_docs,
     "/api/docs/page":         get_docs_page,
     "/api/slots":             get_slots,
@@ -2546,12 +2436,6 @@ POST_ROUTES = {
     "/v1/messages/count_tokens": post_count_tokens,
     "/api/agent/config":        post_agent_config,
     "/api/agent/apply":         post_agent_apply,
-    "/api/wiki/doc":            post_wiki_doc,
-    "/api/wiki/doc/delete":     post_wiki_doc_delete,
-    "/api/wiki/profile":        post_wiki_profile,
-    "/api/wiki/profile/delete": post_wiki_profile_delete,
-    "/api/wiki/active":         post_wiki_active,
-    "/api/wiki/export":         post_wiki_export,
     "/api/slots/main":          post_slots_main,
     "/api/slots/apply":         post_slots_apply,
     "/api/model/build":         post_model_build,

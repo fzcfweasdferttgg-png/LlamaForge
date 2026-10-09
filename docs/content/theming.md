@@ -84,4 +84,4 @@ Resolution order, most specific first:
 
 If a new browser profile on the same machine doesn't pick up the theme you set elsewhere, that's expected the first time — `localStorage` is per-browser, and the server-side config value only becomes the applied default on the next `refresh()`, and only if that browser hasn't already chosen its own theme. If a previously-set theme seems "stuck" after changing the server default, clear the `skin`/`theme`/`cvd` keys from that browser's `localStorage`, since a local choice always wins over the config fallback.
 
-See also [Context Wiki](context-wiki.md) and [Connect an Agent](agents.md) for the other panels this appearance system applies to.
+See also [Connect an Agent](agents.md) for the other panel this appearance system applies to.

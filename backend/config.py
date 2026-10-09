@@ -62,9 +62,6 @@ DEFAULTS = {
     "onboarded":   False,                     # first-run wizard shown once, then True
     "anthropic_default_model": "",           # fallback local model id for the Anthropic shim
     "anthropic_shim_enabled":  True,          # serve /v1/messages (Anthropic-compatible)
-    "wiki_dir":      "",                       # context-doc directory ("" -> <ROOT>/wiki)
-    "wiki_profiles": {},                       # {name: {"docs":[...], "description":str}}
-    "wiki_active":   {},                       # {model_id: profile_name}
     "theme":         "",                       # "" = follow OS/localStorage; "light"|"dark"
     "cvd":           False,                     # colorblind-safe palette + non-color cues
     "skin":          "",                       # "" = default (stowage); "stowage"|"hearth"|"classic"
@@ -136,7 +133,7 @@ def update(changes):
 
 def mutate(fn):
     """Atomic read-modify-write where the new value depends on the old one
-    (nested dicts like presets / wiki_profiles / wiki_active). `fn` receives the
+    (nested dicts like presets / preset_bindings). `fn` receives the
     loaded config and edits it in place; the result is saved under the lock.
     Returns fn's return value, so callers can hand back the sub-dict they built.
     """
