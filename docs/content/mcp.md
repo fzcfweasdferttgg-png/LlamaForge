@@ -60,7 +60,7 @@ None of them contain secrets; the server reads the router key from `config.json`
 - **`pi_run` says pi isn't installed**: install it from **Setup → pi coding agent**.
 - **`pi_run` times out in Codex**: raise `tool_timeout_sec` in the Codex config.
 
-See also [Connect an Agent](agents.md), [Embers](embers.md) and [HTTP API](api.md).
+See also [Connect an Agent](agents.md) and [HTTP API](api.md).
 
 ## HTTP transport (opt-in)
 

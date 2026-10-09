@@ -28,7 +28,6 @@ import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_downlo
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import mcp_server, piinstall, logfiles
 from builder import BuildManager
-from embers import panel as embers_panel
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
 VLLM_SUPPORTED = osplat.IS_WIN
@@ -2445,15 +2444,6 @@ def post_engine_prebuilt_use(req):
 
 # =================================================================== the tables
 
-def _embers(fn):
-    """An embers.panel handler as a route: its Error becomes our ApiError."""
-    def handler(req):
-        try:
-            return fn(req, cfg())
-        except embers_panel.Error as e:
-            raise ApiError(e.status, e.message)
-    return handler
-
 GET_ROUTES = {
     "/api/state":             get_state,
     "/api/schema":            get_schema,
@@ -2490,13 +2480,6 @@ GET_ROUTES = {
     "/api/slots/plan":        get_slots_plan,
     "/api/mcp/setup":         get_mcp_setup,
     "/api/pi/status":         get_pi_status,
-    "/api/embers":            _embers(embers_panel.get_embers),
-    "/api/embers/templates":  _embers(embers_panel.get_templates),
-    "/api/embers/brief":      _embers(embers_panel.get_brief),
-    "/api/embers/pages":      _embers(embers_panel.get_pages),
-    "/api/embers/page":       _embers(embers_panel.get_page),
-    "/api/embers/raw":        _embers(embers_panel.get_raw),
-    "/api/embers/log":        _embers(embers_panel.get_log),
 }
 
 POST_ROUTES = {
@@ -2569,15 +2552,6 @@ POST_ROUTES = {
     "/api/slots/main":          post_slots_main,
     "/api/slots/apply":         post_slots_apply,
     "/api/model/build":         post_model_build,
-    "/api/embers/create":       _embers(embers_panel.post_create),
-    "/api/embers/update":       _embers(embers_panel.post_update),
-    "/api/embers/delete":       _embers(embers_panel.post_delete),
-    "/api/embers/run":          _embers(embers_panel.post_run),
-    "/api/embers/cancel":       _embers(embers_panel.post_cancel),
-    "/api/embers/folder":       _embers(embers_panel.post_folder),
-    "/api/embers/ask":          _embers(embers_panel.post_ask),
-    "/api/embers/forge":        _embers(embers_panel.post_forge),
-    "/api/embers/push/test":    _embers(embers_panel.post_push_test),
 }
 
 
@@ -2596,38 +2570,3 @@ def _proc_endpoints():
 
 
 stats.TRACKER.proc_source = _proc_endpoints
-embers_panel.MAIN_FN = lambda: SLOTS._main()   # Ask lists the pool's main model first
-
-
-class EmbersPool:
-    """The pool as the embers scheduler may use it: worker loads beside the
-    user's models, never an eviction, never a role change."""
-
-    def active(self):
-        return _slots_on()
-
-    def plan(self, mid):
-        return SLOTS.plan(mid, "worker")
-
-    def load(self, mid):
-        return SLOTS.load(mid, "worker", False, wait=True, keep_role=True)
-
-    def unload(self, mid):
-        return SLOTS.unload(mid)
-
-    def touch(self, mid):
-        SLOTS.touch(mid)
-
-    def main(self):
-        return SLOTS._main()
-
-    def own_build(self, mid):
-        """Embers go through the router; a model in its own process isn't there."""
-        sbin, err = pinned_bin(mid)
-        if err:
-            return f"{mid} is pinned to a build that can't be used: {err}"
-        if sbin:
-            return (f"{mid} runs on its own build, outside the router embers use; "
-                    f"pick another model for this ember, or set {mid} back to the "
-                    f"router's build")
-        return ""

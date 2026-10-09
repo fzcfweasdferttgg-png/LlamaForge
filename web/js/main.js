@@ -16,14 +16,12 @@ import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
 import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
-import { loadEmbers, poll as pollEmbers } from "./embers.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
 import { initProfiles } from "./profiles.js";
 import { on } from "./bus.js";
 
 /* ---------- tab loaders ---------- */
-ui.onTabShown("embers", loadEmbers);
 ui.onTabShown("build", loadBuild);
 ui.onTabShown("setup", loadSetup);
 ui.onTabHidden("setup", leaveSetup);
@@ -103,7 +101,6 @@ setInterval(clock, 1000);
 /* ---------- polls (idle unless their tab is showing) ---------- */
 setInterval(() => { if (ui.activeTab() === "models") models.refresh(true); }, 4000);
 setInterval(() => { if (ui.activeTab() === "stats") stats.loadStats(true); }, 4000);
-setInterval(() => { if (ui.activeTab() === "embers") pollEmbers(); }, 5000);
 setInterval(() => {
   if (ui.activeTab() === "models" && $("#router-log-details")?.open)
     models.refreshRouterLog();

@@ -28,7 +28,7 @@ LlamaForge runs three local HTTP services:
 
 | Component | Default address | Role |
 |---|---|---|
-| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Embers, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Binds `127.0.0.1` by default; `panel_host` can share it on the LAN. |
+| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Binds `127.0.0.1` by default; `panel_host` can share it on the LAN. |
 | Router | `http://127.0.0.1:8080` | llama.cpp's own server process, started by LlamaForge with `--models-preset models.ini`. Serves the OpenAI-compatible API. Always runs with an API key unless `router_allow_keyless_lan` opts out. |
 | MCP (optional) | off by default | The [MCP server](mcp.md) over Streamable HTTP when `mcp_host` is set (`mcp_port`, default `8092`). The stdio form needs no listener. |
 

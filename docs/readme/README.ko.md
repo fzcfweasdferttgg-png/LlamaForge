@@ -52,8 +52,7 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
   - 모델을 펼치면 GGUF 메타데이터 카드(아키텍처, 양자화, 학습 컨텍스트, 레이어) 옆에서 llama-server 플래그 전부를 그룹별로 검색하며 편집합니다.
   - 저장하면 모델을 그 자리에서 다시 로드합니다. 로드 실패 시 라우터 로그의 마지막 오류와 추정 원인 힌트를 보여줍니다.
   - 프리셋, 실행 프로필(모델 + 프리셋 + 고정된 llama.cpp 빌드를 한 번에), 나란히 비교, 복사-붙여넣기용 클라이언트 코드 조각.
-  - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 씁니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
-- **Embers**: 주제를 감시하고 자체 위키를 유지하며 일정에 따라 브리핑을 작성하는 소형 로컬 에이전트. 위키 항목은 출처를 그대로 인용해야만 인정됩니다. **Forge**는 인터뷰를 통해 하나를 만들고, **Model Scout**는 설정이 필요 없습니다. Embers는 브라우저나 도구가 없으며, 푸시 알림을 켜지 않는 한 아무것도 기기 밖으로 나가지 않습니다.
+  - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 얍니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
 - **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load** 준비로 끝납니다.
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
 - **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동하고, Windows에서는 WSL2의 [vLLM](https://github.com/vllm-project/vllm)도 구동합니다.

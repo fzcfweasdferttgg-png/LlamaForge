@@ -55,7 +55,6 @@ _BODY_ERROR = object()
 # (WinError 10053 on Windows). So drain what is in flight first, within bounds.
 LINGER_SECONDS = 2
 LINGER_MAX_BYTES = 1024 * 1024
-EMBERS_SCHED = None        # the panel's ember scheduler, started by main() only
 
 
 def _post_body_limit(path):
@@ -427,7 +426,6 @@ def _router_startup(model_id):
 
 
 def main():
-    global EMBERS_SCHED
     import stats
     config.migrate()
     c = routes.cfg()
@@ -470,13 +468,6 @@ def main():
             tray.start(port, _tray_counts)
     except Exception:
         pass
-    try:                    # embers: run due jobs in the background (config embers_scheduler)
-        from embers.scheduler import Scheduler
-        EMBERS_SCHED = Scheduler(routes.cfg, pool=routes.EmbersPool())
-        EMBERS_SCHED.start()
-        routes.embers_panel.SCHEDULER = EMBERS_SCHED   # the Embers tab's "run now" queues here
-    except Exception as e:
-        print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")
     import threading
     threading.Thread(target=_router_startup, args=(c.get("auto_load_model"),),
                      daemon=True, name="router-startup").start()

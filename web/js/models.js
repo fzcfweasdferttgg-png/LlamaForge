@@ -637,7 +637,7 @@ function buildBar(m) {
   else if (cur && cur.router)
     note = `<div class="slotnote dim">Pinned: it stays on ${esc(cur.label)} when the router moves to another build.</div>`;
   else if (cur)
-    note = `<div class="slotnote dim">Runs in its own llama-server${m.process ? " on port " + esc(m.process.port) : ""}, not the router: clients reach it at its own endpoint, and Embers can't use it.</div>`;
+    note = `<div class="slotnote dim">Runs in its own llama-server${m.process ? " on port " + esc(m.process.port) : ""}, not the router: clients reach it at its own endpoint.</div>`;
   return `<div class="tunebar">
     <span class="tunebar-label" title="Which llama.cpp build runs this model. Follow the router, or keep it on one build whatever the router runs. A build other than the router's runs the model in its own process.">Build</span>
     <select data-build-pick="${esc(m.id)}">${items.join("")}</select>

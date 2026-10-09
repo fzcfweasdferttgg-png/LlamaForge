@@ -122,29 +122,6 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/pi/install` / `/api/pi/remove` | Start a pi install (or update) or removal job; progress comes back through `GET /api/pi/status`. `409` if a job is already running. |
 | GET | `/api/mcp/setup` | Ready-to-paste client configs for LlamaForge's [MCP server](mcp.md), with this install's Python and script paths filled in. |
 
-## Embers
-
-The Embers tab's endpoints. See [Embers](embers.md) for what each does.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/embers` | Every ember as a card, the embers folder, and whether the scheduler is running. |
-| GET | `/api/embers/templates` | The templates a new ember can start from. |
-| GET | `/api/embers/brief` | An ember's brief: query `id`, optional `date`. |
-| GET | `/api/embers/pages` | An ember's wiki pages and recent source snapshots (query `id`). |
-| GET | `/api/embers/page` | One wiki page rendered (query `id`, `page`). |
-| GET | `/api/embers/raw` | One source snapshot (query `id`, `sha`). |
-| GET | `/api/embers/log` | Recent job runs and log lines (query `id`). |
-| POST | `/api/embers/create` | Create an ember from a template: `{template, bindings, id?}`. |
-| POST | `/api/embers/update` | Change `name`, `bindings`, `jobs`, `model`, `enabled` or `push` for `{id}`. |
-| POST | `/api/embers/delete` | Remove an ember: `{id}`. Its wiki stays on disk; the response's `kept` is the folder. `409` while a job is running. |
-| POST | `/api/embers/run` | Queue `{id, job}` where `job` is `run` (ingest then brief), `ingest`, `brief` or `lint`. |
-| POST | `/api/embers/cancel` | Drop an ember's queued jobs: `{id}`. |
-| POST | `/api/embers/ask` | Ask an ember's wiki a question: `{id, question}`. Uses a model that is already loaded. |
-| POST | `/api/embers/forge` | One turn of the Forge interview that builds an ember. Uses a model that is already loaded. |
-| POST | `/api/embers/push/test` | Send a test notification through an ember's push settings: `{id}`. |
-| POST | `/api/embers/folder` | Point the panel at another embers folder: `{path}` (`""` = the default). Nothing is moved. |
-
 ## vLLM (WSL) management
 
 Only reachable when vLLM support is available on the host (`_vllm_gate`).

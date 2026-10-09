@@ -66,7 +66,7 @@ function askDialog(title, message, ok, danger, field) {
   });
 }
 
-/** await askYes("Remove it?", {title: "Remove ember", ok: "Remove", danger: true}) -> true/false */
+/** await askYes("Remove it?", {title: "Remove profile", ok: "Remove", danger: true}) -> true/false */
 export function askYes(message, {title = "Are you sure?", ok = "OK", danger = false} = {}) {
   return askDialog(title, message, ok, danger, null);
 }

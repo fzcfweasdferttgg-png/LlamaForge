@@ -8,12 +8,11 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
-## v0.16: Embers, several models at once, an MCP server
+## v0.16: several models at once, an MCP server
 
 - **Several models at once.** Multi-model mode places your main model on the fastest GPU that fits it and keeps worker models off that GPU. Fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. Workers are evicted least-recently-used, and only after you agree to it. A model with no context size set is refused, with the reason. The model rows get **Load as worker**, **Make main** and **Unload X and load**, and Setup has a Multi-model card. API: `/api/slots`, `/api/slots/plan`, `/api/slots/main`, `/api/slots/apply`.
 - **Per-model builds.** Pin a model to any installed llama.cpp build. An ik_llama build runs as its own `llama-server` on `127.0.0.1:8100` and up, with arguments translated between the builds. Crash exit codes are named instead of shown as raw numbers.
 - **"Runs on" for GGUFs.** The file card says whether a GGUF runs on any build, mainline only or ik_llama only. The diagnosis explains `invalid ggml type N` instead of leaving you with the number.
-- **Embers.** Small local agents that keep watch on a topic, keep a wiki and write you a brief on a schedule. A wiki item only counts if it quotes its source verbatim. Model Scout needs no setup, and **Forge** builds a new ember by interviewing you (tested on 8 models from 3B to 27B). See [Embers](embers.md).
 - **MCP server.** Claude Code, Codex or any MCP client can check status, load and unload models, check fit, search and download from Hugging Face, and hand a task to a local model. See [MCP Server](mcp.md).
 - **pi from Setup.** The pi coding agent card installs, updates and removes pi under `<root>/agents/pi` (with `--ignore-scripts`), and can install Node.js through winget, Chocolatey or Homebrew. See [Connect an Agent](agents.md).
 - **Stowage, the new default look.** Each GPU on Models and Stats is drawn as a cargo hold ruled in 1 GiB cells, with every loaded model stowed in it at its measured size. Open a model and it shows where it would go: if it won't fit, the part that doesn't fit hangs past the end of the hold and anything that would be unloaded is marked. A ledger adds up used, booked and free to the tenth. Light, dark and colorblind-safe. **Hearth** and **Classic** are one click away. Motion is subtle, never runs on the views that refresh every few seconds, and is off when your system asks for reduced motion. See [Theming & Accessibility](theming.md).

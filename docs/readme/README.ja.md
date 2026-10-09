@@ -48,7 +48,6 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
   - 保存するとモデルをその場で再読み込みする。読み込み失敗時はルーターログの直近エラーと推測のヒントを表示する。
   - プリセット、起動プロファイル(モデル + プリセット + 固定した llama.cpp ビルドを 1 クリック)、並列比較、コピー&ペースト用クライアントスニペット。
   - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用の llama.cpp(または ik_llama.cpp)ビルドを固定することもできる。
-- **Embers**: トピックを見守り、独自の wiki を管理し、スケジュールに沿ってブリーフを書く小さなローカルエージェント。wiki の項目は、出典を逐語的に引用して初めて成立する。**Forge** は対話しながら 1 つを作り、**Model Scout** は設定不要。Embers にブラウザやツールはなく、プッシュ通知を有効にしない限り何もマシン外に出ない。
 - **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load** 準備で終わる。
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
 - **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も、Windows では WSL2 上の [vLLM](https://github.com/vllm-project/vllm) も操作する。

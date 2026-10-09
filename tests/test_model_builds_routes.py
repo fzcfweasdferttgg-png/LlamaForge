@@ -302,15 +302,5 @@ class SetBuild(Base):
         self.assertIn("Build / Update", str(e.exception))
 
 
-class Embers(Base):
-    def test_a_model_on_its_own_build_says_why(self):
-        self.assertIn("own build", routes.EmbersPool().own_build("ikm"))
-        self.assertEqual(routes.EmbersPool().own_build("m1"), "")
-
-    def test_a_dangling_pin_says_why_too(self):
-        self.write_cfg(model_builds={"m1": "b6000-gone"})
-        self.assertIn("b6000-gone", routes.EmbersPool().own_build("m1"))
-
-
 if __name__ == "__main__":
     unittest.main()

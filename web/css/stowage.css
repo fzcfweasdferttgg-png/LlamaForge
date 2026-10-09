@@ -53,7 +53,7 @@
   --book-fill:rgba(255,194,26,.16);--book-rule:#ffc21a;
 
   /* section hues: every nav section owns one, the current one bands the title */
-  --s-models:#e8661c;--s-embers:#a8476b;--s-stats:#2f8a62;--s-discover:#1d8a99;
+  --s-models:#e8661c;--s-stats:#2f8a62;--s-discover:#1d8a99;
   --s-willrun:#c99a12;--s-build:#5d6f80;--s-setup:#4659a8;--s-context:#9b5a2a;--s-help:#5c8a3a;
   --sec:var(--s-models);
 }
@@ -104,7 +104,7 @@
 :root[data-skin="stowage"] ::-webkit-scrollbar{width:10px;height:10px}
 :root[data-skin="stowage"] ::-webkit-scrollbar-thumb{background:var(--hair-hi);border:2px solid var(--bg)}
 :root[data-skin="stowage"] ::-webkit-scrollbar-track{background:transparent}
-:root[data-skin="stowage"] :is(.log,.snip,code,pre,kbd,.ef-raw,.ef-fpath,.flagpill,.metacard .mv,.cmptbl td .mono,.tunebar-results,.ctxpill,.fg-v code){font-family:var(--mono)}
+:root[data-skin="stowage"] :is(.log,.snip,code,pre,kbd,.flagpill,.metacard .mv,.cmptbl td .mono,.tunebar-results,.ctxpill){font-family:var(--mono)}
 :root[data-skin="stowage"] .sub{font-family:var(--sans);letter-spacing:.08em}
 
 /* ---------- sidebar: the navy rail ---------- */
@@ -144,7 +144,6 @@
 :root[data-skin="stowage"] .navitem:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
 :root[data-skin="stowage"][data-nav="rail"] .navitem{padding:8px 0;justify-content:center}
 :root[data-skin="stowage"] .navitem[data-tab="models"]{--h:var(--s-models)}
-:root[data-skin="stowage"] .navitem[data-tab="embers"]{--h:var(--s-embers)}
 :root[data-skin="stowage"] .navitem[data-tab="stats"]{--h:var(--s-stats)}
 :root[data-skin="stowage"] .navitem[data-tab="discover"]{--h:var(--s-discover)}
 :root[data-skin="stowage"] .navitem[data-tab="willrun"]{--h:var(--s-willrun)}
@@ -152,7 +151,6 @@
 :root[data-skin="stowage"] .navitem[data-tab="setup"]{--h:var(--s-setup)}
 :root[data-skin="stowage"] .navitem[data-tab="context"]{--h:var(--s-context)}
 :root[data-skin="stowage"] .navitem[data-tab="help"]{--h:var(--s-help)}
-:root[data-skin="stowage"]:has(.navitem.active[data-tab="embers"]){--sec:var(--s-embers)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="stats"]){--sec:var(--s-stats)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="discover"]){--sec:var(--s-discover)}
 :root[data-skin="stowage"]:has(.navitem.active[data-tab="willrun"]){--sec:var(--s-willrun)}
@@ -221,7 +219,7 @@
 :root[data-skin="stowage"] .presetbar .pchip{font-family:var(--cond);letter-spacing:.06em;font-size:13px;border-radius:0}
 
 /* ---------- surfaces: flat panels, 1px rules ---------- */
-:root[data-skin="stowage"] :is(.card,.gpu,.row,.kgroup,.ef-list,.ef-status,.fg-bp,.stats-vram-card,.rcard,.starter){
+:root[data-skin="stowage"] :is(.card,.gpu,.row,.kgroup,.stats-vram-card,.rcard,.starter){
   background:var(--panel);border:1px solid var(--hair);border-radius:0;box-shadow:none}
 :root[data-skin="stowage"] .card{padding:20px 22px;margin-bottom:16px}
 :root[data-skin="stowage"] .card h3{font-family:var(--cond);font-weight:700;font-size:21px;letter-spacing:.04em;text-transform:uppercase;
@@ -335,7 +333,7 @@
 :root[data-skin="stowage"] .stats-vram-empty{font-family:var(--cond);font-weight:600;font-size:12.5px;letter-spacing:.1em}
 :root[data-skin="stowage"] .stats-vram-card .stats b{font-size:inherit;color:var(--ink-hi)}
 :root[data-skin="stowage"] .token-scale-label{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.1em}
-:root[data-skin="stowage"] :is(.formrow .lbl,.ef-flabel,.ef-flink){font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em}
+:root[data-skin="stowage"] .formrow .lbl{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em}
 
 /* ---------- model rows: a dense table ---------- */
 :root[data-skin="stowage"] .list{gap:0;border-top:1px solid var(--hair)}
@@ -410,30 +408,6 @@
 :root[data-skin="stowage"] .skel{font-family:var(--cond);font-weight:600;letter-spacing:.1em;font-size:15px;color:var(--dim)}
 :root[data-skin="stowage"] :is(.docs-body h1,.docs-body h2,.docs-body h3){font-family:var(--cond);font-weight:700;letter-spacing:.02em;text-transform:uppercase}
 :root[data-skin="stowage"] .docs-body{font-size:15.5px;line-height:1.65}
-
-/* ---------- embers & forge: same world, no flame ---------- */
-:root[data-skin="stowage"] .ef-flame{display:none}
-:root[data-skin="stowage"] .ef-list{padding:0}
-:root[data-skin="stowage"] .ef-row{border-radius:0;border-left:0;padding:10px 12px}
-:root[data-skin="stowage"] .ef-row:hover{background:var(--panel2)}
-:root[data-skin="stowage"] .ef-row.sel{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--ink-hi)}
-:root[data-skin="stowage"] .ef-name{font-family:var(--cond);font-weight:700;font-size:16.5px;letter-spacing:.03em;text-transform:uppercase}
-:root[data-skin="stowage"] .ef-title{font-family:var(--cond);font-weight:700;font-size:34px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
-:root[data-skin="stowage"] .ef-tab{font-family:var(--cond);font-weight:600;font-size:14.5px;letter-spacing:.06em;text-transform:uppercase;border-radius:0}
-:root[data-skin="stowage"] #ef-detail .ef-tab.on{color:var(--ink-strong);border-bottom-color:var(--sec)}
-:root[data-skin="stowage"] .ef-forgerow{border-radius:0;border-color:var(--hair-hi);background:var(--panel2)}
-:root[data-skin="stowage"] :is(.ef-doc,.ef-answer){border-radius:0;border:1px solid var(--hair);background:var(--panel2);padding:28px 32px;font-size:15.5px;line-height:1.65}
-:root[data-skin="stowage"] .ef-doc :is(h1,h2,h3){font-family:var(--cond);font-weight:700;letter-spacing:.02em;text-transform:uppercase}
-:root[data-skin="stowage"] .ef-pg{border-radius:0}
-:root[data-skin="stowage"] .ef-pg.on{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--hair-hi)}
-:root[data-skin="stowage"] .ef-tpl{border-radius:0;background:var(--panel)}
-:root[data-skin="stowage"] .ef-tpltitle{font-family:var(--cond);font-weight:700;letter-spacing:.04em;font-size:17px}
-:root[data-skin="stowage"] .ef-blank{border-radius:0;font-family:var(--cond);font-weight:600;letter-spacing:.06em}
-:root[data-skin="stowage"] .ef-status{border-radius:0}
-:root[data-skin="stowage"] .fg-log{border-radius:0;background:var(--inset)}
-:root[data-skin="stowage"] .fg-who{font-family:var(--cond);font-weight:700;letter-spacing:.1em}
-:root[data-skin="stowage"] .fg-bphead{font-family:var(--cond);font-weight:700;font-size:18px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-strong)}
-:root[data-skin="stowage"] .fg-form textarea{border-radius:0;font-family:var(--sans);font-size:14px}
 
 /* ---------- rail and small screens ---------- */
 @media (max-width:900px){

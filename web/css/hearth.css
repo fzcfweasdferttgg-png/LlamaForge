@@ -100,7 +100,7 @@
 :root[data-skin="hearth"] #content::before{display:none}
 :root[data-skin="hearth"] ::selection{background:var(--amber);color:var(--on-amber)}
 /* the things that really are code stay mono */
-:root[data-skin="hearth"] :is(.log,.snip,code,pre,kbd,.ef-raw,.ef-fpath,.flagpill,.metacard .mv,.cmptbl td .mono,.tunebar-results,.ctxpill,.fg-v code){font-family:var(--mono)}
+:root[data-skin="hearth"] :is(.log,.snip,code,pre,kbd,.flagpill,.metacard .mv,.cmptbl td .mono,.tunebar-results,.ctxpill){font-family:var(--mono)}
 :root[data-skin="hearth"] .sub{font-family:var(--sans);letter-spacing:.14em}
 
 /* ---------- sidebar ---------- */
@@ -163,7 +163,7 @@
 
 /* ---------- buttons, chips, tags ----------
    Element-level rules go through :where() so they stay at element
-   specificity: a class rule in the Classic sheet (.ef-tab, .sicon, .ef-tpl...)
+   specificity: a class rule in the Classic sheet (.sicon, .ctxpill...)
    must still beat the generic button look, exactly as it does in Classic. */
 :where(:root[data-skin="hearth"]) button{font-family:var(--sans);font-weight:500;letter-spacing:0;text-transform:none;font-size:13px;
   border-radius:var(--r-pill);padding:8px 18px;border-color:var(--hair-hi);background:var(--panel2);color:var(--ink-hi)}
@@ -188,9 +188,6 @@
 :root[data-skin="hearth"] .gpu,
 :root[data-skin="hearth"] .row,
 :root[data-skin="hearth"] .kgroup,
-:root[data-skin="hearth"] .ef-list,
-:root[data-skin="hearth"] .ef-status,
-:root[data-skin="hearth"] .fg-bp,
 :root[data-skin="hearth"] .stats-vram-card,
 :root[data-skin="hearth"] .rcard,
 :root[data-skin="hearth"] .starter{background:var(--surface);border-color:var(--hair);box-shadow:var(--lift)}
@@ -271,74 +268,6 @@
 :root[data-skin="hearth"] .skel{font-family:var(--serif);font-style:italic;letter-spacing:0;font-size:16px}
 :root[data-skin="hearth"] .docs-body h1,:root[data-skin="hearth"] .docs-body h2,:root[data-skin="hearth"] .docs-body h3{font-family:var(--serif);letter-spacing:-.01em}
 :root[data-skin="hearth"] .docs-body{font-size:15px;line-height:1.7}
-
-/* ---------- embers: a flame per ember, briefs on paper ---------- */
-:root[data-skin="hearth"] .ef-wrap{grid-template-columns:280px 1fr;gap:26px}
-:root[data-skin="hearth"] .ef-list{border-radius:var(--r);padding:6px}
-:root[data-skin="hearth"] .ef-row{border:0;border-radius:12px;align-items:center;padding:10px 12px;gap:12px}
-:root[data-skin="hearth"] .ef-row:hover{background:rgba(255,226,196,.04)}
-:root[data-skin="hearth"][data-theme="light"] .ef-row:hover{background:rgba(120,70,30,.05)}
-:root[data-skin="hearth"] .ef-row.sel{background:hsl(var(--ember-h,22) 70% 55% / .13);box-shadow:inset 0 0 0 1px hsl(var(--ember-h,22) 80% 62% / .35)}
-:root[data-skin="hearth"] .ef-row .ef-led{order:3;margin:0 0 0 auto;flex:0 0 8px}
-:root[data-skin="hearth"] .ef-name{font-family:var(--serif);font-weight:600;font-size:16px;letter-spacing:-.005em}
-:root[data-skin="hearth"] .ef-sub{font-size:12px}
-:root[data-skin="hearth"] .ef-flame{display:block;flex:0 0 26px;width:26px;height:26px;
-  color:hsl(var(--ember-h,22) 88% 62%);filter:drop-shadow(0 0 8px hsl(var(--ember-h,22) 90% 55% / .55))}
-:root[data-skin="hearth"] .ef-flame .o{fill:currentColor}
-:root[data-skin="hearth"] .ef-flame .i{fill:hsl(var(--ember-h,22) 100% 86%)}
-:root[data-skin="hearth"][data-theme="light"] .ef-flame{color:hsl(var(--ember-h,22) 75% 50%);filter:drop-shadow(0 2px 6px hsl(var(--ember-h,22) 80% 50% / .35))}
-:root[data-skin="hearth"] .ef-forgerow{border-radius:var(--r);border-color:color-mix(in srgb,var(--amber) 40%,transparent);padding:12px 14px;
-  background:linear-gradient(100deg,color-mix(in srgb,var(--amber) 16%,transparent),var(--panel) 75%);box-shadow:var(--lift)}
-:root[data-skin="hearth"] .ef-forgerow .ef-name{color:var(--amber-text)}
-:root[data-skin="hearth"] .ef-head{align-items:center}
-:root[data-skin="hearth"] .ef-title{display:flex;align-items:center;gap:14px;font-family:var(--serif);font-weight:650;font-size:34px;
-  letter-spacing:-.02em;line-height:1.1;font-variation-settings:"opsz" 144}
-:root[data-skin="hearth"] .ef-title .ef-flame{flex-basis:38px;width:38px;height:38px}
-:root[data-skin="hearth"] #ef-detail .ef-mission{font-size:14px;margin-top:6px}
-:root[data-skin="hearth"] #ef-detail .ef-tab.on{color:hsl(var(--ember-h,22) 85% 68%);border-bottom-color:hsl(var(--ember-h,22) 85% 60%)}
-:root[data-skin="hearth"][data-theme="light"] #ef-detail .ef-tab.on{color:hsl(var(--ember-h,22) 70% 36%);border-bottom-color:hsl(var(--ember-h,22) 75% 48%)}
-:root[data-skin="hearth"][data-cvd="safe"] #ef-detail .ef-tab.on{color:var(--amber-text);border-bottom-color:var(--amber)}
-:root[data-skin="hearth"] .ef-status{border-radius:var(--r-pill);padding:10px 18px}
-:root[data-skin="hearth"] .ef-tabs{gap:4px}
-:root[data-skin="hearth"] .ef-tab{font-family:var(--sans);font-weight:500;font-size:13px;letter-spacing:0;text-transform:none;border-radius:0;padding:9px 14px}
-/* the brief and wiki read like paper: cream sheet, dark ink, serif heads */
-:root[data-skin="hearth"] .ef-doc,
-:root[data-skin="hearth"] .ef-answer{background:var(--paper);color:var(--paper-ink);border:1px solid var(--paper-hair);border-radius:18px;
-  padding:30px 36px;box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 24px 60px -28px rgba(0,0,0,.75);font-size:15px;line-height:1.7}
-:root[data-skin="hearth"] .ef-doc :is(h1,h2,h3),
-:root[data-skin="hearth"] .ef-answer>p{color:var(--paper-ink)}
-:root[data-skin="hearth"] .ef-doc :is(h1,h2,h3){font-family:var(--serif);font-weight:650;letter-spacing:-.01em}
-:root[data-skin="hearth"] .ef-doc h1{font-size:28px;line-height:1.15;margin-top:4px}
-:root[data-skin="hearth"] .ef-doc h2{font-size:20px}
-:root[data-skin="hearth"] .ef-doc h3{font-size:17px}
-:root[data-skin="hearth"] .ef-doc :is(code,pre){background:#ecdcc3;color:#3b2718}
-:root[data-skin="hearth"] .ef-doc :is(th,td){border-color:var(--paper-hair)}
-:root[data-skin="hearth"] .ef-doc a,:root[data-skin="hearth"] .ef-answer a{color:#a3401a}
-:root[data-skin="hearth"] .ef-doc .ef-box{color:#c25522}
-:root[data-skin="hearth"] .ef-doc .ef-closed{color:var(--paper-dim)}
-:root[data-skin="hearth"] .ef-doc .ef-closed .ef-box{color:#2d7d45}
-:root[data-skin="hearth"] .ef-doc .ef-tag{color:var(--paper-dim);border-color:var(--paper-hair)}
-:root[data-skin="hearth"] .ef-doc .ef-tag.ok{color:#2d7d45;border-color:#9cc7a6}
-:root[data-skin="hearth"] .ef-doc .ef-quote,:root[data-skin="hearth"] .ef-answer .ef-quote{color:#a3401a;border-color:var(--paper-hair);background:#fbf3e6}
-:root[data-skin="hearth"] .ef-doc .ef-hit{background:rgba(229,98,42,.12);outline-color:#e5622a}
-:root[data-skin="hearth"] :is(.ef-doc,.ef-answer) :is(.ef-sources,.ef-citeq){color:var(--paper-dim)}
-:root[data-skin="hearth"] :is(.ef-doc,.ef-answer) .ef-sources q{color:var(--paper-ink)}
-:root[data-skin="hearth"] .ef-answer .ef-warn{background:rgba(229,98,42,.10);color:#a3401a;border-left-color:#e5622a}
-:root[data-skin="hearth"][data-cvd="safe"] .ef-doc :is(a,.ef-box,.ef-quote){color:#8a5f00}
-:root[data-skin="hearth"][data-cvd="safe"] .ef-doc .ef-closed .ef-box{color:#00795a}
-:root[data-skin="hearth"] .ef-pg{border-radius:10px;border-left:0;padding:7px 10px}
-:root[data-skin="hearth"] .ef-pg.on{box-shadow:inset 2px 0 0 var(--amber)}
-:root[data-skin="hearth"] .ef-kind{font-family:var(--sans);letter-spacing:.16em}
-:root[data-skin="hearth"] .ef-tpl{border-radius:var(--r);padding:18px;background:var(--surface)}
-:root[data-skin="hearth"] .ef-tpltitle{font-family:var(--serif);text-transform:none;font-size:18px;letter-spacing:-.005em}
-:root[data-skin="hearth"] .ef-blank{border-radius:var(--r-lg);font-family:var(--serif);font-style:italic;font-size:16px}
-/* Forge conversation */
-:root[data-skin="hearth"] .fg-log{border-radius:var(--r-lg);background:var(--inset);padding:18px 20px}
-:root[data-skin="hearth"] .fg-msg{font-size:14px}
-:root[data-skin="hearth"] .fg-who{font-family:var(--sans);font-weight:600;letter-spacing:.12em}
-:root[data-skin="hearth"] .fg-bp{border-top:1px solid var(--hair);border-radius:var(--r-lg)}
-:root[data-skin="hearth"] .fg-bphead{font-family:var(--serif);font-weight:600;font-size:18px;letter-spacing:0;text-transform:none;color:var(--ink-strong)}
-:root[data-skin="hearth"] .fg-form textarea{border-radius:var(--r);font-family:var(--sans);font-size:14px}
 
 /* ---------- rail and small screens ---------- */
 @media (max-width:900px){

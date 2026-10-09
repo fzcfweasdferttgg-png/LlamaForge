@@ -51,7 +51,6 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
   - 保存会就地重新加载模型。加载失败时显示路由器日志中的最后一条错误，并给出推测提示。
   - 预设、启动配置（模型 + 预设 + 固定的 llama.cpp 构建，一键完成）、并排对比，以及可复制粘贴的客户端片段。
   - 在 Setup 中开启 **Multi-model** 可同时保持一个主模型和若干 worker 加载。规划器按在你机器上实测的占用量，把每个模型放到放得下的 GPU 上。模型也可固定到各自的 llama.cpp（或 ik_llama.cpp）构建。
-- **Embers**：小型本地 agent，持续盯住一个主题，维护自己的 wiki，并按计划为你写一份简报。wiki 条目只有逐字引用来源才算数。**Forge** 通过访谈为你构建一个；**Model Scout** 无需设置。Embers 没有浏览器或工具，除非你开启推送通知，否则没有任何内容离开本机。
 - **Discover**：Hugging Face GGUF 搜索，打开即见本周新增。下载前每个量化版本都给出针对你显存的粗略适配评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传、自动注册，最后进入 **Load** 就绪状态。
 - **Will it run?**：选一个仓库和量化版本，得到适配结果和粗略速度估计。
 - **Build / Update**：一键官方 llama.cpp 构建并可回滚，或从源码构建（参数按你的 GPU 检测）。也驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) 以及 Windows 上 WSL2 里的 [vLLM](https://github.com/vllm-project/vllm)。
