@@ -150,7 +150,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .topbar{display:flex;align-items:center;gap:14px;
   padding:16px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:20px;position:sticky;top:0;z-index:5;
   background:var(--topbar-bg);-webkit-backdrop-filter:blur(10px) saturate(1.2);backdrop-filter:blur(10px) saturate(1.2)}
-.topbar #clock{margin-left:auto;font-variant-numeric:tabular-nums;text-align:center;min-width:14ch}
+.topbar #engine-badge{margin-left:auto}
 #page-title{font-family:var(--disp);font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-strong);font-size:18px;
   display:inline-flex;align-items:center;gap:10px}
 #page-title::before{content:"";width:8px;height:8px;background:var(--amber);border-radius:2px;transform:rotate(45deg);box-shadow:0 0 10px var(--amber-dim)}
@@ -540,7 +540,6 @@ body.mode-lite .advanced-only{display:none !important}
       <span id="page-lede"></span>
     </div>
     <span id="engine-badge"></span>
-    <span class="sub" id="clock"></span>
   </div>
   <div class="views">
   <div class="view active" id="view-models">

@@ -54,11 +54,9 @@ window.addEventListener("hashchange", () => {
 });
 if (location.hash) ui.switchTab(location.hash.slice(1));
 
-// The engine badge sits beside the clock but changes about once a session,
-// so it gets its own element: the clock stays a textContent write, and the
-// badge is only re-rendered (through the audited setHTML/esc sink) when the
-// engine actually changes. Rebuilding markup once a second would both churn
-// the DOM and put a dynamic value into innerHTML on every tick.
+// The engine badge changes about once a session and is only re-rendered
+// (through the audited setHTML/esc sink) when the engine actually changes -
+// the guard below makes this once-a-second probe a no-op otherwise.
 const ENGINE_LABEL = { llamacpp: "llama.cpp", ikllama: "ik_llama" };
 let shownEngine = null;
 
@@ -73,13 +71,8 @@ function renderEngineBadge() {
     : "");
 }
 
-function clock() {
-  const el = $("#clock");
-  if (el) el.textContent = new Date().toLocaleTimeString("en-GB") + " LOCAL";
-  renderEngineBadge();
-}
-clock();
-setInterval(clock, 1000);
+renderEngineBadge();
+setInterval(renderEngineBadge, 1000);
 
 (async () => {
   S.SCHEMA = await api("/api/schema");
