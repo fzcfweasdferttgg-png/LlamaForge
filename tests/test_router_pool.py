@@ -51,7 +51,7 @@ class Start(unittest.TestCase):
         with mock.patch.object(router_ctl.network_policy, "start_error", return_value=""), \
              mock.patch.object(router_ctl, "stop", return_value=True), \
              mock.patch.object(router_ctl, "start",
-                               side_effect=lambda *a: seen.append(a) or (True, "")):
+                               side_effect=lambda *a, **kwargs: seen.append(a) or (True, "")):
             router_ctl.restart("server", "models.ini", 8080, "127.0.0.1", "", "logs", "",
                                {"models_max": 3, "autoload": False})
         self.assertEqual(seen[0][-1], {"models_max": 3, "autoload": False})

@@ -7,7 +7,6 @@ import json, os, signal, subprocess, time, socket, urllib.error, urllib.request
 
 import logfiles, network_policy, osplat, procs
 
-import config
 CREATE_NO_WINDOW = 0x08000000
 
 def lan_ip():
@@ -149,13 +148,17 @@ def stop(port, timeout=10):
     time.sleep(0.5)
     return _pid_on_port(port) is None
 
-def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
+def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None,
+          allow_keyless_lan=False):
     """api_key is the user's key and decides policy (LAN needs one the user
     knows); local_key is LlamaForge's own, used when the user has none.
     pool: None for one model at a time, or slots.router_pool()'s
-    {"models_max", "autoload"} for multi-model mode."""
-    kl = network_policy.keyless_lan(config.load())
-    reason = network_policy.start_error(host, api_key, kl)
+    {"models_max", "autoload"} for multi-model mode.
+    allow_keyless_lan: the router_allow_keyless_lan opt-in, part of the policy
+    decision. The policy stays pure - a refused start touches nothing and
+    reads no config."""
+    kl = network_policy.keyless_lan_for(host, api_key, allow_keyless_lan)
+    reason = network_policy.start_error(host, api_key, allow_keyless_lan)
     if reason:
         return False, reason
     if not server_bin or not os.path.exists(server_bin):
@@ -215,9 +218,9 @@ def running_pool(logdir):
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
-def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
-    reason = network_policy.start_error(host, api_key,
-                                        network_policy.keyless_lan(config.load()))
+def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None,
+            allow_keyless_lan=False):
+    reason = network_policy.start_error(host, api_key, allow_keyless_lan)
     if reason:
         return False, reason
     # Without a way to see the old router, stop() finds nothing, start() sees a
@@ -226,4 +229,5 @@ def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", p
         return False, ("can't see which process holds the router port - install "
                        "lsof, or iproute2 (ss), or psmisc (fuser)")
     stop(port)
-    return start(server_bin, models_ini, port, host, api_key, logdir, local_key, pool)
+    return start(server_bin, models_ini, port, host, api_key, logdir, local_key, pool,
+                 allow_keyless_lan=allow_keyless_lan)

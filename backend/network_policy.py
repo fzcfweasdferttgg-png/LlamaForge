@@ -94,13 +94,19 @@ def effective_key(cfg):
     return cfg.get("router_api_key") or cfg.get("router_local_key") or ""
 
 
+def keyless_lan_for(host, key, flag):
+    """keyless_lan() over the values a start is about to use: the opt-in flag
+    alone is not enough - no user key and a shared bind are required."""
+    return bool(flag) and not key and host == "0.0.0.0"
+
+
 def keyless_lan(cfg):
     """True when the operator opted into a LAN router with no API key: the
     flag set, no user key, and the router shared. Everything else keeps the
     fail-closed policy."""
-    return (bool(cfg.get("router_allow_keyless_lan"))
-            and not cfg.get("router_api_key")
-            and cfg.get("router_host", "127.0.0.1") == "0.0.0.0")
+    return keyless_lan_for(cfg.get("router_host", "127.0.0.1"),
+                           cfg.get("router_api_key", ""),
+                           cfg.get("router_allow_keyless_lan"))
 
 
 def lan_hosts(host):

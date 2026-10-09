@@ -9,7 +9,7 @@ import json, os, tempfile, threading, unittest, urllib.error, urllib.request
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-import network_policy, routes, server
+import network_policy, router_ctl, routes, server
 
 
 class LanHostsTest(unittest.TestCase):
@@ -85,9 +85,42 @@ class KeylessLanPolicyTest(unittest.TestCase):
             self.assertFalse(ok)
 
 
+class KeylessRouterStartTest(unittest.TestCase):
+    """router_ctl.start honors the opt-in end to end: it fires only for a
+    shared bind with no key, and a refused start still spawns nothing."""
+
+    def _spawn(self, host, key, flag):
+        handles = mock.mock_open()
+        with mock.patch.object(router_ctl.os.path, "exists", return_value=True), \
+             mock.patch.object(router_ctl, "is_running", return_value=False), \
+             mock.patch.object(router_ctl, "supports_cors_origins", return_value=True), \
+             mock.patch.object(router_ctl.os, "makedirs"), \
+             mock.patch("builtins.open", handles), \
+             mock.patch.object(router_ctl.procs, "write_pid"), \
+             mock.patch.object(router_ctl.subprocess, "Popen") as popen:
+            ok, error = router_ctl.start(
+                "server", "models.ini", 8080, host, key, "logs",
+                allow_keyless_lan=flag)
+        return ok, error, popen
+
+    def test_opt_in_spawns_a_shared_router_with_no_key(self):
+        ok, error, popen = self._spawn("0.0.0.0", "", True)
+        self.assertTrue(ok, error)
+        self.assertNotIn("--api-key", popen.call_args.args[0])
+
+    def test_the_flag_alone_is_not_enough(self):
+        ok, _, popen = self._spawn("0.0.0.0", "", False)
+        self.assertFalse(ok)                       # no opt-in: fail closed
+        popen.assert_not_called()
+
+    def test_a_key_still_wins_over_the_opt_in(self):
+        ok, error, popen = self._spawn("0.0.0.0", "k" * 32, True)
+        self.assertTrue(ok, error)
+        self.assertIn("--api-key", popen.call_args.args[0])
+
+
 class LiveLanServerTest(unittest.TestCase):
     """A LAN-bound panel answering real requests from a non-loopback name."""
-
     @classmethod
     def setUpClass(cls):
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.H)

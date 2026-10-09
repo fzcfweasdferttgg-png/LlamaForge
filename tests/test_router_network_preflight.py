@@ -95,13 +95,14 @@ class RouterRestartPreflightTest(unittest.TestCase):
         events = []
         with mock.patch.object(
                 router_ctl.network_policy, "start_error",
-                side_effect=lambda host, api_key: events.append("preflight") or ""), \
+                side_effect=lambda host, api_key, allow_keyless_lan=False:
+                    events.append("preflight") or ""), \
              mock.patch.object(
                 router_ctl, "stop",
                 side_effect=lambda port: events.append("stop") or True), \
              mock.patch.object(
                 router_ctl, "start",
-                side_effect=lambda *args: events.append("start") or (True, "")):
+                side_effect=lambda *args, **kwargs: events.append("start") or (True, "")):
             ok, error = router_ctl.restart(
                 "server", "models.ini", 8080, "0.0.0.0", key, "logs")
         self.assertTrue(ok, error)

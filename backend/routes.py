@@ -2032,7 +2032,8 @@ def _sync_router_pool(c):
     ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                  c.get("router_host", "127.0.0.1"),
                                  c.get("router_api_key", ""), LOGDIR,
-                                 c.get("router_local_key", ""), want)
+                                 c.get("router_local_key", ""), want,
+                                 allow_keyless_lan=c.get("router_allow_keyless_lan", False))
     return bool(ok), err
 
 
@@ -2073,11 +2074,11 @@ def reconcile_router_auth():
         ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                      c.get("router_host", "127.0.0.1"),
                                      c.get("router_api_key", ""), LOGDIR,
-                                     c.get("router_local_key", ""), _router_pool(c, sbin))
+                                     c.get("router_local_key", ""), _router_pool(c, sbin),
+                                     allow_keyless_lan=c.get("router_allow_keyless_lan", False))
     print("  router restarted with API-key auth" if ok
           else f"  WARNING: router auth restart failed ({err})")
     return True
-
 
 def _record_server_bin(key, path):
     """Point `key` at the binary a finished build produced. Returns True if
@@ -2127,7 +2128,8 @@ def _post_network_locked(req):
         ok, error = router_ctl.restart(
             sbin, config.ini_path(), c["router_port"],
             mutation.router_host, mutation.router_api_key, LOGDIR,
-            c.get("router_local_key", ""), _router_pool(c, sbin))
+            c.get("router_local_key", ""), _router_pool(c, sbin),
+            allow_keyless_lan=c.get("router_allow_keyless_lan", False))
     except Exception as exc:
         ok, error = False, exc
     running = router_ctl.is_running(c["router_port"])
@@ -2177,7 +2179,8 @@ def _post_engine_switch_locked(req):
     ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                  c.get("router_host", "127.0.0.1"),
                                  c.get("router_api_key", ""), LOGDIR,
-                                 c.get("router_local_key", ""), _router_pool(c, sbin))
+                                 c.get("router_local_key", ""), _router_pool(c, sbin),
+                                 allow_keyless_lan=c.get("router_allow_keyless_lan", False))
     return 200, {"ok": ok, "active_engine": engine, "error": err}
 
 
@@ -2338,11 +2341,11 @@ def _activate_prebuilt(sbin):
             ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                          c.get("router_host", "127.0.0.1"),
                                          c.get("router_api_key", ""), LOGDIR,
-                                         c.get("router_local_key", ""), _router_pool(c, sbin))
+                                         c.get("router_local_key", ""), _router_pool(c, sbin),
+                                         allow_keyless_lan=c.get("router_allow_keyless_lan", False))
         except Exception as e:
             ok, err = False, str(e)
         return ok, err
-
 
 PREBUILT = prebuilt.Installer(ROOT, LOGDIR, on_installed=_activate_prebuilt)
 def _protected_installs():
