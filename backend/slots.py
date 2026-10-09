@@ -26,7 +26,7 @@ OVERHEAD_MIB = 700            # per GPU a process uses: CUDA context + compute b
 OTHER_GPU0_MIB = 256          # a process pinned off GPU0 still opens a context there
 RAM_HEADROOM_MIB = 2048
 
-_CUDA = re.compile(r"cuda(\d+)", re.I)
+_DEV = re.compile(r"(?:cuda|vulkan)(\d+)", re.I)
 
 
 def _floats(s):
@@ -47,7 +47,7 @@ def pins(settings):
         names = [n.strip() for n in s["device"].split(",") if n.strip()]
         if [n.lower() for n in names] == ["none"]:
             return {"devices": [], "share": {}}
-        idx = [_CUDA.fullmatch(n) for n in names]
+        idx = [_DEV.fullmatch(n) for n in names]
         if not idx or not all(idx):
             return {"devices": None, "share": {}}
         devices = [int(m.group(1)) for m in idx]
@@ -97,24 +97,38 @@ def router_pool(cfg, no_autoload_supported):
     return {"models_max": min(max(cap, CAP_MIN), CAP_MAX), "autoload": autoload}
 
 
-_LIST_DEVICE = re.compile(r"^\s*CUDA(\d+):\s*(.+?)\s*\(", re.M)
+class DeviceMap(dict):
+    """{engine device index: snapshot index}. prefix is the token llama-server
+    itself prints for devices ("CUDA", "Vulkan") - the exact form --device
+    takes - so placement strings match whatever backend the build runs."""
+
+
+_LIST_DEVICE = re.compile(r"^\s*([A-Za-z]+?)(\d+):\s*(.+?)\s*\(", re.M)
+
+
+def device_prefix(list_devices):
+    """The token llama-server prints for its devices ("CUDA", "Vulkan")."""
+    found = _LIST_DEVICE.findall(list_devices or "")
+    return found[0][0] if found else "CUDA"   # the token as the engine prints it
 
 
 def cuda_map(list_devices, smi_gpus):
-    """{CUDA index: nvidia-smi index} from `llama-server --list-devices` output.
+    """{engine device index: snapshot index} from `llama-server --list-devices`.
 
-    CUDA numbers devices fastest-first unless CUDA_DEVICE_ORDER says otherwise;
-    nvidia-smi numbers them by PCI bus. They agree on most boxes, but not on one
-    with the slower card in the first slot, and forcing PCI order on the router
+    The engine numbers devices its own way (CUDA: fastest-first unless
+    CUDA_DEVICE_ORDER says otherwise); the snapshot (nvidia-smi or the kernel's
+    DRM sysfs) numbers them by PCI bus. They agree on most boxes, but not on one
+    with the slower card in the first slot, and forcing one order on the router
     would silently re-aim every device / main-gpu the user already pinned. So
     LlamaForge leaves the order alone and translates. Identical cards keep
-    their relative order (CUDA breaks speed ties by PCI bus). None when the two
-    lists can't be matched one to one."""
-    found = [(int(i), name.strip()) for i, name in _LIST_DEVICE.findall(list_devices or "")]
+    their relative order. None when the two lists can't be matched one to one."""
+    found = [(int(i), name.strip())
+             for _pfx, i, name in _LIST_DEVICE.findall(list_devices or "")]
     if not found or len(found) != len(smi_gpus):
         return None
     left = sorted(smi_gpus, key=lambda g: g["index"])
-    out = {}
+    out = DeviceMap()
+    out.prefix = device_prefix(list_devices)
     for ci, name in found:
         hit = next((g for g in left if g.get("name", "").strip() == name), None)
         if hit is None:
@@ -136,11 +150,13 @@ def to_smi(p, cmap):
 
 
 def cuda_name(smi_index, cmap):
-    """nvidia-smi index -> the device name llama-server wants ("CUDA0")."""
+    """Snapshot index -> the device name llama-server wants ("CUDA0",
+    "Vulkan0"): the token it prints for its own devices."""
+    pfx = getattr(cmap, "prefix", "CUDA") or "CUDA"
     if not cmap:
-        return f"CUDA{smi_index}"
+        return f"{pfx}{smi_index}"
     back = {v: k for k, v in cmap.items()}
-    return f"CUDA{back[smi_index]}"
+    return f"{pfx}{back[smi_index]}"
 
 
 def _first(cmap):

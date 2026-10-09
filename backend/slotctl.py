@@ -30,6 +30,7 @@ import argspec
 import config
 import footprint
 import gguf
+import hardware
 import network_policy
 import osplat
 import router_ctl
@@ -115,7 +116,12 @@ class SlotManager:
         return config.ini_path("llamacpp")
 
     def gpus(self):
-        return smi_snapshot()
+        gpus = smi_snapshot()
+        if not gpus:
+            gpus = hardware.sysfs_gpus()   # DRM sysfs when nvidia-smi is absent
+            hardware.enrich_names(gpus, self.list_devices(
+                self._d._active_server_bin(config.load())))
+        return gpus
 
     def list_devices(self, sbin):
         try:
@@ -296,10 +302,14 @@ class SlotManager:
         return footprint.key(mid, self.build_id(sbin), settings)
 
     def _cmap(self, gpus, sbin):
-        """{CUDA index: nvidia-smi index}; None when the two can't be matched."""
+        """{engine device index: snapshot index}; None when the two can't be matched."""
         if len(gpus) > 1:
             return slots.cuda_map(self.list_devices(sbin), gpus)
-        return {g["index"]: g["index"] for g in gpus}
+        m = slots.DeviceMap()
+        for g in gpus:
+            m[g["index"]] = g["index"]
+        m.prefix = slots.device_prefix(self.list_devices(sbin))
+        return m
 
     def _running(self, st, gpus=None, cmap=None):
         main = self._main()

@@ -6,6 +6,7 @@ Platform branching lives in osplat; this module just asks it.
 """
 import re, subprocess
 
+import os
 import osplat
 
 def _run(cmd, timeout=10):
@@ -102,3 +103,76 @@ def recommend(gpus=None, cpu=None):
 if __name__ == "__main__":
     import json
     print(json.dumps(recommend(), indent=2))
+
+
+# ------------------------------------------- Linux DRM sysfs (vendor-tool-free)
+# The kernel's own view of the GPUs: works for any compute API (Vulkan
+# included) and needs no vendor tool. amdgpu exposes mem_info_vram_* and
+# gpu_busy_percent; Intel i915/xe expose mem_info_total/used. Names are
+# placeholders until enrich_names() refines them from llama-server.
+_SYSFS_DRM = "/sys/class/drm"
+_COMPUTE_VENDORS = {"0x1002": "AMD", "0x8086": "Intel", "0x10de": "NVIDIA"}
+_LIST_DEVICE = re.compile(r"^\s*([A-Za-z]+?)(\d+):\s*(.+?)\s*\(", re.M)
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def sysfs_gpus(sysfs_root=_SYSFS_DRM):
+    """[{index, name, total_mib, used_mib, free_mib, util, temp}] from DRM
+    sysfs; [] when the kernel exposes nothing usable (or non-Linux)."""
+    try:
+        cards = sorted((n for n in os.listdir(sysfs_root)
+                        if re.fullmatch(r"card\d+", n)),
+                       key=lambda n: int(n[4:]))
+    except OSError:
+        return []
+    gpus = []
+    for card in cards:
+        dev = os.path.join(sysfs_root, card, "device")
+        vendor = (_read(os.path.join(dev, "vendor")) or "").lower()
+        if vendor and vendor not in _COMPUTE_VENDORS:
+            continue
+        total = (_read(os.path.join(dev, "mem_info_vram_total"))
+                 or _read(os.path.join(dev, "mem_info_total")))
+        used = (_read(os.path.join(dev, "mem_info_vram_used"))
+                or _read(os.path.join(dev, "mem_info_used")))
+        busy = _read(os.path.join(dev, "gpu_busy_percent"))
+        temp = None
+        try:
+            hw = os.path.join(dev, "hwmon")
+            for h in sorted(os.listdir(hw)):
+                t = _read(os.path.join(hw, h, "temp1_input"))
+                if t and t.isdigit():
+                    temp = int(t) // 1000
+                    break
+        except OSError:
+            pass
+        if total is None and busy is None:
+            continue          # a display-only device (e.g. an ASPEED BMC)
+        total_mib = int(total) // (1024 * 1024) if (total or "").isdigit() else None
+        used_mib = int(used) // (1024 * 1024) if (used or "").isdigit() else None
+        gpus.append({"index": len(gpus),
+                     "name": f"{_COMPUTE_VENDORS.get(vendor, 'GPU')} ({card})",
+                     "total_mib": total_mib, "used_mib": used_mib,
+                     "free_mib": (total_mib - used_mib)
+                     if total_mib is not None and used_mib is not None else None,
+                     "util": int(busy) if (busy or "").isdigit() else None,
+                     "temp": temp})
+    return gpus
+
+
+def enrich_names(gpus, list_devices_text):
+    """Replace sysfs placeholder names with the engine's own device names from
+    `llama-server --list-devices`, matched by enumeration order (both list PCI
+    order). The names then also match what slots.cuda_map compares against."""
+    names = [n.strip() for _p, _i, n in _LIST_DEVICE.findall(list_devices_text or "")]
+    for g, n in zip(gpus, names):
+        if n:
+            g["name"] = n
+    return gpus

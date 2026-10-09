@@ -232,20 +232,33 @@ def gpus():
 def _gpu_telemetry():
     if osplat.IS_MAC:
         return osplat.mac_gpu_telemetry()
+    out = ""
     try:
         out = subprocess.check_output(
             ["nvidia-smi",
              "--query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu",
              "--format=csv,noheader,nounits"], text=True, timeout=8)
-    except Exception as e:
-        return [{"error": str(e)}]
+    except Exception:
+        pass                       # no nvidia-smi: the kernel's DRM sysfs below
     res = []
     for ln in out.strip().splitlines():
         f = [x.strip() for x in ln.split(",")]
         if len(f) >= 6:
             res.append({"index": int(f[0]), "name": f[1], "used": int(f[2]),
                         "total": int(f[3]), "util": int(f[4]), "temp": int(f[5])})
-    return res
+    if res:
+        return res
+    import hardware                  # DRM sysfs: any API (Vulkan too), no vendor tool
+    gpus = hardware.sysfs_gpus()
+    if gpus:
+        try:                       # the engine's own device names, same order
+            hardware.enrich_names(gpus, SLOTS.list_devices(_active_server_bin(cfg())))
+        except Exception:
+            pass
+        return [{"index": g["index"], "name": g["name"], "used": g["used_mib"] or 0,
+                 "total": g["total_mib"] or 0, "util": g["util"], "temp": g["temp"]}
+                for g in gpus]
+    return [{"error": "no GPU information (nvidia-smi absent and DRM sysfs empty)"}]
 
 
 # nvidia-smi startup is most of /api/state's response time (and is slower under
