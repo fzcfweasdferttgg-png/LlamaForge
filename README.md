@@ -15,6 +15,12 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
   <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
 </p>
 
+> [!IMPORTANT]
+> **This build targets Ubuntu Server only.** Every change in it — LAN exposure for the
+> panel, chat and router, the opt-in MCP HTTP transport and the DRM-sysfs GPU telemetry —
+> is designed for and was verified only on **Ubuntu Server**; Windows and macOS are
+> untested here. Details in the [docs](docs/content/index.md).
+
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin
 ```
@@ -86,7 +92,8 @@ base URL, key and model id ready to paste.
 - **OpenAI speech-compatible** `POST /v1/audio/speech` on the panel (WAV or PCM), backed by `llama-tts`.
 - **Connect an agent** writes the config for **Claude Code**, **Codex** and **pi.dev** (any file it touches is backed up first).
 - Load/unload endpoints let an agent swap models on demand.
-- **MCP server** (stdio, `backend/mcp_server.py`): Claude Code, Codex or any MCP client can see what's loaded,
+- **MCP server** (stdio, `backend/mcp_server.py`; this build also ships an opt-in Streamable
+  HTTP transport, see the docs): Claude Code, Codex or any MCP client can see what's loaded,
   load and unload models, check what fits, pull GGUFs from Hugging Face, and hand a whole task to
   [pi](https://github.com/earendil-works/pi) running on a loaded local model (`pi_run`). One-line setup under
   **Setup -> MCP server**, e.g. `claude mcp add --scope user llamaforge -- python <LlamaForge>/backend/mcp_server.py`.
@@ -151,9 +158,11 @@ LlamaForge doesn't pin context size, GPU layers or the multi-GPU split. llama.cp
 (on by default) sizes all three to your free VRAM at load, and moves MoE experts to CPU when
 needed. Pinning any of them turns fit off, so they stay unset unless you set them yourself.
 
-**Security:** the dashboard only listens on `127.0.0.1`. The router is keyed even when
-local, so a web page you visit can't drive it. LAN access is opt-in from Setup and always
-needs a key. Details and how to report a vulnerability privately: [SECURITY.md](SECURITY.md).
+**Security:** the dashboard only listens on `127.0.0.1` unless `panel_host` (this build) shares it
+on the LAN. The router is keyed even when local, so a web page you visit can't drive it; LAN
+access is opt-in from Setup and needs a key (`router_allow_keyless_lan` in this build can opt
+out of that). The Host/Origin guard stays on in every mode. Details and how to report a
+vulnerability privately: [SECURITY.md](SECURITY.md).
 
 ## Docs
 
