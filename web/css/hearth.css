@@ -266,8 +266,6 @@
 :root[data-skin="hearth"] #toast.err{border-color:var(--red)}
 :root[data-skin="hearth"] .cmptbl th{font-family:var(--sans);letter-spacing:.06em}
 :root[data-skin="hearth"] .skel{font-family:var(--serif);font-style:italic;letter-spacing:0;font-size:16px}
-:root[data-skin="hearth"] .docs-body h1,:root[data-skin="hearth"] .docs-body h2,:root[data-skin="hearth"] .docs-body h3{font-family:var(--serif);letter-spacing:-.01em}
-:root[data-skin="hearth"] .docs-body{font-size:15px;line-height:1.7}
 
 /* ---------- rail and small screens ---------- */
 @media (max-width:900px){

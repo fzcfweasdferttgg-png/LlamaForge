@@ -133,7 +133,7 @@ vulnerability privately: [SECURITY.md](SECURITY.md).
 
 ## Docs
 
-Everything is in the in-app **Help** tab and at **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
+Everything is at **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
 [configuration](docs/content/config.md), [keyboard shortcuts](docs/content/keymap.md),
 [themes & colorblind-safe mode](docs/content/theming.md), [vLLM](docs/content/vllm.md),
 [troubleshooting](docs/content/troubleshooting.md), and [what's new](docs/content/whats-new.md).

@@ -53,7 +53,7 @@ order: 1
 | `skin` | string | `""` | UI skin. Empty string is the default, `"stowage"`; the others are `"hearth"` and `"classic"`. See [Theming](theming.md). |
 | `vram_bandwidths` | object | `{}` | Optional `{vram_bw, ram_bw, disk_bw}` GB/s overrides for the VRAM-fit estimate; empty uses GPU presets/defaults. |
 | `vram_predict_enabled` | bool | `True` | Whether the offline VRAM-fit/tok-s estimate is computed (Discover, on expand). |
-| `docs_dir` | string | `""` | Directory the in-app docs viewer reads from. Empty string resolves to `<repo root>/docs/content`. |
+| `docs_dir` | string | `""` | Directory the documentation corpus is read from. Empty string resolves to `<repo root>/docs/content`. |
 | `multi_model` | bool | `False` | Let the router hold several models at once. Off keeps one model at a time. Changing it restarts a running router. |
 | `slot_cap` | int | `3` | Most models loaded together, 2–4. Changing it restarts a running router. |
 | `slot_headroom_mib` | int | `1536` | VRAM kept free per GPU beyond every plan, in MiB (0–32768). |

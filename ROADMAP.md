@@ -104,8 +104,8 @@ Released:
   identity, plus an orthogonal colorblind-safe mode (universal Okabe–Ito status
   palette + non-color glyph/label cues). Layered persistence: localStorage >
   `config.json` > OS.
-- **In-app documentation + published site** — a full docs corpus rendered from one
-  Markdown source into an in-app **Help** view and a static **GitHub Pages** site.
+- **Documentation + published site** — a full docs corpus rendered from one
+  Markdown source into a static **GitHub Pages** site.
 - **Collapsible sidebar UI** — navigation moved from a top tab bar to a two-panel
   layout: a left sidebar that collapses between an icon rail and labeled state
   (settings pinned at the bottom), with a responsive overlay drawer on narrow

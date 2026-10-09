@@ -429,26 +429,6 @@ body.mode-lite .advanced-only{display:none !important}
 .starter.rec{border-color:var(--amber)}
 .starter .t{font-weight:600;color:var(--ink-strong)}
 .starter .b{font-size:12px;color:var(--dim)}
-.docs-wrap{display:grid;grid-template-columns:180px 1fr 160px;gap:16px}
-.docs-wrap>*{min-width:0}
-.docs-nav .search{display:block;width:100%;min-width:0;box-sizing:border-box}
-@media (max-width:1100px){ .docs-wrap{grid-template-columns:1fr} .docs-pagetoc{display:none} }
-.docs-nav nav a,.docs-pagetoc a{display:block;color:var(--dim);text-decoration:none;padding:2px 0;font-size:12px}
-.docs-nav nav a.active,.docs-pagetoc a:hover,.docs-nav nav a:hover{color:var(--amber)}
-#docs-search-empty{margin:10px 0 0;font-size:12px}
-.docs-nav .sec{color:var(--ink);font-weight:600;margin:10px 0 4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
-.docs-body{color:var(--ink);line-height:1.6;max-width:760px}
-.docs-body h1,.docs-body h2,.docs-body h3{color:var(--ink-strong);margin:18px 0 8px}
-.docs-body pre{background:var(--code-bg);color:var(--code-ink);padding:12px 14px;overflow:auto;border:1px solid var(--hair);border-radius:var(--r-sm)}
-.docs-body code{background:var(--code-bg);color:var(--code-ink);padding:1px 5px;border-radius:var(--r-xs)}
-.docs-body pre code{padding:0}
-.docs-body table{border-collapse:collapse;margin:10px 0}
-.docs-body th,.docs-body td{border:1px solid var(--hair);padding:4px 8px;text-align:left}
-.docs-body img{max-width:100%;border:1px solid var(--hair)}
-.docs-body a{color:var(--cyan)}
-.admon{border-left:3px solid var(--amber);border-radius:0 var(--r-sm) var(--r-sm) 0;background:var(--panel);padding:10px 14px;margin:12px 0}
-.admon-warning{border-left-color:var(--red)}
-.admon-tip{border-left-color:var(--green)}
 /* These read as three empty boxes at the bottom of the rail. The glyphs were
    in the DOM the whole time: .sicon inherits button{padding:9px 16px}, and with
    the global border-box a 34px-wide button leaves 2px of content box, which
@@ -527,7 +507,6 @@ body.mode-lite .advanced-only{display:none !important}
     <div class="tab navitem" data-tab="willrun" data-lede="Estimate placement and speed before you download anything." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label">Will it run?</span></div>
     <div class="tab navitem" data-tab="build" data-lede="Pull and rebuild llama.cpp without leaving the panel." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 6a4 4 0 0 0-5 5L4 16l4 4 5-5a4 4 0 0 0 5-5l-3 3-2-2 3-3a4 4 0 0 0-2-2z"/></svg><span class="label">Build / Update</span></div>
     <div class="tab navitem" data-tab="setup" data-lede="Paths, engines, connected agents and network access." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span class="label">Setup</span></div>
-    <div class="tab navitem" data-tab="help" data-lede="The full docs, served locally." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.8.3-1.2.9-1.2 1.7v.4"/><circle cx="12" cy="17" r="0.4" fill="currentColor"/></svg><span class="label">Help</span></div>
   </div>
   <div class="side-spacer"></div>
   <div class="side-settings">
@@ -592,13 +571,6 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="view" id="view-willrun"><div class="skel">READY</div></div>
   <div class="view" id="view-build"><div class="skel">LOADING BUILD STATUS...</div></div>
   <div class="view" id="view-setup"><div class="skel">PROBING SYSTEM...</div></div>
-  <div class="view" id="view-help">
-    <div class="docs-wrap">
-      <aside class="docs-nav"><input id="docs-search" class="search" type="search" placeholder="Search docs…" aria-label="Search docs"><p id="docs-search-empty" class="note" hidden></p><nav id="docs-toc-nav"></nav></aside>
-      <article id="docs-body" class="docs-body"></article>
-      <aside id="docs-page-toc" class="docs-pagetoc"></aside>
-    </div>
-  </div>
   </div>
   <div class="credit">
     LlamaForge is an independent GUI wrapper. Inference by

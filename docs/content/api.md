@@ -150,14 +150,6 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 | POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
 | POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`). It may use the stored key internally but never returns a key. |
 
-## Docs viewer
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/docs` | Manifest of documentation pages (sections/order/titles). |
-| GET | `/api/docs/page` | Rendered HTML for one page (query param `slug`); 404 if the slug doesn't exist. |
-| GET | `/docs/img/<name>` | Serve an image referenced from a docs page, path-safety-checked by `docs._safe_img`. |
-
 ## Static / UI
 
 | Method | Path | Purpose |

@@ -134,7 +134,7 @@ LAN 접근은 Setup에서 선택 사항이며 키가 필요합니다(이 빌드�
 
 ## 문서
 
-모든 문서는 앱 내 **Help** 탭과 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**에 있습니다:
+모든 문서는 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**에 있습니다:
 [설정](../content/config.md), [키보드 단축키](../content/keymap.md),
 [테마 및 색각 보호 모드](../content/theming.md), [vLLM](../content/vllm.md),
 [문제 해결](../content/troubleshooting.md), [새로운 점](../content/whats-new.md).

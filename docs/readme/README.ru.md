@@ -133,7 +133,7 @@ LlamaForge не фиксирует размер контекста, число G
 
 ## Документация
 
-Всё есть во вкладке **Help** внутри приложения и на **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
+Всё есть на **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
 [конфигурация](../content/config.md), [клавиатурные сочетания](../content/keymap.md),
 [темы и режим для дальтоников](../content/theming.md), [vLLM](../content/vllm.md),
 [устранение неполадок](../content/troubleshooting.md) и [что нового](../content/whats-new.md).

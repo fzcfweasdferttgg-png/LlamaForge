@@ -14,7 +14,6 @@ import { loadDiscover } from "./discover.js";
 import { loadWillRun } from "./willrun.js";
 import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
-import { loadDocs } from "./help.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
 import { initProfiles } from "./profiles.js";
@@ -27,7 +26,6 @@ ui.onTabHidden("setup", leaveSetup);
 ui.onTabShown("discover", loadDiscover);
 ui.onTabShown("willrun", loadWillRun);
 ui.onTabShown("stats", stats.loadStats);
-ui.onTabShown("help", loadDocs);
 
 /* ---------- boot ---------- */
 // The running version, so a screenshot or bug report names it.

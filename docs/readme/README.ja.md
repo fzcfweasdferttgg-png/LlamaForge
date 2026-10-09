@@ -102,7 +102,7 @@ LlamaForge はコンテキストサイズ、GPU レイヤー、マルチ GPU 分
 
 ## ドキュメント
 
-すべてアプリ内の **Help** タブと **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)** にある: [設定](../content/config.md)、[キーボードショートカット](../content/keymap.md)、[テーマと色覚安全モード](../content/theming.md)、[vLLM](../content/vllm.md)、[トラブルシューティング](../content/troubleshooting.md)、[新着](../content/whats-new.md)。[ROADMAP.md](../../ROADMAP.md) に出荷済みと計画がある。アーリープレビューなので優先順位はフィードバックに従う。
+すべて **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)** にある: [設定](../content/config.md)、[キーボードショートカット](../content/keymap.md)、[テーマと色覚安全モード](../content/theming.md)、[vLLM](../content/vllm.md)、[トラブルシューティング](../content/troubleshooting.md)、[新着](../content/whats-new.md)。[ROADMAP.md](../../ROADMAP.md) に出荷済みと計画がある。アーリープレビューなので優先順位はフィードバックに従う。
 
 ## クレジットとライセンス
 

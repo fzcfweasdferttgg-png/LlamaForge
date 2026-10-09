@@ -250,8 +250,6 @@ class H(BaseHTTPRequestHandler):
             return self._file("index.html", "text/html; charset=utf-8")
         if p.startswith("/web/"):                # ES modules under web/
             return self._static_module(p[len("/web/"):])
-        if p.startswith("/docs/img/"):
-            return self._docs_image(p[len("/docs/img/"):])
 
         handler = routes.GET_ROUTES.get(p)
         if not handler:
@@ -314,22 +312,6 @@ class H(BaseHTTPRequestHandler):
         if not ctype:
             return self._send(404, {"error": "not found"})
         with open(full, "rb") as f:
-            return self._send(200, f.read(), ctype)
-
-    _IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                  ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp"}
-
-    def _docs_image(self, name):
-        from routes import docs
-        try:
-            path = docs._safe_img(name)
-        except ValueError:
-            return self._send(404, {"error": "bad image"})
-        if not os.path.exists(path):
-            return self._send(404, {"error": "not found"})
-        ctype = self._IMG_TYPES.get(os.path.splitext(path)[1].lower(),
-                                    "application/octet-stream")
-        with open(path, "rb") as f:
             return self._send(200, f.read(), ctype)
 
     # ----------------------------------------------------------- SSE proxies

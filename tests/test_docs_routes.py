@@ -4,8 +4,8 @@ import docs
 
 
 class TestDocsRoutesModel(unittest.TestCase):
-    """Route handlers are thin wrappers over docs.*; assert the data layer the
-    routes return, plus image path-safety, without spinning an HTTP server."""
+    """The docs data layer (docs.*) the site build reads; assert it, plus
+    image path-safety, without spinning an HTTP server."""
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.dir, "img"))

@@ -130,8 +130,8 @@ LlamaForge 不固定上下文大小、GPU 层数或多 GPU 切分。llama.cpp �
 
 ## 文档
 
-一切都在应用内 **Help** 标签页和 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**：
-[配置](../content/config.md)、[键盘快捷键](../content/keymap.md)、
+一切都在 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**：
+[配置](../content/config.md)、[键盘快捷键](../content/keymap.md),
 [主题与色盲友好模式](../content/theming.md)、[vLLM](../content/vllm.md)、
 [故障排除](../content/troubleshooting.md)、[更新内容](../content/whats-new.md)。
 [ROADMAP.md](../../ROADMAP.md) 有已发布和计划中的内容；这是早期预览，优先级跟随反馈。

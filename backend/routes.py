@@ -21,7 +21,7 @@ tables: they write to the socket themselves and stay in server.py.
 import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
-import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, docs
+import autotune, anthropic_shim, agentsetup, clientsetup, network_policy
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
@@ -1128,17 +1128,6 @@ def post_agent_config(req):
     except Exception:
         raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
-
-
-def get_docs(req):
-    return 200, docs.manifest()
-
-
-def get_docs_page(req):
-    pg = docs.page(req.q("slug"))
-    if not pg:
-        raise ApiError(404, "no such page")
-    return 200, pg
 
 
 # ============================================================== POST handlers
@@ -2367,8 +2356,6 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
-    "/api/docs":              get_docs,
-    "/api/docs/page":         get_docs_page,
     "/api/slots":             get_slots,
     "/api/slots/plan":        get_slots_plan,
     "/api/mcp/setup":         get_mcp_setup,
