@@ -43,8 +43,9 @@ class Pins(unittest.TestCase):
                          {"devices": [0, 1], "share": {0: 0.5, 1: 0.5}})
 
     def test_unreadable_pins_are_unknown_not_unpinned(self):
-        # a device we can't map (Vulkan0, a typo) must not be "free to place"
-        p = slots.pins({"device": "Vulkan0"})
+        # a device we can't map (VulkanX, a typo) must not be "free to place";
+        # Vulkan0 is a real token now that the engine's device tokens parse
+        p = slots.pins({"device": "VulkanX"})
         self.assertEqual(p, {"devices": None, "share": {}})
 
 
