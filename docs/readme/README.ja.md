@@ -58,11 +58,11 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
 - **Context**: Markdown のコンテキスト文書をプロファイルに合成し、リクエストへ注入するか `CLAUDE.md` / `AGENTS.md` に書き込む。
 - **Recipes**: プロファイルを可読な JSON で共有。受け取った側は 1 回のペーストでインポートでき、モデルがなければ LlamaForge がダウンロードする。[コミュニティギャラリー](../../recipes/)がある。
 
-初回ウィザードと **Lite / Advanced** トグルで、深いノブは必要なときまで視界から外しておく。既定の外観 **Stowage** は各 GPU を 1 GiB 目盛りのベイ平面図として描く。**Hearth** と **Classic** は 1 クリック先にあり、それぞれライト、ダーク、色覚安全を持つ。
+初回ウィザードと **Lite / Advanced** トグルで、細かい設定項目は必要なときまで視界から外しておく。既定の外観 **Stowage** は各 GPU を 1 GiB 目盛りのベイ平面図として描く。**Hearth** と **Classic** は 1 クリック先にあり、それぞれライト、ダーク、色覚安全を持つ。
 
 ## 他のアプリから使う
 
-OpenAI API を話すもの(Open WebUI、SillyTavern、Continue、Cline、Aider、OpenAI SDK)はすべて `http://127.0.0.1:8080/v1` に対して使える。ルーターは常に API キー付きで動き、モデルの **Client Config** がベース URL、キー、モデル id を貼り付け可能な形で出す。
+OpenAI API に対応するもの(Open WebUI、SillyTavern、Continue、Cline、Aider、OpenAI SDK)はすべて `http://127.0.0.1:8080/v1` に対して使える。ルーターは常に API キー付きで動き、モデルの **Client Config** がベース URL、キー、モデル id を貼り付け可能な形で出す。
 
 - **Anthropic 互換** `POST /v1/messages` をパネルに提供。ストリーミングとツール使用に対応。
 - **OpenAI speech 互換** `POST /v1/audio/speech` をパネルに提供(WAV または PCM)。`llama-tts` が裏で動く。

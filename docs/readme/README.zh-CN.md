@@ -65,7 +65,7 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
 
 ## 从其他应用使用
 
-任何说 OpenAI API 的应用（Open WebUI、SillyTavern、Continue、Cline、Aider、OpenAI SDK）都能对接
+任何支持 OpenAI API 的应用（Open WebUI、SillyTavern、Continue、Cline、Aider、OpenAI SDK）都能对接
 `http://127.0.0.1:8080/v1`。路由器始终带 API 密钥运行，任意模型的 **Client Config** 会给出
 可直接粘贴的 base URL、密钥和 model id。
 
