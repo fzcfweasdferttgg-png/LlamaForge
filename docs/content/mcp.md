@@ -61,3 +61,25 @@ None of them contain secrets; the server reads the router key from `config.json`
 - **`pi_run` times out in Codex**: raise `tool_timeout_sec` in the Codex config.
 
 See also [Connect an Agent](agents.md), [Embers](embers.md) and [HTTP API](api.md).
+
+## HTTP transport (opt-in)
+
+The same server also speaks Streamable HTTP when `config.json` sets `mcp_host`
+(`"127.0.0.1"` or `"0.0.0.0"`) and `mcp_port` (default `8092`). Off by default:
+the stdio server above is always available. The listener starts and stops with
+the dashboard.
+
+The HTTP form is stateless - one JSON-RPC message per POST, one response back -
+so any MCP client with an HTTP transport can connect directly, across the LAN,
+without a local process. Qwen Code, for example:
+
+```bash
+qwen mcp add --transport http llamaforge http://<host>:8092/mcp
+```
+
+Requests carry the same Host/Origin checks as the dashboard (this machine's own
+names only), must POST `application/json`, and have no authentication of their
+own - treat `mcp_host: "0.0.0.0"` like the LAN panel in
+[Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).
+Tool calls run synchronously: a long `pi_run` holds its POST until it finishes,
+so give the client a generous tool timeout.

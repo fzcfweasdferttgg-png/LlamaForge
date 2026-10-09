@@ -1,6 +1,7 @@
 """Router network/key policy. The policy functions are pure; only the runner
 CLI at the bottom touches files or processes."""
 import argparse, copy, json, os, re, secrets, subprocess, sys, tempfile
+import socket
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 
@@ -100,6 +101,35 @@ def keyless_lan(cfg):
     return (bool(cfg.get("router_allow_keyless_lan"))
             and not cfg.get("router_api_key")
             and cfg.get("router_host", "127.0.0.1") == "0.0.0.0")
+
+
+def lan_hosts(host):
+    """Local names a listener answers for beyond loopback. An all-interfaces
+    bind is reached through any local address or name; anything else is one
+    fixed address. Keeps a Host check strict while allowing the LAN."""
+    if not host or host == "127.0.0.1":
+        return set()
+    if host != "0.0.0.0":
+        return {host.lower()}
+    out = set()
+    try:
+        out.add(socket.gethostname().lower())
+        out.add(socket.getfqdn().lower())
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            out.add(info[4][0].lower())
+    except OSError:
+        pass
+    try:                       # the address the OS routes to the LAN with
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))     # no packet is sent
+            out.add(s.getsockname()[0].lower())
+        finally:
+            s.close()
+    except OSError:
+        pass
+    out.discard("")
+    return out
 
 
 def ensure_local_key(cfg):

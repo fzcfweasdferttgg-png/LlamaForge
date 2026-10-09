@@ -122,3 +122,8 @@ local-only behavior described above and none are set by the dashboard UI:
   Off by default: a LAN router normally fails closed until a usable key is
   configured. When this is set, the OpenAI-compatible API is open to anyone
   who can reach the port.
+
+- `mcp_host` - binds the optional MCP-over-HTTP listener (`mcp_port`). Off by
+  default; the stdio MCP server needs no listener. The HTTP form carries no
+  authentication of its own and can load models, download files and run pi
+  tasks - same trust level as the LAN panel above.

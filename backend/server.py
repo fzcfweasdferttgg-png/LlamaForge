@@ -41,32 +41,12 @@ EXTRA_HOSTS = set()        # widened by main() when panel_host leaves loopback
 
 
 def lan_hosts(host):
-    """Local names the panel answers for beyond loopback. An all-interfaces
-    bind is reached through any local address or name; anything else is one
-    fixed address. Keeps the Host check strict while allowing the LAN."""
-    if not host or host == "127.0.0.1":
-        return set()
-    if host != "0.0.0.0":
-        return {host.lower()}
-    out = set()
-    try:
-        out.add(socket.gethostname().lower())
-        out.add(socket.getfqdn().lower())
-        for info in socket.getaddrinfo(socket.gethostname(), None):
-            out.add(info[4][0].lower())
-    except OSError:
-        pass
-    try:                       # the address the OS routes to the LAN with
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))     # no packet is sent
-            out.add(s.getsockname()[0].lower())
-        finally:
-            s.close()
-    except OSError:
-        pass
-    out.discard("")
-    return out
+    """Local names the panel answers for beyond loopback (shared helper;
+    see network_policy.lan_hosts). Keeps the Host check strict while
+    allowing the LAN."""
+    return chatproxy.lan_hosts(host)
+
+
 MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_PROXY_JSON_BODY_BYTES = 64 * 1024 * 1024
 _BODY_ERROR = object()
@@ -479,6 +459,12 @@ def main():
     import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
     logfiles.start_trimmer(routes.LOGDIR)
     chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
+    if c.get("mcp_host"):       # opt-in MCP over HTTP (config mcp_host/mcp_port)
+        try:
+            import mcp_server
+            mcp_server.serve_http(routes.cfg)
+        except Exception as e:
+            print(f"  WARNING: MCP HTTP did not start ({type(e).__name__}: {e})")
     try:                    # optional tray icon (no-op unless pystray+pillow present)
         import tray
         if tray.available():

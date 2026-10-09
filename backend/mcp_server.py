@@ -16,6 +16,7 @@ Speaks both protocol eras: the initialize handshake (2024-11-05 .. 2025-11-25)
 and the stateless 2026-07-28 revision, where every request carries its version
 and client capabilities in params._meta.
 """
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import sys
@@ -784,6 +785,99 @@ def setup_info(python=None, script=None):
                            indent=2),
         "tools": [t["name"] for t in Server(panel=object(), cfg=dict).tools],
     }
+
+
+# -------------------------------------------------- optional HTTP transport
+# Streamable HTTP, stateless form: POST one JSON-RPC message and get one
+# JSON-RPC response back (202 for a notification). The Server needs no session
+# state - every message carries its protocol version - so the adapter is a
+# thin loop over handle(). Enabled by config mcp_host ("" = off) and started
+# by server.main() the way the chat proxy is. Host/Origin checks mirror the
+# panel's: strict, widened only to this machine's own LAN names.
+MCP_MAX_BODY_BYTES = 4 * 1024 * 1024
+MCP_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+class McpHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *a):
+        pass
+
+    def _reply(self, code, body=b""):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def _trusted(self):
+        host = (self.headers.get("Host") or "").strip()
+        if host.startswith("["):                    # [::1]:8092
+            addr, _, tail = host.partition("]")
+            addr, got = (addr + "]").lower(), tail.lstrip(":")
+        else:
+            addr, _, got = host.partition(":")
+            addr = addr.lower()
+        if got and got != str(self.server.server_address[1]):
+            return False
+        if addr not in MCP_ALLOWED_HOSTS and addr not in self.server.extra_hosts:
+            return False
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        port = self.server.server_address[1]
+        return origin in [f"http://{h}:{port}"
+                          for h in MCP_ALLOWED_HOSTS | self.server.extra_hosts]
+
+    def do_GET(self):          # no server-push stream in the stateless form
+        self._reply(405)
+
+    do_DELETE = do_GET
+
+    def do_POST(self):
+        if not self._trusted():
+            return self._reply(403)
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return self._reply(415)
+        try:
+            n = int(self.headers.get("Content-Length") or "")
+        except ValueError:
+            n = -1
+        if not 0 <= n <= MCP_MAX_BODY_BYTES:
+            return self._reply(411 if n < 0 else 413)
+        try:
+            msg = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            msg = None
+        out = (Server._error(None, PARSE_ERROR, "parse error") if msg is None
+               else self.server.mcp.handle(msg))
+        if out is None:
+            return self._reply(202)
+        self._reply(200, json.dumps(out).encode("utf-8"))
+
+
+def serve_http(get_cfg):
+    """Start the opt-in MCP HTTP listener on a daemon thread. Returns the
+    server, or None when mcp_host is empty or the port is taken."""
+    cfg = get_cfg()
+    host = cfg.get("mcp_host", "")
+    if not host:
+        return None
+    port = cfg.get("mcp_port", 8092)
+    try:
+        httpd = ThreadingHTTPServer((host, port), McpHandler)
+    except OSError as e:
+        print(f"  WARNING: MCP HTTP could not bind {host}:{port} ({e})")
+        return None
+    httpd.mcp = Server(threaded=False)   # one POST must carry the whole reply
+    httpd.extra_hosts = network_policy.lan_hosts(host)
+    threading.Thread(target=httpd.serve_forever, daemon=True,
+                     name="mcp-http").start()
+    return httpd
 
 
 def main():

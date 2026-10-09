@@ -27,32 +27,9 @@ MAX_BODY_BYTES = 64 * 1024 * 1024         # image attachments travel inline
 
 
 def lan_hosts(host):
-    """Local names the chat listener answers for beyond loopback. Mirrors
-    server.lan_hosts: the Host check stays strict, widened only for this
-    machine's own addresses and names."""
-    if not host or host == "127.0.0.1":
-        return set()
-    if host != "0.0.0.0":
-        return {host.lower()}
-    out = set()
-    try:
-        out.add(socket.gethostname().lower())
-        out.add(socket.getfqdn().lower())
-        for info in socket.getaddrinfo(socket.gethostname(), None):
-            out.add(info[4][0].lower())
-    except OSError:
-        pass
-    try:                       # the address the OS routes to the LAN with
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))     # no packet is sent
-            out.add(s.getsockname()[0].lower())
-        finally:
-            s.close()
-    except OSError:
-        pass
-    out.discard("")
-    return out
+    """Local names the chat listener answers for beyond loopback (shared
+    helper; see network_policy.lan_hosts)."""
+    return network_policy.lan_hosts(host)
 # Request headers worth passing upstream. Everything else - Cookie, the
 # browser's own Authorization, Origin, hop-by-hop headers - stays behind.
 # accept-encoding matters: llama-server only has a gzipped copy of its web UI

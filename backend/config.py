@@ -33,6 +33,8 @@ DEFAULTS = {
     "chat_port":   8091,                      # llama.cpp's chat UI, proxied on its own origin
     "panel_host": "127.0.0.1",               # dashboard bind: 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "chat_host": "127.0.0.1",                 # chat listener bind; same choices as panel_host
+    "mcp_host": "",                       # MCP over HTTP bind: "" = off, else 127.0.0.1 or 0.0.0.0 (stdio MCP stays available)
+    "mcp_port": 8092,                      # port for the opt-in MCP HTTP listener
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
