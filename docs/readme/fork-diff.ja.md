@@ -6,7 +6,7 @@
 
 ## LAN 露出(オプトイン)
 
-`config.json` の `panel_host`、`chat_host`、`router_allow_keyless_lan` は、ダッシュボード、チャットリスナー、ルーターを LAN 上に移す。既定は変わらない: ループバック待受のままで、ルーターはキーなしではフェイルクローズする。Host/Origin ガードは有効のままに加えて、マシン自身の名前も受け付ける。詳細: [設定](../content/config.md)、[セキュリティ](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md)。
+`config.json` の `panel_host`、`router_allow_keyless_lan` は、ダッシュボード、ルーターを LAN 上に移す。既定は変わらない: ループバック待受のままで、ルーターはキーなしではフェイルクローズする。Host/Origin ガードは有効のままに加えて、マシン自身の名前も受け付ける。詳細: [設定](../content/config.md)、[セキュリティ](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md)。
 
 ## HTTP 経由の MCP(オプトイン)
 

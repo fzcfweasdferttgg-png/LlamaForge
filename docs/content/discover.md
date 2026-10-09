@@ -32,7 +32,7 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 3. Click a repo row to expand its file list. Each file shows its size and a fit badge (FITS VRAM / TIGHT / CPU OFFLOAD).
 4. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
 5. Use **Pause** to suspend a running download (the partial file is kept) and **Resume** to continue it later. **Cancel download** stops it and discards the partial file.
-6. When a download finishes, LlamaForge adds it to `models.ini` by itself (even if you closed the tab). Click **Load & Chat** to load it and open the Chat tab, or load it later from the Models tab.
+6. When a download finishes, LlamaForge adds it to `models.ini` by itself (even if you closed the tab). Click **Load** to load it, or load it later from the Models tab.
 
 ## Screenshot
 

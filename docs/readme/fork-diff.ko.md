@@ -7,8 +7,8 @@ Ubuntu Server에서만 테스트했습니다.
 
 ## LAN 노출 (옵트인)
 
-`config.json`의 `panel_host`, `chat_host`, `router_allow_keyless_lan`이 대시보드,
-채팅 리스너, 라우터를 LAN으로 옮깁니다. 기본값은 그대로입니다: 루프백 바인딩,
+`config.json`의 `panel_host`, `router_allow_keyless_lan`이 대시보드,
+라우터를 LAN으로 옮깁니다. 기본값은 그대로입니다: 루프백 바인딩,
 키가 없으면 라우터는 여전히 fail closed입니다. Host/Origin 가드는 계속 켜져 있고,
 추가로 이 기기 자체의 이름을 허용합니다. 세부 내용: [Config](../content/config.md),
 [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).

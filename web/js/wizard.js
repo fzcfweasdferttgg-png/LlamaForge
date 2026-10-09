@@ -176,7 +176,6 @@ async function wizNext() {
       applyMode("lite"); wizHide(); emit("refresh", true);
       toast(loadErr ? "Setup done — model failed to load; load it from the Models tab"
                     : "Setup complete", loadErr ? "err" : "ok");
-      if (!loadErr) emit("chat", WIZ.model);   // the point of setup: talking to it
     } catch (e) { toast("Setup failed", "err"); }
     return;
   }

@@ -139,7 +139,6 @@ function editorButtons(m) {
   return `<button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
       ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
-      ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
       <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
@@ -360,8 +359,7 @@ function quickBtn(m) {
   const q = loadQ.findIndex(j => j.id === m.id);
   if (q >= 0) return `<span class="qbadge">QUEUED #${q+1}</span>`;
   if (m.status === "loading") return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">Cancel</button>`;
-  if (m.status === "loaded") return `${(m.backend || "llamacpp") === "llamacpp"
-    ? `<button class="qbtn load" data-quick="chat" data-qid="${esc(m.id)}">Chat</button>` : ""}<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
+  if (m.status === "loaded") return `<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
   return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">Load</button>`;
 }
 function beOf(id) {
@@ -390,31 +388,19 @@ async function processQ() {
     toast(`${job.id}: ${slots.errText(r)}`.slice(0, 220), "err");
   loadQ.shift(); loadBusy = false;
   await refresh(true);
-  if (chatAfterLoad.delete(job.id)) {
-    const m = modelRows().find(x => x.id === job.id);
-    if (m && m.status === "loaded") {
-      if ((m.backend || "llamacpp") === "llamacpp") emit("chat", job.id);
-      else toast(`${job.id} is loaded`, "ok");
-    } else {
-      toast(`${job.id} did not load - open it in My Models for the reason`, "err");
-    }
-  }
   processQ();
 }
-// Discover's "Load & Chat" after a download: refresh first so a just-registered
-// model (and whether it is vLLM) is known, then load it and open Chat.
-const chatAfterLoad = new Set();
-on("load-chat", async id => {
+// Discover's "Load" after a download: refresh first so a just-registered
+// model is known, then load it.
+on("load-registered", async id => {
   await refresh(true);
-  chatAfterLoad.add(id);
   const m = modelRows().find(x => x.id === id);
-  if (m && m.status === "loaded") { chatAfterLoad.delete(id); if ((m.backend || "llamacpp") === "llamacpp") emit("chat", id); return; }
+  if (m && m.status === "loaded") return;
   enqueueLoad(id);
 });
 async function quickAction(act, id) {
   const be = beOf(id);
   if (act === "load") { enqueueLoad(id); return; }
-  if (act === "chat") { emit("chat", id); return; }
   if (act === "unload") {
     await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
     toast("Unloaded", "ok"); await refresh(true); return;
@@ -951,7 +937,6 @@ export function initModels() {
     const btn = e.target.closest("#view-models button[data-act]");
     if (!btn) return;
     const row = btn.closest(".row"), id = row.dataset.id, msg = $("[data-msg]", row), act = btn.dataset.act;
-    if (act === "chat") { emit("chat", id); return; }
     if (act === "profile") { emit("profile-save", {id, backend: row.dataset.backend}); return; }
     const clientOpening = act === "client"
       ? openClientConfig(id, row.dataset.backend) : null;

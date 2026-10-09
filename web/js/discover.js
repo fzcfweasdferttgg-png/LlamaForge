@@ -96,7 +96,7 @@ export function loadDiscover() {
         <button class="ghost" id="dl-cancel">Cancel download</button>
       </div>
       <div class="actions" id="dl-done" style="display:none">
-        <button class="primary" id="dl-add">Load &amp; Chat</button><span class="msg" id="dl-msg"></span>
+        <button class="primary" id="dl-add">Load</button><span class="msg" id="dl-msg"></span>
       </div>
     </div>
     <div id="feed"></div>
@@ -195,7 +195,7 @@ async function hubDownload(repo, path, shards, mmproj, mtp) {
 }
 
 // A finished download is already in My Models (the backend registers it, 01 #4);
-// the card's one job is "Load & Chat". If registering failed, the button
+// the card's one job is "Load". If registering failed, the button
 // retries it first and says why.
 function dlFinished(added, regErr, retry) {
   $("#dl-done").style.display = "";
@@ -216,7 +216,7 @@ function dlFinished(added, regErr, retry) {
       if (!ids.length) { m.className = "msg err"; m.textContent = "could not add it - see Setup > diagnostics"; btn.disabled = false; return; }
     }
     m.className = "msg work"; m.textContent = "loading " + ids[0] + "...";
-    emit("load-chat", ids[0]);
+    emit("load-registered", ids[0]);
   };
 }
 

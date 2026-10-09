@@ -6,8 +6,8 @@
 
 ## 局域网暴露（opt-in）
 
-`config.json` 中的 `panel_host`、`chat_host` 和 `router_allow_keyless_lan` 把
-面板、聊天监听器和路由器移到局域网。默认值不变：绑定回环地址，
+`config.json` 中的 `panel_host` 和 `router_allow_keyless_lan` 把
+面板和路由器移到局域网。默认值不变：绑定回环地址，
 且路由器在无密钥时仍然 fail closed。
 Host/Origin 校验保持开启，并额外接受机器自身的名称。详情：[配置](../content/config.md)、
 [安全](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md)。

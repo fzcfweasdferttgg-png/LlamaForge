@@ -839,8 +839,6 @@ def get_state(req):
     s["vllm_supported"] = VLLM_SUPPORTED
     s["backends"] = [b.name for b in REGISTRY.enabled()]
     s["active_engine"] = c.get("active_engine", "llamacpp")
-    s["chat_port"] = c.get("chat_port", 8091)
-    s["chat_host"] = c.get("chat_host", "127.0.0.1")
     s["panel_host"] = c.get("panel_host", "127.0.0.1")
     s["mcp_host"] = c.get("mcp_host", "")
     s["mcp_port"] = c.get("mcp_port", 8092)
@@ -1898,7 +1896,7 @@ def post_hub_resume(req):
 def _register_download(path):
     """Register a finished download (and its folder's shards/mmproj) in
     models.ini. Returns the model ids added, the downloaded file's first so
-    "Load & Chat" loads what was just fetched."""
+    "Load" loads what was just fetched."""
     folder = os.path.dirname(path)
     entries = _register_ggufs_beside(
         [os.path.join(folder, f) for f in os.listdir(folder)

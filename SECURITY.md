@@ -40,7 +40,7 @@ Binding to `127.0.0.1` keeps other machines out, but not web pages: a
 attacker's page same-origin with `127.0.0.1`. So the router always runs with an
 API key. When you have not set `router_api_key`, LlamaForge generates its own
 (`router_local_key` in `config.json`) and adds it server-side to every request
-it makes: the dashboard, the Chat tab, the `/v1/messages` shim and the stats
+it makes: the dashboard, the `/v1/messages` shim and the stats
 poller. **Client Config** and **Connect an agent** hand that key to the clients
 you set up. A local router also gets `--cors-origins localhost` when the
 llama-server build supports it.
@@ -109,11 +109,11 @@ This is a local tool, not a hosted service, and not a security certification.
 
 ## LAN exposure (opt-in)
 
-Three `config.json` keys can move a surface onto the LAN; all default to the
+Two `config.json` keys can move a surface onto the LAN; all default to the
 local-only behavior described above and none are set by the dashboard UI:
 
-- `panel_host` and `chat_host` - bind addresses for the dashboard and the chat
-  listener. `"0.0.0.0"` (or a fixed address) makes the surface reachable on the
+- `panel_host` - bind address for the dashboard.
+  `"0.0.0.0"` (or a fixed address) makes the surface reachable on the
   network. The Host/Origin guard is not disabled: it additionally accepts this
   machine's own addresses and names, so DNS rebinding and cross-site requests
   stay refused. The panel carries no authentication of its own - anything that

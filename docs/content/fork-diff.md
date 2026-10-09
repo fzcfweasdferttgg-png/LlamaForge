@@ -13,8 +13,8 @@ as-is. Tested on Ubuntu Server only.
 
 ## LAN exposure (opt-in)
 
-`panel_host`, `chat_host` and `router_allow_keyless_lan` in `config.json` move
-the dashboard, the chat listener and the router onto the LAN. Defaults are
+`panel_host` and `router_allow_keyless_lan` in `config.json` move
+the dashboard and the router onto the LAN. Defaults are
 unchanged: loopback binds, and the router still fails closed without a key.
 The Host/Origin guard stays on and additionally accepts the machine's own
 names. Details: [Config](config.md),

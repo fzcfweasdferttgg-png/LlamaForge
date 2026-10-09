@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-これらはオリジナルのプロジェクトをインストールする。このビルドはこのリポジトリからデプロイする。その後は **Install llama.cpp**(GPU 向けの公式ビルド、コンパイラ不要)→ **Discover** → **Chat**。
+これらはオリジナルのプロジェクトをインストールする。このビルドはこのリポジトリからデプロイする。その後は **Install llama.cpp**(GPU 向けの公式ビルド、コンパイラ不要)→ **Discover** → **Load**。
 アーリープレビュー: Windows + NVIDIA が最もテストされている経路。Linux と macOS は CI は通るが、実機での使用は少ない。
 
 LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-server` ルーターをインストールして操作し、`models.ini` を代わりに編集する。ggml-org とは無関係。制御より洗練を優先するなら [LM Studio](https://lmstudio.ai)、[Ollama](https://ollama.com)、[Jan](https://jan.ai) を使うこと。
@@ -43,15 +43,14 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
 
 ## 何ができるか
 
-- **Models**: 機上のすべてのモデルを 1 つのリストにまとめ、GPU ごとの VRAM・使用率・温度をライブ表示。行から読み込み、アンロード、Chat を開ける。
+- **Models**: 機上のすべてのモデルを 1 つのリストにまとめ、GPU ごとの VRAM・使用率・温度をライブ表示。行から読み込み、アンロード、調整ができる。
   - モデルを展開すると llama-server のすべてのフラグを編集できる。グループ化・検索可能で、GGUF メタデータカード(アーキテクチャ、quant、学習時コンテキスト、レイヤー)の隣に並ぶ。
   - 保存するとモデルをその場で再読み込みする。読み込み失敗時はルーターログの直近エラーと推測のヒントを表示する。
   - プリセット、起動プロファイル(モデル + プリセット + 固定した llama.cpp ビルドを 1 クリック)、並列比較、コピー&ペースト用クライアントスニペット。
   - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用の llama.cpp(または ik_llama.cpp)ビルドを固定することもできる。
-- **Chat**: llama.cpp 純正のチャット UI(markdown、reasoning、画像)をダッシュボード内に。専用ポートで動き、API キーも設定済み。
 - **Voice**: llama.cpp 純正の `llama-tts` による GPU 上のテキスト読み上げ。10 言語の Qwen3-TTS、または小さな英語版 Pocket TTS(CPU だけでもリアルタイムより速く動く)。録音またはアップロードした声も使える(使用が許諾されたクローン音声に限る)。
 - **Embers**: トピックを見守り、独自の wiki を管理し、スケジュールに沿ってブリーフを書く小さなローカルエージェント。wiki の項目は、出典を逐語的に引用して初めて成立する。**Forge** は対話しながら 1 つを作り、**Model Scout** は設定不要。Embers にブラウザやツールはなく、プッシュ通知を有効にしない限り何もマシン外に出ない。
-- **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load & Chat** で終わる。
+- **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load** 準備で終わる。
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
 - **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も、Windows では WSL2 上の [vLLM](https://github.com/vllm-project/vllm) も操作する。
 - **Stats**: ルーター自身のメトリクスから、モデルごとのトークン数、速度、実行回数。クライアントはルーターと直接通信するため、クライアント別の統計は不可能。
@@ -91,7 +90,6 @@ bootstrap スクリプトは Python と Git を確認し(何かをインスト�
 **日常の使い方:** スタートメニュー/アプリメニューから **LlamaForge** を開くか、`llamaforge` を実行する。ルーターとダッシュボードを起動し、ブラウザを開く。
 
 - ダッシュボード: http://127.0.0.1:8090
-- チャット: http://127.0.0.1:8091 (ダッシュボードの **Chat** タブでも同じ)
 - 他のアプリ用 API: http://127.0.0.1:8080/v1
 
 `llamaforge stop`(`stop.ps1` / `stop.sh` も可)はダッシュボード、ルーター、それが生んだモデルを停止する。止めるのは LlamaForge が起動したプロセスだけで、他に動かしている llama-server には触れない。

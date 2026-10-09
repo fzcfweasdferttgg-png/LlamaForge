@@ -1,15 +1,15 @@
-"""LAN exposure: the panel and chat leaving loopback, and the keyless-LAN
+"""LAN exposure: the panel leaving loopback, and the keyless-LAN
 opt-in for the router.
 
 The default install is unchanged - everything binds 127.0.0.1 and a LAN
 router needs a key. These tests drive a real ThreadingHTTPServer the way a LAN
-client would once panel_host / chat_host say 0.0.0.0."""
+client would once panel_host says 0.0.0.0."""
 import conftest_paths  # noqa: F401
 import json, os, tempfile, threading, unittest, urllib.error, urllib.request
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-import chatproxy, network_policy, routes, server
+import network_policy, routes, server
 
 
 class LanHostsTest(unittest.TestCase):
@@ -33,18 +33,10 @@ class GuardWideningTest(unittest.TestCase):
         server.EXTRA_HOSTS.clear()
         server.EXTRA_HOSTS.add("10.0.0.5")
         self.addCleanup(self._restore)
-        self.saved_chat = chatproxy.EXTRA_HOSTS.copy()
-        chatproxy.EXTRA_HOSTS.clear()
-        chatproxy.EXTRA_HOSTS.add("10.0.0.5")
-        self.addCleanup(self._restore_chat)
 
     def _restore(self):
         server.EXTRA_HOSTS.clear()
         server.EXTRA_HOSTS |= self.saved
-
-    def _restore_chat(self):
-        chatproxy.EXTRA_HOSTS.clear()
-        chatproxy.EXTRA_HOSTS |= self.saved_chat
 
     def test_panel_host_accepts_the_configured_address(self):
         self.assertTrue(server._host_ok("10.0.0.5:8090", 8090))
@@ -54,10 +46,6 @@ class GuardWideningTest(unittest.TestCase):
         self.assertFalse(server._host_ok("evil.com:8090", 8090))
         self.assertFalse(server._host_ok("attacker.test:8090", 8090))
         self.assertFalse(server._host_ok("10.0.0.5:9999", 8090))
-
-    def test_chat_host_accepts_the_configured_address(self):
-        self.assertTrue(chatproxy.host_ok("10.0.0.5:8091", 8091))
-        self.assertFalse(chatproxy.host_ok("evil.com:8091", 8091))
 
 
 class KeylessLanPolicyTest(unittest.TestCase):
@@ -150,35 +138,6 @@ class LiveLanServerTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self._req(f"evil.com:{self.port}")
         self.assertEqual(cm.exception.code, 403)
-
-
-class ChatServeRegistrationTest(unittest.TestCase):
-    """serve() must register the configured LAN names (in-place; binding the
-    name inside the function would shadow the module global)."""
-
-    def setUp(self):
-        self.saved = chatproxy.EXTRA_HOSTS.copy()
-        chatproxy.EXTRA_HOSTS.clear()
-        self.addCleanup(self._restore)
-
-    def _restore(self):
-        chatproxy.EXTRA_HOSTS.clear()
-        chatproxy.EXTRA_HOSTS.update(self.saved)
-
-    def test_serve_registers_lan_hosts(self):
-        httpd = chatproxy.serve(lambda: {"chat_port": 0, "chat_host": "0.0.0.0"})
-        self.assertIsNotNone(httpd)
-        self.addCleanup(httpd.shutdown)
-        self.addCleanup(httpd.server_close)
-        self.assertTrue(chatproxy.EXTRA_HOSTS)
-        self.assertNotIn("", chatproxy.EXTRA_HOSTS)
-
-    def test_serve_local_keeps_hosts_empty(self):
-        httpd = chatproxy.serve(lambda: {"chat_port": 0, "chat_host": "127.0.0.1"})
-        self.assertIsNotNone(httpd)
-        self.addCleanup(httpd.shutdown)
-        self.addCleanup(httpd.server_close)
-        self.assertFalse(chatproxy.EXTRA_HOSTS)
 
 
 class KeylessRunnerArgsTest(unittest.TestCase):

@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-이 명령은 원본 프로젝트를 설치합니다. 이 빌드는 이 저장소에서 배포됩니다. 그다음 **Install llama.cpp**(GPU에 맞는 공식 빌드, 컴파일러 불필요) → **Discover** → **Chat**.
+이 명령은 원본 프로젝트를 설치합니다. 이 빌드는 이 저장소에서 배포됩니다. 그다음 **Install llama.cpp**(GPU에 맞는 공식 빌드, 컴파일러 불필요) → **Discover** → **Load**.
 얼리 프리뷰: Windows + NVIDIA가 가장 많이 테스트된 경로입니다. Linux와 macOS는 CI를 통과하지만 실제 하드웨어 사용 경험이 거의 없습니다.
 
 LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-server` 라우터를 설치·구동하고
@@ -48,15 +48,14 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
 
 ## 구성
 
-- **Models**: 이 기기의 모든 모델을 하나의 목록에, GPU별 실시간 VRAM/사용률/온도와 함께. 해당 행에서 로드, 언로드, 또는 Chat을 엽니다.
+- **Models**: 이 기기의 모든 모델을 하나의 목록에, GPU별 실시간 VRAM/사용률/온도와 함께. 해당 행에서 로드, 언로드, 조정이 가능합니다.
   - 모델을 펼치면 GGUF 메타데이터 카드(아키텍처, 양자화, 학습 컨텍스트, 레이어) 옆에서 llama-server 플래그 전부를 그룹별로 검색하며 편집합니다.
   - 저장하면 모델을 그 자리에서 다시 로드합니다. 로드 실패 시 라우터 로그의 마지막 오류와 추정 원인 힌트를 보여줍니다.
   - 프리셋, 실행 프로필(모델 + 프리셋 + 고정된 llama.cpp 빌드를 한 번에), 나란히 비교, 복사-붙여넣기용 클라이언트 코드 조각.
   - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 씁니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
-- **Chat**: llama.cpp 자체 채팅 UI(마크다운, reasoning, 이미지)를 대시보드 안에서, 자체 포트로, API 키를 자동으로 넣어 제공합니다.
 - **Voice**: llama.cpp의 `llama-tts`로 GPU에서 구동하는 텍스트 음성 변환: 10개 언어의 Qwen3-TTS, 또는 CPU에서도 실시간보다 빠른 소형 영어 Pocket TTS. 선택적으로 녹음하거나 업로드한 음성 사용(사용 권한이 있는 음성만 클론하세요).
 - **Embers**: 주제를 감시하고 자체 위키를 유지하며 일정에 따라 브리핑을 작성하는 소형 로컬 에이전트. 위키 항목은 출처를 그대로 인용해야만 인정됩니다. **Forge**는 인터뷰를 통해 하나를 만들고, **Model Scout**는 설정이 필요 없습니다. Embers는 브라우저나 도구가 없으며, 푸시 알림을 켜지 않는 한 아무것도 기기 밖으로 나가지 않습니다.
-- **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load & Chat**으로 끝납니다.
+- **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load** 준비로 끝납니다.
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
 - **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동하고, Windows에서는 WSL2의 [vLLM](https://github.com/vllm-project/vllm)도 구동합니다.
 - **Stats**: 라우터 자체 메트릭에서 모델별 토큰, 속도, 실행 횟수를 집계합니다. 클라이언트는 라우터에 직접 연결하므로 클라이언트별 통계는 불가능합니다.
@@ -108,7 +107,6 @@ bootstrap 스크립트는 Python과 Git을 확인하고(무엇이든 설치하�
 라우터와 대시보드를 시작하고 브라우저를 엽니다.
 
 - Dashboard: http://127.0.0.1:8090
-- Chat: http://127.0.0.1:8091 (대시보드의 **Chat** 탭이기도 함)
 - 다른 앱용 API: http://127.0.0.1:8080/v1
 
 `llamaforge stop`(또는 `stop.ps1` / `stop.sh`)은 대시보드, 라우터, 그리고 라우터가

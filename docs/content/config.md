@@ -19,9 +19,7 @@ order: 1
 | `model_dirs` | list | `[]` | Directories the Discover/scan feature searches for GGUF files. |
 | `router_port` | int | `8080` | Port `llama-server` (the router) listens on. |
 | `panel_port` | int | `8090` | Port the LlamaForge dashboard (`backend/server.py`) listens on. |
-| `chat_port` | int | `8091` | Port llama.cpp's own chat UI is proxied on, on its own origin (the Chat tab). |
 | `panel_host` | string | `"127.0.0.1"` | Dashboard bind address: `127.0.0.1` (local) or `0.0.0.0` (LAN). Hand-edited; the Host/Origin guard then also accepts this machine's own LAN names. |
-| `chat_host` | string | `"127.0.0.1"` | Chat listener bind address; same choices as `panel_host`. |
 | `mcp_host` | string | `""` | Opt-in MCP-over-HTTP listener bind: `""` (off), `"127.0.0.1"` or `0.0.0.0`. The stdio MCP server is always available. |
 | `mcp_port` | int | `8092` | Port for the MCP HTTP listener. |
 | `router_host` | string | `"127.0.0.1"` | Router bind address. The Network Access UI supports only `127.0.0.1` (local) and `0.0.0.0` (LAN). |

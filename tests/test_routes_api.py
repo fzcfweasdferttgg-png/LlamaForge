@@ -339,7 +339,7 @@ class HubAddTest(unittest.TestCase):
                          ["a.gguf", "b.gguf"])       # .txt not registered
 
     def test_the_downloaded_file_comes_first(self):
-        """'Load & Chat' loads added[0]: it must be what was just fetched."""
+        """'Load' loads added[0]: it must be what was just fetched."""
         tmp = tempfile.mkdtemp()
         for n in ("a.gguf", "b.gguf"):
             open(os.path.join(tmp, n), "w").close()

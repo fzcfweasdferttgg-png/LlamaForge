@@ -37,7 +37,7 @@ Finishing the wizard and skipping it both set `ui_mode` to `"lite"` (skipping is
 4. **Tune** — choose a goal (Balanced, Max speed, Max context, or Coding) and click **Auto-tune** to call `/api/autotune/recommend` for that model and intent; the resulting knobs and their rationale are shown in a table. An optional **Refine with a quick test (~1 min)** button calls `/api/autotune/refine` to try a few high-impact variants (e.g. alternate `ubatch-size`/`batch-size`) with one short generation each and keep the fastest. It is a quick check, not llama-bench: results move with whatever else the machine is doing.
 5. **Ready** — confirms the chosen settings will be applied to the selected model and it will be loaded.
 
-Finishing the wizard saves the recommended knobs with `/api/save`, loads the model with `/api/load`, and marks the config `onboarded: true, ui_mode: "lite"` regardless of whether the load itself succeeded (a failed load surfaces a toast telling you to load it manually from the Models tab). When the load works, the dashboard then opens the Chat tab on that model. **Skip** instead marks the config `onboarded: true, ui_mode: "lite"` and closes the wizard without touching any model.
+Finishing the wizard saves the recommended knobs with `/api/save`, loads the model with `/api/load`, and marks the config `onboarded: true, ui_mode: "lite"` regardless of whether the load itself succeeded (a failed load surfaces a toast telling you to load it manually from the Models tab). **Skip** instead marks the config `onboarded: true, ui_mode: "lite"` and closes the wizard without touching any model.
 
 ## What auto-tune decides
 

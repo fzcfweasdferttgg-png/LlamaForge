@@ -48,9 +48,6 @@ Released:
   GPU (CUDA / Vulkan / Metal / CPU), digest-verified, switchable per version, so
   new model support is an **Update** click away. Building from source stays for
   forks. (v0.10.0)
-- **Built-in Chat** — llama.cpp's own chat client inside the dashboard, a Chat
-  button on every loaded model, served from its own local origin with the API key
-  added server-side. (v0.10.0)
 - **llama.cpp control panel** — per-model tuning of every `llama-server` flag
   (200+ on current builds, parsed live from `--help`); saving hot-reloads the model, no restart.
 - **VRAM-fit model discovery** — search HuggingFace GGUFs, each quant rated

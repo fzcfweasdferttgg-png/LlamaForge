@@ -12,7 +12,7 @@ Pure Python stdlib.
 import json, os, socket, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, wiki, anthropic_shim, chatproxy
+import config, wiki, anthropic_shim, network_policy
 import routes
 from routes import ApiError, Req
 
@@ -44,7 +44,7 @@ def lan_hosts(host):
     """Local names the panel answers for beyond loopback (shared helper;
     see network_policy.lan_hosts). Keeps the Host check strict while
     allowing the LAN."""
-    return chatproxy.lan_hosts(host)
+    return network_policy.lan_hosts(host)
 
 
 MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
@@ -458,7 +458,6 @@ def main():
     stats.TRACKER.start()   # background usage poller
     import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
     logfiles.start_trimmer(routes.LOGDIR)
-    chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
     if c.get("mcp_host"):       # opt-in MCP over HTTP (config mcp_host/mcp_port)
         try:
             import mcp_server

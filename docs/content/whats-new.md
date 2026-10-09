@@ -30,7 +30,7 @@ This page summarizes the most recent additions to LlamaForge. Each entry links t
 - **llama.cpp's `--fit` decides context, GPU layers and split.** LlamaForge no longer pins `ctx-size`, `n-gpu-layers` or `tensor-split`. Auto-tune clears them, and the old `[*] ctx-size = 150000` pin is removed once on upgrade. See [First Run](first-run.md) and [models.ini Format](models-ini.md).
 - **Load failures quote the attempt that failed.** The diagnosis reads only the last load of that model from the router log and quotes llama.cpp's own error line. If a value you pinned turned fit off, the out-of-memory hint names it. See [Troubleshooting](troubleshooting.md).
 - **Split GGUFs count all their shards** in sizes and fit estimates. Speed and fit badges are labelled as rough estimates.
-- **A download ends in Load & Chat**, and a first run with no models suggests starters sized to your VRAM.
+- **A download ends ready to Load**, and a first run with no models suggests starters sized to your VRAM.
 - **Security:** the router always runs with an API key, and CORS is localhost-only unless you opt into LAN. Recipes import only allowlisted tuning knobs. `stop` and uninstall touch only processes and files LlamaForge owns. Vulnerabilities can be reported privately (see `SECURITY.md`).
 - The running version is shown next to the logo and requested in bug reports.
 
