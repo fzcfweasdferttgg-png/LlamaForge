@@ -1,13 +1,6 @@
 <p align="center"><b>브라우저 탭에서 돌리는 진짜 llama.cpp 서버.</b><br>
 모델을 고르고, GPU에 들어가는지 확인하고, 로드하고, 대화하세요. llama-server 플래그는 전부 그대로 있어, 필요할 때 쓸 수 있습니다.</p>
 
-<p align="center">
-  <a href="https://github.com/dadwritestech/LlamaForge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/dadwritestech/LlamaForge/ci.yml?branch=master&style=flat-square&labelColor=0f1315&color=39d98a&label=CI"></a>
-  <a href="../../LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-c8d2d4?style=flat-square&labelColor=0f1315"></a>
-  <img alt="status" src="https://img.shields.io/badge/status-early%20preview-ff5c57?style=flat-square&labelColor=0f1315">
-  <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
-</p>
-
 
 <h2 align="center">
   <a href="../../README.md">English</a> ·

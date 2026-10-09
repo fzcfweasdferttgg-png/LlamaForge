@@ -1,13 +1,6 @@
 <p align="center"><b>本物の llama.cpp サーバーを、ブラウザのタブから。</b><br>
 モデルを選び、GPU に収まるかを確認して、読み込んで、チャット。llama-server のフラグはすべて残っており、望めばいつでも使える。</p>
 
-<p align="center">
-  <a href="https://github.com/dadwritestech/LlamaForge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/dadwritestech/LlamaForge/ci.yml?branch=master&style=flat-square&labelColor=0f1315&color=39d98a&label=CI"></a>
-  <a href="../../LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-c8d2d4?style=flat-square&labelColor=0f1315"></a>
-  <img alt="status" src="https://img.shields.io/badge/status-early%20preview-ff5c57?style=flat-square&labelColor=0f1315">
-  <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
-</p>
-
 
 <h2 align="center">
   <a href="../../README.md">English</a> ·
