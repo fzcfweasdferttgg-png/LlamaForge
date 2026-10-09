@@ -58,8 +58,8 @@ class SysfsGpusTest(unittest.TestCase):
 
 
 VULKAN_LIST = """\
-Vulkan0: AMD Radeon RX 9070 XT (RADV GFX1201) | fp16: yes
-Vulkan1: AMD Radeon RX 9070 XT (RADV GFX1201) | fp16: yes
+Vulkan0: AMD Radeon RX 9070 XT (RADV GFX1201) (16304 MiB, 16238 MiB free)
+Vulkan1: AMD Radeon RX 9070 XT (RADV GFX1201) (16304 MiB, 16238 MiB free)
 """
 
 CUDA_LIST = "CUDA0: NVIDIA GeForce RTX 4090 (sm_89, 24 GiB)\n"
@@ -93,6 +93,16 @@ class EnrichAndTokensTest(unittest.TestCase):
 
     def test_map_none_when_lists_disagree(self):
         self.assertIsNone(slots.cuda_map(VULKAN_LIST, [{"index": 0, "name": "x"}]))
+
+    def test_memory_cross_check_guards_the_names(self):
+        """The engine prints "(total MiB, ...)" per device: a slot whose totals
+        disagree must keep its placeholder; agreeing totals take the name."""
+        wrong = [{"index": 0, "name": "AMD (card0)", "total_mib": 24576}]
+        hardware.enrich_names(wrong, VULKAN_LIST)
+        self.assertEqual(wrong[0]["name"], "AMD (card0)")
+        ok = [{"index": 0, "name": "AMD (card0)", "total_mib": 16304}]
+        hardware.enrich_names(ok, VULKAN_LIST)
+        self.assertEqual(ok[0]["name"], "AMD Radeon RX 9070 XT")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ vision projector lands on CUDA0 too, whatever the model's `device` says.
 Pure stdlib, no I/O.
 """
 import re
+from hardware import _LIST_DEVICE
 
 MIB_PER_GIB = 1024
 DEFAULT_HEADROOM_MIB = 1536   # per GPU, kept free on top of everything planned
@@ -103,7 +104,8 @@ class DeviceMap(dict):
     takes - so placement strings match whatever backend the build runs."""
 
 
-_LIST_DEVICE = re.compile(r"^\s*([A-Za-z]+?)(\d+):\s*(.+?)\s*\(", re.M)
+# _LIST_DEVICE is imported from hardware: one parser for the engine's
+# device list, shared with the telemetry path.
 
 
 def device_prefix(list_devices):

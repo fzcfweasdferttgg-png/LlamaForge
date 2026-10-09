@@ -113,6 +113,7 @@ if __name__ == "__main__":
 _SYSFS_DRM = "/sys/class/drm"
 _COMPUTE_VENDORS = {"0x1002": "AMD", "0x8086": "Intel", "0x10de": "NVIDIA"}
 _LIST_DEVICE = re.compile(r"^\s*([A-Za-z]+?)(\d+):\s*(.+?)\s*\(", re.M)
+_LIST_MEM_TOTAL = re.compile(r"\((\d+)\s*MiB,")   # the engine's "(total MiB, ... free)"
 
 
 def _read(path):
@@ -125,11 +126,18 @@ def _read(path):
 
 def sysfs_gpus(sysfs_root=_SYSFS_DRM):
     """[{index, name, total_mib, used_mib, free_mib, util, temp}] from DRM
-    sysfs; [] when the kernel exposes nothing usable (or non-Linux)."""
+    sysfs; [] when the kernel exposes nothing usable (or non-Linux). Cards
+    come out in PCI bus order - the engine lists devices the same way."""
+    def bdf(card):
+        try:
+            return os.path.basename(os.path.realpath(
+                os.path.join(sysfs_root, card, "device")))
+        except OSError:
+            return card
     try:
         cards = sorted((n for n in os.listdir(sysfs_root)
                         if re.fullmatch(r"card\d+", n)),
-                       key=lambda n: int(n[4:]))
+                       key=lambda n: (bdf(n), int(n[4:])))
     except OSError:
         return []
     gpus = []
@@ -170,9 +178,17 @@ def sysfs_gpus(sysfs_root=_SYSFS_DRM):
 def enrich_names(gpus, list_devices_text):
     """Replace sysfs placeholder names with the engine's own device names from
     `llama-server --list-devices`, matched by enumeration order (both list PCI
-    order). The names then also match what slots.cuda_map compares against."""
-    names = [n.strip() for _p, _i, n in _LIST_DEVICE.findall(list_devices_text or "")]
-    for g, n in zip(gpus, names):
-        if n:
-            g["name"] = n
+    order). The engine also prints "(total MiB, ... free)" per device: a slot
+    whose totals disagree keeps its placeholder name rather than being
+    mislabeled. Names then also match what slots.cuda_map compares against."""
+    text = list_devices_text or ""
+    names = [n.strip() for _p, _i, n in _LIST_DEVICE.findall(text)]
+    totals = [int(t) for t in _LIST_MEM_TOTAL.findall(text)]
+    for i, (g, n) in enumerate(zip(gpus, names)):
+        if not n:
+            continue
+        t = g.get("total_mib")
+        if i < len(totals) and t and abs(totals[i] - t) > max(64, t // 50):
+            continue        # the engine's order disagrees with this card
+        g["name"] = n
     return gpus
