@@ -20,8 +20,11 @@ order: 1
 | `router_port` | int | `8080` | Port `llama-server` (the router) listens on. |
 | `panel_port` | int | `8090` | Port the LlamaForge dashboard (`backend/server.py`) listens on. |
 | `chat_port` | int | `8091` | Port llama.cpp's own chat UI is proxied on, on its own origin (the Chat tab). |
+| `panel_host` | string | `"127.0.0.1"` | Dashboard bind address: `127.0.0.1` (local) or `0.0.0.0` (LAN). Hand-edited; the Host/Origin guard then also accepts this machine's own LAN names. |
+| `chat_host` | string | `"127.0.0.1"` | Chat listener bind address; same choices as `panel_host`. |
 | `router_host` | string | `"127.0.0.1"` | Router bind address. The Network Access UI supports only `127.0.0.1` (local) and `0.0.0.0` (LAN). |
 | `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
+| `router_allow_keyless_lan` | bool | `false` | Opt-in: start a LAN router without an API key. Fail-closed by default; set it only on a network you trust. |
 | `router_local_key` | string | `""` | The key LlamaForge generates for itself when you set none, so the router always runs keyed. Minted at startup; never shown in the dashboard. |
 | `wsl_distro` | string | `""` | WSL distro that runs vLLM. Empty string auto-picks the default distro. |
 | `vllm_port` | int | `8081` | Port vLLM serves on inside WSL (localhost-forwarded to Windows). |

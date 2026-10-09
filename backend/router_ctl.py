@@ -7,6 +7,7 @@ import json, os, signal, subprocess, time, socket, urllib.error, urllib.request
 
 import logfiles, network_policy, osplat, procs
 
+import config
 CREATE_NO_WINDOW = 0x08000000
 
 def lan_ip():
@@ -153,7 +154,8 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", poo
     knows); local_key is LlamaForge's own, used when the user has none.
     pool: None for one model at a time, or slots.router_pool()'s
     {"models_max", "autoload"} for multi-model mode."""
-    reason = network_policy.start_error(host, api_key)
+    kl = network_policy.keyless_lan(config.load())
+    reason = network_policy.start_error(host, api_key, kl)
     if reason:
         return False, reason
     if not server_bin or not os.path.exists(server_bin):
@@ -172,8 +174,9 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", poo
             "--host", host, "--port", str(port), "--metrics"]
     if pool and not pool.get("autoload", True):
         args.append("--no-models-autoload")
-    args += network_policy.router_auth_args(host, api_key or local_key,
-                                            supports_cors_origins(server_bin))
+    args += ([] if kl else
+             network_policy.router_auth_args(host, api_key or local_key,
+                                             supports_cors_origins(server_bin)))
     out = logfiles.open_append(os.path.join(logdir, "router.out.log"))
     err = logfiles.open_append(os.path.join(logdir, "router.err.log"))
     kw = ({"creationflags": CREATE_NO_WINDOW} if osplat.IS_WIN
@@ -213,7 +216,8 @@ def running_pool(logdir):
         return None
 
 def restart(server_bin, models_ini, port, host, api_key, logdir, local_key="", pool=None):
-    reason = network_policy.start_error(host, api_key)
+    reason = network_policy.start_error(host, api_key,
+                                        network_policy.keyless_lan(config.load()))
     if reason:
         return False, reason
     # Without a way to see the old router, stop() finds nothing, start() sees a

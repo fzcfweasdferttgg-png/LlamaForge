@@ -49,6 +49,8 @@ The Network Access card controls the llama.cpp router, never the dashboard: the
 panel and management API stay on `127.0.0.1`. Choose **This computer only** for
 the router's `127.0.0.1` scope or **Devices on my local network** for its
 `0.0.0.0` scope. LAN selection requires a usable key before Apply is enabled.
+(The dashboard and chat can be shared on the LAN by hand-editing `panel_host`
+and `chat_host` in `config.json`; see [config.json Reference](config.md).)
 
 Choose one unambiguous key action: **Keep the configured key**, **Generate a new strong key**,
 **Replace with a key I provide**, or **Remove the key (local-only)**. Remove is available only with local access; moving

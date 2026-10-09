@@ -37,6 +37,36 @@ from routes import ApiError, Req
 # application/json - requiring JSON on state-changing routes means an attacker's
 # page cannot forge one without a preflight it will fail.
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+EXTRA_HOSTS = set()        # widened by main() when panel_host leaves loopback
+
+
+def lan_hosts(host):
+    """Local names the panel answers for beyond loopback. An all-interfaces
+    bind is reached through any local address or name; anything else is one
+    fixed address. Keeps the Host check strict while allowing the LAN."""
+    if not host or host == "127.0.0.1":
+        return set()
+    if host != "0.0.0.0":
+        return {host.lower()}
+    out = set()
+    try:
+        out.add(socket.gethostname().lower())
+        out.add(socket.getfqdn().lower())
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            out.add(info[4][0].lower())
+    except OSError:
+        pass
+    try:                       # the address the OS routes to the LAN with
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))     # no packet is sent
+            out.add(s.getsockname()[0].lower())
+        finally:
+            s.close()
+    except OSError:
+        pass
+    out.discard("")
+    return out
 MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_PROXY_JSON_BODY_BYTES = 64 * 1024 * 1024
 _BODY_ERROR = object()
@@ -66,7 +96,7 @@ def _host_ok(host_header, port):
         addr, _, got_port = host.partition(":")
     if got_port and got_port != str(port):
         return False
-    return addr in ALLOWED_HOSTS
+    return addr in ALLOWED_HOSTS or addr.lower() in EXTRA_HOSTS
 
 
 def _origin_ok(origin, port):
@@ -422,7 +452,9 @@ def main():
     config.migrate()
     c = routes.cfg()
     port = c["panel_port"]
-    print(f"LlamaForge -> http://127.0.0.1:{port}")
+    EXTRA_HOSTS.update(lan_hosts(c.get("panel_host", "127.0.0.1")))
+    for h in ["127.0.0.1"] + sorted(EXTRA_HOSTS):
+        print(f"LlamaForge -> http://{h}:{port}")
     if config.LOAD_ERROR:
         print(f"  WARNING: {config.LOAD_ERROR}")
         print(f"  previous contents saved to {config.CONFIG}.corrupt")
@@ -463,7 +495,7 @@ def main():
     import threading
     threading.Thread(target=_router_startup, args=(c.get("auto_load_model"),),
                      daemon=True, name="router-startup").start()
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), H)
+    httpd = ThreadingHTTPServer((c.get("panel_host", "127.0.0.1"), port), H)
     # Only once the port is ours: a second copy that fails to bind must not
     # overwrite the pidfile stop.ps1/.sh use to find the running panel.
     import procs

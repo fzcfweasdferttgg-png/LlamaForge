@@ -16,13 +16,43 @@ the panel either:
   port-exact Origin check refuses it, and this listener serves nothing but
   the chat.
 """
-import json, urllib.error, urllib.parse, urllib.request
+import json, socket, urllib.error, urllib.parse, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import network_policy
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+EXTRA_HOSTS = set()        # widened by serve() when chat_host leaves loopback
 MAX_BODY_BYTES = 64 * 1024 * 1024         # image attachments travel inline
+
+
+def lan_hosts(host):
+    """Local names the chat listener answers for beyond loopback. Mirrors
+    server.lan_hosts: the Host check stays strict, widened only for this
+    machine's own addresses and names."""
+    if not host or host == "127.0.0.1":
+        return set()
+    if host != "0.0.0.0":
+        return {host.lower()}
+    out = set()
+    try:
+        out.add(socket.gethostname().lower())
+        out.add(socket.getfqdn().lower())
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            out.add(info[4][0].lower())
+    except OSError:
+        pass
+    try:                       # the address the OS routes to the LAN with
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))     # no packet is sent
+            out.add(s.getsockname()[0].lower())
+        finally:
+            s.close()
+    except OSError:
+        pass
+    out.discard("")
+    return out
 # Request headers worth passing upstream. Everything else - Cookie, the
 # browser's own Authorization, Origin, hop-by-hop headers - stays behind.
 # accept-encoding matters: llama-server only has a gzipped copy of its web UI
@@ -79,7 +109,8 @@ def host_ok(host_header, port):
         addr, got = addr + "]", tail.lstrip(":")
     else:
         addr, _, got = host.partition(":")
-    return (not got or got == str(port)) and addr in ALLOWED_HOSTS
+    return ((not got or got == str(port))
+            and (addr in ALLOWED_HOSTS or addr.lower() in EXTRA_HOSTS))
 
 
 def origin_ok(origin, port):
@@ -191,8 +222,11 @@ def make_handler(get_cfg):
             except Exception:
                 return self._plain(502, ROUTER_DOWN_HTML, "text/html; charset=utf-8")
             self.send_response(status)
-            panel = f"http://127.0.0.1:{c['panel_port']} http://localhost:{c['panel_port']}"
-            for k, v in response_headers(items, panel):
+            origins = [f"http://127.0.0.1:{c['panel_port']}",
+                       f"http://localhost:{c['panel_port']}"]
+            origins += [f"http://{h}:{c['panel_port']}"
+                        for h in sorted(lan_hosts(c.get("panel_host", "127.0.0.1")))]
+            for k, v in response_headers(items, " ".join(origins)):
                 self.send_header(k, v)
             if isinstance(resp, bytes):
                 self.send_header("Content-Length", str(len(resp)))
@@ -229,11 +263,14 @@ def serve(get_cfg):
     """Start the chat listener on a daemon thread. Returns the server, or None
     when the port is taken (the Chat tab then says so; the panel runs on)."""
     import threading
-    port = get_cfg().get("chat_port", 8091)
+    cfg = get_cfg()
+    port = cfg.get("chat_port", 8091)
+    host = cfg.get("chat_host", "127.0.0.1")
+    EXTRA_HOSTS.update(lan_hosts(host))
     try:
-        httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(get_cfg))
+        httpd = ThreadingHTTPServer((host, port), make_handler(get_cfg))
     except OSError as e:
-        print(f"  WARNING: chat proxy could not bind 127.0.0.1:{port} ({e})")
+        print(f"  WARNING: chat proxy could not bind {host}:{port} ({e})")
         return None
     threading.Thread(target=httpd.serve_forever, daemon=True, name="chat-proxy").start()
     return httpd

@@ -31,9 +31,12 @@ DEFAULTS = {
     "router_port": 8080,
     "panel_port":  8090,
     "chat_port":   8091,                      # llama.cpp's chat UI, proxied on its own origin
+    "panel_host": "127.0.0.1",               # dashboard bind: 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
+    "chat_host": "127.0.0.1",                 # chat listener bind; same choices as panel_host
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
+    "router_allow_keyless_lan": False,       # opt-in: LAN router without an API key (fail-closed by default)
     "wsl_distro":  "",                        # WSL distro that runs vLLM ("" = auto-pick default)
     "vllm_port":   8081,                      # port vLLM serves on (WSL localhost-forwarded to Windows)
     "cmake_flags": {},                       # persisted build flags (from hardware detect)

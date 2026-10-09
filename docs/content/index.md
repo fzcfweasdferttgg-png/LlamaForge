@@ -25,11 +25,11 @@ LlamaForge runs three local HTTP services:
 
 | Component | Default address | Role |
 |---|---|---|
-| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Chat, Voice, Embers, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Always binds to `127.0.0.1` only. |
-| Router | `http://127.0.0.1:8080` | llama.cpp's own server process, started by LlamaForge with `--models-preset models.ini`. Serves the OpenAI-compatible API. Always runs with an API key. |
+| Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Chat, Voice, Embers, Stats, Discover, Will it run?, Build / Update, Setup, Context and Help tabs. Binds `127.0.0.1` by default; `panel_host` can share it on the LAN. |
+| Router | `http://127.0.0.1:8080` | llama.cpp's own server process, started by LlamaForge with `--models-preset models.ini`. Serves the OpenAI-compatible API. Always runs with an API key unless `router_allow_keyless_lan` opts out. |
 | Chat | `http://127.0.0.1:8091` | llama.cpp's chat UI on its own origin, shown in the dashboard's Chat tab. The router key is added server-side. |
 
-The ports and the router's bind address are configured by the `panel_port`, `router_port`, `chat_port` and `router_host` keys in `config.json` (defaults `8090`, `8080`, `8091` and `127.0.0.1`). The Setup tab's Network Access panel supports only local `127.0.0.1` and LAN `0.0.0.0` router scopes. LAN requires a usable API key and LlamaForge-owned starts fail closed until it is configured; the dashboard itself never leaves `127.0.0.1`.
+The ports and bind addresses are configured by the `panel_port`, `router_port`, `chat_port`, `panel_host`, `chat_host` and `router_host` keys in `config.json` (defaults `8090`, `8080`, `8091` and `127.0.0.1`). The Setup tab's Network Access panel supports only local `127.0.0.1` and LAN `0.0.0.0` router scopes. LAN requires a usable API key and LlamaForge-owned starts fail closed until it is configured (or `router_allow_keyless_lan` opts out); the dashboard itself leaves `127.0.0.1` only when `panel_host` says so.
 
 Clients — `curl`, an OpenAI SDK, or any OpenAI-compatible chat client — talk to the router, not the dashboard. The dashboard's job is configuration: it writes model presets into `models.ini`, starts and stops the router, and reads back the router's own metrics endpoint for the Stats tab.
 

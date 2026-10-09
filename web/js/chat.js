@@ -38,9 +38,10 @@ export async function loadChat() {
     if (model) { frame.src = src; $(".chat-bar a", view).href = src; }
     return;
   }
-  if (!LOOPBACK.has(location.hostname)) {
-    setHTML(view, `<div class="card"><h3>Chat is local-only</h3>
-      <div class="note">The chat listener binds 127.0.0.1 so the router key never leaves this PC.
+  const chatLocal = ((S.STATE && S.STATE.chat_host) || "127.0.0.1") === "127.0.0.1";
+  if (chatLocal && !LOOPBACK.has(location.hostname)) {
+    setHTML(view, `<div class=\"card\"><h3>Chat is local-only</h3>
+      <div class=\"note\">The chat listener binds 127.0.0.1 so the router key never leaves this PC.
       Open the panel as <code>http://127.0.0.1:${esc(location.port)}</code> on the machine running LlamaForge.</div></div>`);
     return;
   }

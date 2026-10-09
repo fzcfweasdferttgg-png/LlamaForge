@@ -106,3 +106,19 @@ you will be credited in the advisory and release notes unless you prefer not to
 be.
 
 This is a local tool, not a hosted service, and not a security certification.
+
+## LAN exposure (opt-in)
+
+Three `config.json` keys can move a surface onto the LAN; all default to the
+local-only behavior described above and none are set by the dashboard UI:
+
+- `panel_host` and `chat_host` - bind addresses for the dashboard and the chat
+  listener. `"0.0.0.0"` (or a fixed address) makes the surface reachable on the
+  network. The Host/Origin guard is not disabled: it additionally accepts this
+  machine's own addresses and names, so DNS rebinding and cross-site requests
+  stay refused. The panel carries no authentication of its own - anything that
+  can reach it can drive it - so share it only on a network you trust.
+- `router_allow_keyless_lan` - lets a LAN router start without an API key.
+  Off by default: a LAN router normally fails closed until a usable key is
+  configured. When this is set, the OpenAI-compatible API is open to anyone
+  who can reach the port.

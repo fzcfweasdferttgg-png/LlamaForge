@@ -165,10 +165,16 @@ def download_dir():
     return os.path.join(ROOT, "models")
 
 
+def _panel_host(c):
+    """Where panel endpoints point: loopback for a local panel, the LAN
+    address when panel_host is shared."""
+    return "127.0.0.1" if c.get("panel_host", "127.0.0.1") == "127.0.0.1" else router_ctl.lan_ip()
+
+
 def _agent_endpoint(agent):
     c = cfg()
     if agent == "claude-code":
-        return f"http://127.0.0.1:{c['panel_port']}"   # shim binds localhost only
+        return f"http://{_panel_host(c)}:{c['panel_port']}"   # panel shim endpoint
     host = router_ctl.lan_ip() if c.get("router_host", "127.0.0.1") != "127.0.0.1" else "127.0.0.1"
     return f"http://{host}:{c['router_port']}/v1"
 
@@ -176,9 +182,9 @@ def _agent_endpoint(agent):
 def _agent_endpoint_for(agent, inject, c=None):
     c = c or cfg()
     if agent == "claude-code":
-        return f"http://127.0.0.1:{c['panel_port']}"
+        return f"http://{_panel_host(c)}:{c['panel_port']}"
     if inject:
-        return f"http://127.0.0.1:{c['panel_port']}/v1"
+        return f"http://{_panel_host(c)}:{c['panel_port']}/v1"
     return _llama_client_endpoint(c) + "/v1"
 
 
@@ -821,6 +827,7 @@ def get_state(req):
     s["backends"] = [b.name for b in REGISTRY.enabled()]
     s["active_engine"] = c.get("active_engine", "llamacpp")
     s["chat_port"] = c.get("chat_port", 8091)
+    s["chat_host"] = c.get("chat_host", "127.0.0.1")
     s["config_error"] = config.LOAD_ERROR
     s["version"] = version.VERSION
     s["slots"] = _slots_state(c)
@@ -2045,6 +2052,8 @@ def reconcile_router_auth():
     upgrade would keep the old open router until the next reboot. True when a
     restart was attempted."""
     c = cfg()
+    if network_policy.keyless_lan(c):
+        return False             # an open router is the configured state here
     if router_ctl.auth_state(c["router_port"],
                              network_policy.effective_key(c)) not in ("open", "mismatch"):
         return False

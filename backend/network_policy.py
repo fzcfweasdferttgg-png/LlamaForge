@@ -49,7 +49,7 @@ def key_status(value):
     return "invalid"
 
 
-def assess(host, key):
+def assess(host, key, allow_keyless_lan=False):
     clean_host = host if isinstance(host, str) else ""
     ks = key_status(key)
     has_key = isinstance(key, str) and bool(key)
@@ -64,6 +64,10 @@ def assess(host, key):
         message = "" if ks == "strong" else "Rotate this legacy API key when convenient."
         return Assessment(clean_host, "lan", status, ks, True,
                           False, True, message)
+    if clean_host == "0.0.0.0" and ks == "absent" and allow_keyless_lan:
+        return Assessment(clean_host, "lan", "lan_open", ks, False,
+                          False, True,
+                          "LAN router runs without an API key (explicit opt-in).")
     message = ("LAN router start refused: select local access or configure a "
                "usable API key before sharing the router.")
     return Assessment(clean_host, "legacy", "unsafe_legacy", ks, has_key,
@@ -89,6 +93,15 @@ def effective_key(cfg):
     return cfg.get("router_api_key") or cfg.get("router_local_key") or ""
 
 
+def keyless_lan(cfg):
+    """True when the operator opted into a LAN router with no API key: the
+    flag set, no user key, and the router shared. Everything else keeps the
+    fail-closed policy."""
+    return (bool(cfg.get("router_allow_keyless_lan"))
+            and not cfg.get("router_api_key")
+            and cfg.get("router_host", "127.0.0.1") == "0.0.0.0")
+
+
 def ensure_local_key(cfg):
     """Give cfg a strong router_local_key if it lacks one. True if it changed."""
     if key_status(cfg.get("router_local_key")) == "strong":
@@ -107,8 +120,8 @@ def router_auth_args(host, key, cors_supported):
     return args
 
 
-def start_error(host, key):
-    result = assess(host, key)
+def start_error(host, key, allow_keyless_lan=False):
+    result = assess(host, key, allow_keyless_lan)
     return "" if result.start_allowed else result.message
 
 
@@ -190,7 +203,8 @@ def preflight_config_file(path):
     except Exception as exc:
         return False, "Router start refused: config could not be read (%s)." % exc
     reason = start_error(cfg.get("router_host", "127.0.0.1"),
-                         cfg.get("router_api_key", ""))
+                         cfg.get("router_api_key", ""),
+                         cfg.get("router_allow_keyless_lan", False))
     return (not reason, reason)
 
 
@@ -231,6 +245,8 @@ def router_args_for_config_file(path, server_bin):
         return False, message
     with open(path, encoding="utf-8-sig") as f:
         cfg = json.load(f)
+    if keyless_lan(cfg):
+        return True, []          # explicit keyless LAN: no --api-key, no minting
     if ensure_local_key(cfg):
         _write_json_atomic(path, cfg)
     cors = "--cors-origins" in _help_text(server_bin)

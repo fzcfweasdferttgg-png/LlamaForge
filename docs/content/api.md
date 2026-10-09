@@ -227,10 +227,12 @@ The engine-specific paths (`/api/load`, `/api/vllm/load`, …) remain as aliases
 
 ## Request requirements
 
-The dashboard binds `127.0.0.1`, which keeps it off your network but leaves it
-reachable by any page in your browser. Every request is therefore checked:
+The dashboard binds `127.0.0.1` (or `panel_host` when it leaves the loopback),
+which keeps it off your network by default but leaves it reachable by any page
+in your browser. Every request is therefore checked:
 
-- `Host` must name this loopback service, and `Origin` — when present — must
+- `Host` must name this service - the loopback names, plus this machine's own
+  LAN names when `panel_host` is shared - and `Origin`, when present, must
   match it. Anything else gets **403**. This blocks both cross-site requests and
   DNS rebinding.
 - When a POST declares `Content-Type`, it must be `application/json`; declared
