@@ -48,7 +48,6 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
   - 保存するとモデルをその場で再読み込みする。読み込み失敗時はルーターログの直近エラーと推測のヒントを表示する。
   - プリセット、起動プロファイル(モデル + プリセット + 固定した llama.cpp ビルドを 1 クリック)、並列比較、コピー&ペースト用クライアントスニペット。
   - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用の llama.cpp(または ik_llama.cpp)ビルドを固定することもできる。
-- **Voice**: llama.cpp 純正の `llama-tts` による GPU 上のテキスト読み上げ。10 言語の Qwen3-TTS、または小さな英語版 Pocket TTS(CPU だけでもリアルタイムより速く動く)。録音またはアップロードした声も使える(使用が許諾されたクローン音声に限る)。
 - **Embers**: トピックを見守り、独自の wiki を管理し、スケジュールに沿ってブリーフを書く小さなローカルエージェント。wiki の項目は、出典を逐語的に引用して初めて成立する。**Forge** は対話しながら 1 つを作り、**Model Scout** は設定不要。Embers にブラウザやツールはなく、プッシュ通知を有効にしない限り何もマシン外に出ない。
 - **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load** 準備で終わる。
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
@@ -64,7 +63,6 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
 OpenAI API に対応するもの(Open WebUI、SillyTavern、Continue、Cline、Aider、OpenAI SDK)はすべて `http://127.0.0.1:8080/v1` に対して使える。ルーターは常に API キー付きで動き、モデルの **Client Config** がベース URL、キー、モデル id を貼り付け可能な形で出す。
 
 - **Anthropic 互換** `POST /v1/messages` をパネルに提供。ストリーミングとツール使用に対応。
-- **OpenAI speech 互換** `POST /v1/audio/speech` をパネルに提供(WAV または PCM)。`llama-tts` が裏で動く。
 - **Connect an agent** が **Claude Code**、**Codex**、**pi.dev** の設定を書き込む(触れるファイルはすべて事前にバックアップされる)。
 - Load/unload エンドポイントで、エージェントが必要に応じてモデルを差し替えられる。
 - **MCP server**(stdio、`backend/mcp_server.py`。このビルドではオプトインの Streamable HTTP トランスポートも同梱、ドキュメント参照): Claude Code、Codex、任意の MCP クライアントが、読み込み済みの確認、モデルの読み込み・アンロード、適合確認、Hugging Face からの GGUF 取得、タスク全体をローカルの読み込み済みモデル上で動く [pi](https://github.com/earendil-works/pi) への引き渡し(`pi_run`)ができる。**Setup -> MCP server** で 1 行のセットアップ、例: `claude mcp add --scope user llamaforge -- python <LlamaForge>/backend/mcp_server.py`。

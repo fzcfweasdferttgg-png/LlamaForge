@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server, piinstall, tts, logfiles
+import mcp_server, piinstall, logfiles
 from builder import BuildManager
 from embers import panel as embers_panel
 
@@ -46,10 +46,6 @@ BUILDER_IKLLAMA = BuildManager(LOGDIR, "build-ikllama",
 def _builder_for(target):
     return BUILDER_IKLLAMA if target == "ikllama" else BUILDER_LLAMA
 DOWNLOADS = hub.DownloadManager()
-# Its own manager: the shared one registers finished files into models.ini,
-# which would offer the speech model to the router as a chat model.
-TTS_DOWNLOADS = hub.DownloadManager()
-TTS = tts.Speaker()
 APP_UPDATE = selfupdate.UpdateJob(ROOT)
 
 VLLM_SETUP_JOB = vllm_job.WslJob(LOGDIR, "vllm-setup.log")
@@ -2447,89 +2443,6 @@ def post_engine_prebuilt_use(req):
     return 200, {"ok": ok, "error": err, "server_bin": inst["server_bin"]}
 
 
-# ============================================================ text-to-speech
-# llama.cpp's llama-tts behind an OpenAI-style /v1/audio/speech (see tts.py).
-
-def _openai_err(status, message, kind):
-    return status, {"error": {"message": message, "type": kind}}
-
-
-def _speak(body):
-    """-> (status, audio bytes, content type); raises ValueError / TtsError."""
-    r = tts.parse_request(body)
-    audio = TTS.speak(cfg(), r)
-    return 200, audio, ("audio/pcm" if r["format"] == "pcm" else "audio/wav")
-
-
-def post_audio_speech(req):
-    """POST /v1/audio/speech for clients (Open WebUI, scripts, agents)."""
-    if not _shim_auth_ok(req.headers):
-        return _openai_err(401, "invalid key", "authentication_error")
-    try:
-        return _speak(req.body)
-    except ValueError as e:
-        return _openai_err(400, str(e), "invalid_request_error")
-    except tts.TtsError as e:
-        kind = "invalid_request_error" if e.status == 400 else "server_error"
-        return _openai_err(e.status, str(e), kind)
-
-
-def post_tts_speak(req):
-    """The panel's own Speak button: same engine, panel-style errors."""
-    try:
-        return _speak(req.body)
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    except tts.TtsError as e:
-        raise ApiError(e.status, str(e))
-
-
-def get_tts_status(req):
-    s = tts.status(cfg())
-    s["busy"] = TTS.busy
-    s["download"] = TTS_DOWNLOADS.progress()
-    c = cfg()   # /v1/audio/speech asks for the router key when the router is exposed
-    s["needs_key"] = c.get("router_host", "127.0.0.1") != "127.0.0.1" and bool(c.get("router_api_key"))
-    return 200, s
-
-
-def post_tts_get(req):
-    """Download a catalog speech model (default: Qwen3-TTS 1.7B, Q8_0 + mmproj)."""
-    e = tts.catalog_entry(req.body.get("id") or tts.CATALOG[0]["id"])
-    if not e:
-        raise ApiError(400, "unknown speech model")
-    c = cfg()
-    started = TTS_DOWNLOADS.start(e["repo"], list(e["files"]),
-                                  tts.entry_dir(tts.models_dir(c), e))
-    if started and e.get("voice"):
-        # A 640 KB clip from another repo: fetched beside the job, best effort.
-        def fetch(folder=tts.voices_dir(c), voice=e["voice"]):
-            try:
-                tts.fetch_voice(folder, voice)
-            except Exception:
-                pass
-        threading.Thread(target=fetch, daemon=True).start()
-    return 200, {"started": started}
-
-
-def post_tts_voice(req):
-    import base64, binascii
-    try:
-        data = base64.b64decode(req.body.get("wav_b64") or "", validate=True)
-    except (binascii.Error, ValueError):
-        raise ApiError(400, "wav_b64 is not base64")
-    try:
-        tts.save_voice(tts.voices_dir(cfg()), req.body.get("name"), data)
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    return 200, {"voices": tts.list_voices(tts.voices_dir(cfg()))}
-
-
-def post_tts_voice_delete(req):
-    tts.delete_voice(tts.voices_dir(cfg()), req.body.get("name"))
-    return 200, {"voices": tts.list_voices(tts.voices_dir(cfg()))}
-
-
 # =================================================================== the tables
 
 def _embers(fn):
@@ -2577,8 +2490,6 @@ GET_ROUTES = {
     "/api/slots/plan":        get_slots_plan,
     "/api/mcp/setup":         get_mcp_setup,
     "/api/pi/status":         get_pi_status,
-    "/api/tts/status":        get_tts_status,
-    "/api/tts/progress":      lambda req: (200, TTS_DOWNLOADS.progress()),
     "/api/embers":            _embers(embers_panel.get_embers),
     "/api/embers/templates":  _embers(embers_panel.get_templates),
     "/api/embers/brief":      _embers(embers_panel.get_brief),
@@ -2589,11 +2500,6 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
-    "/v1/audio/speech":         post_audio_speech,
-    "/api/tts/speak":           post_tts_speak,
-    "/api/tts/get":             post_tts_get,
-    "/api/tts/voice":           post_tts_voice,
-    "/api/tts/voice/delete":    post_tts_voice_delete,
     "/api/client/config":       post_client_config,
     # engine-agnostic (dispatch on the model's backend)
     "/api/models/load":         post_model_load,

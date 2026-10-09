@@ -72,8 +72,6 @@ DEFAULTS = {
     "vram_predict_enabled": True, # compute vramwise placement/tok-s estimates (offline; Discover only on expand)
     "docs_dir":      "",                        # "" = <ROOT>/docs/content
     "embers_dir":    "",                        # "" = <ROOT>/embers (ember wikis + embers.db)
-    "tts_dir":       "",                        # "" = <ROOT>/tts (speech model + voice clips)
-    "tts_default_voice": "",                    # voice clip used when a request names none
     "embers_scheduler":   True,                 # run due ember jobs in the panel process
     "embers_swap_models": True,                 # embers may load their pinned model when the router is idle
     # Multi-model (slots.py): off = one model at a time, exactly as before.

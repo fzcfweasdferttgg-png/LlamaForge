@@ -17,9 +17,6 @@ On `master`, not in a tagged release yet:
 - **MCP server** — drive LlamaForge from Claude Code, Codex or any MCP client
   (stdio), including `pi_run`, which hands a task to the pi coding agent on a
   loaded local model. pi installs from Setup.
-- **Voice** — text to speech on your GPU through llama.cpp's own `llama-tts`
-  with Qwen3-TTS or Pocket TTS, in a voice you record or upload, plus an OpenAI-style
-  `POST /v1/audio/speech` on the panel.
 - **Stowage, Hearth and Classic skins** — Stowage, the bay-plan look, is the new
   default.
 

@@ -51,7 +51,6 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
   - 保存会就地重新加载模型。加载失败时显示路由器日志中的最后一条错误，并给出推测提示。
   - 预设、启动配置（模型 + 预设 + 固定的 llama.cpp 构建，一键完成）、并排对比，以及可复制粘贴的客户端片段。
   - 在 Setup 中开启 **Multi-model** 可同时保持一个主模型和若干 worker 加载。规划器按在你机器上实测的占用量，把每个模型放到放得下的 GPU 上。模型也可固定到各自的 llama.cpp（或 ik_llama.cpp）构建。
-- **Voice**：通过 llama.cpp 自带的 `llama-tts` 在你的 GPU 上做文本转语音：Qwen3-TTS 支持 10 种语言，或极小的英文 Pocket TTS，即使在 CPU 上也快于实时；可选用你录制或上传的音色（只克隆你有权使用的音色）。
 - **Embers**：小型本地 agent，持续盯住一个主题，维护自己的 wiki，并按计划为你写一份简报。wiki 条目只有逐字引用来源才算数。**Forge** 通过访谈为你构建一个；**Model Scout** 无需设置。Embers 没有浏览器或工具，除非你开启推送通知，否则没有任何内容离开本机。
 - **Discover**：Hugging Face GGUF 搜索，打开即见本周新增。下载前每个量化版本都给出针对你显存的粗略适配评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传、自动注册，最后进入 **Load** 就绪状态。
 - **Will it run?**：选一个仓库和量化版本，得到适配结果和粗略速度估计。
@@ -69,7 +68,6 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
 可直接粘贴的 base URL、密钥和 model id。
 
 - **Anthropic 兼容**：面板上的 `POST /v1/messages`，支持流式和工具使用。
-- **OpenAI 语音兼容**：面板上的 `POST /v1/audio/speech`（WAV 或 PCM），由 `llama-tts` 支撑。
 - **Connect an agent** 为 **Claude Code**、**Codex** 和 **pi.dev** 写入配置（动过的文件都会先备份）。
 - 加载/卸载端点让 agent 按需换模型。
 - **MCP server**（stdio，`backend/mcp_server.py`；本构建还附带可选的 Streamable

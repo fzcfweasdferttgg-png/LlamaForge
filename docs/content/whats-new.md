@@ -8,9 +8,8 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
-## v0.16: Embers, several models at once, an MCP server, Voice
+## v0.16: Embers, several models at once, an MCP server
 
-- **Voice: text to speech on your GPU.** A new Voice tab speaks through llama.cpp's own `llama-tts` with Qwen3-TTS (10 languages) or the tiny English Pocket TTS (faster than real time, even on a CPU), optionally in a voice you record or upload (only clone voices you may use). The panel also serves an OpenAI-style `POST /v1/audio/speech`, so OpenAI clients get local speech. No VRAM is held between requests. See [Voice](voice.md).
 - **Several models at once.** Multi-model mode places your main model on the fastest GPU that fits it and keeps worker models off that GPU. Fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. Workers are evicted least-recently-used, and only after you agree to it. A model with no context size set is refused, with the reason. The model rows get **Load as worker**, **Make main** and **Unload X and load**, and Setup has a Multi-model card. API: `/api/slots`, `/api/slots/plan`, `/api/slots/main`, `/api/slots/apply`.
 - **Per-model builds.** Pin a model to any installed llama.cpp build. An ik_llama build runs as its own `llama-server` on `127.0.0.1:8100` and up, with arguments translated between the builds. Crash exit codes are named instead of shown as raw numbers.
 - **"Runs on" for GGUFs.** The file card says whether a GGUF runs on any build, mainline only or ik_llama only. The diagnosis explains `invalid ggml type N` instead of leaving you with the number.

@@ -53,7 +53,6 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
   - 저장하면 모델을 그 자리에서 다시 로드합니다. 로드 실패 시 라우터 로그의 마지막 오류와 추정 원인 힌트를 보여줍니다.
   - 프리셋, 실행 프로필(모델 + 프리셋 + 고정된 llama.cpp 빌드를 한 번에), 나란히 비교, 복사-붙여넣기용 클라이언트 코드 조각.
   - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 씁니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
-- **Voice**: llama.cpp의 `llama-tts`로 GPU에서 구동하는 텍스트 음성 변환: 10개 언어의 Qwen3-TTS, 또는 CPU에서도 실시간보다 빠른 소형 영어 Pocket TTS. 선택적으로 녹음하거나 업로드한 음성 사용(사용 권한이 있는 음성만 클론하세요).
 - **Embers**: 주제를 감시하고 자체 위키를 유지하며 일정에 따라 브리핑을 작성하는 소형 로컬 에이전트. 위키 항목은 출처를 그대로 인용해야만 인정됩니다. **Forge**는 인터뷰를 통해 하나를 만들고, **Model Scout**는 설정이 필요 없습니다. Embers는 브라우저나 도구가 없으며, 푸시 알림을 켜지 않는 한 아무것도 기기 밖으로 나가지 않습니다.
 - **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load** 준비로 끝납니다.
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
@@ -71,7 +70,6 @@ OpenAI API를 지원하는 것이라면 무엇이든(Open WebUI, SillyTavern, Co
 바로 붙여넣을 수 있게 받습니다.
 
 - **Anthropic 호환** `POST /v1/messages`를 패널에서 제공, 스트리밍과 도구 사용 지원.
-- **OpenAI speech 호환** `POST /v1/audio/speech`를 패널에서 제공(WAV 또는 PCM), `llama-tts` 기반.
 - **Connect an agent**가 **Claude Code**, **Codex**, **pi.dev**의 설정을 작성합니다(파일을 건드리기 전에 항상 백업).
 - Load/unload 엔드포인트로 에이전트가 필요할 때 모델을 교체할 수 있습니다.
 - **MCP server** (stdio, `backend/mcp_server.py`; 이 빌드에는 선택적 Streamable

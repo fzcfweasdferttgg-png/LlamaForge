@@ -16,7 +16,6 @@ import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
 import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
-import { loadVoice } from "./voice.js";
 import { loadEmbers, poll as pollEmbers } from "./embers.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
@@ -24,7 +23,6 @@ import { initProfiles } from "./profiles.js";
 import { on } from "./bus.js";
 
 /* ---------- tab loaders ---------- */
-ui.onTabShown("voice", loadVoice);
 ui.onTabShown("embers", loadEmbers);
 ui.onTabShown("build", loadBuild);
 ui.onTabShown("setup", loadSetup);
