@@ -1,10 +1,3 @@
-<p align="center">
-  <picture>
-    <source srcset="docs/hero.webp" type="image/webp">
-    <img src="docs/hero.png" alt="LlamaForge - a control panel for llama.cpp" width="100%">
-  </picture>
-</p>
-
 <p align="center"><b>The real llama.cpp server, run from a browser tab.</b><br>
 Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is still there when you want it.</p>
 
@@ -16,10 +9,7 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
 </p>
 
 > [!IMPORTANT]
-> **This build targets Ubuntu Server only.** Every change in it — LAN exposure for the
-> panel, chat and router, the opt-in MCP HTTP transport and the DRM-sysfs GPU telemetry —
-> is designed for and was verified only on **Ubuntu Server**; Windows and macOS are
-> untested here. Details in the [docs](docs/content/index.md).
+> Fork build — tested on Ubuntu Server only. Differences from the original: [Fork differences](docs/content/fork-diff.md).
 
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin
@@ -27,12 +17,8 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-Then **Install llama.cpp** (the official build for your GPU, no compiler) → **Discover** → **Chat**.
+These install the original project; this build deploys from this repository. Then **Install llama.cpp** (the official build for your GPU, no compiler) → **Discover** → **Chat**.
 Early preview: Windows + NVIDIA is the most-tested path. Linux and macOS pass CI but have had little real-hardware use.
-
-<p align="center">
-  <img src="docs/demo.gif" alt="Fetch the official llama.cpp build, see every model drawn into your GPUs at its real size, know a model will not fit before loading it, see what is new in llama.cpp, watch live speed per model" width="100%">
-</p>
 
 LlamaForge runs no models itself. It installs and drives llama.cpp's own `llama-server` router and
 edits its `models.ini` for you. Not affiliated with ggml-org. If you'd rather have polish than
@@ -44,11 +30,6 @@ New model architectures land in llama.cpp first. Desktop apps pass them on when 
 update their bundled engine. LlamaForge runs the **official llama.cpp release itself** (or
 your own build or fork), so a new model is one **Update** click away, and it puts a UI over
 every server flag instead of a curated subset.
-
-<p align="center">
-  <img src="docs/screenshot-new-this-week.png" alt="Discover opens on New this week: model architectures llama.cpp just merged, each marked IN YOUR ENGINE or UPDATE ENGINE against your build, above Hugging Face GGUFs trending in the last 14 days" width="100%">
-  <br><sub>Discover opens on what llama.cpp just learned to run, checked against the engine you have.</sub>
-</p>
 
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
@@ -98,19 +79,9 @@ base URL, key and model id ready to paste.
   [pi](https://github.com/earendil-works/pi) running on a loaded local model (`pi_run`). One-line setup under
   **Setup -> MCP server**, e.g. `claude mcp add --scope user llamaforge -- python <LlamaForge>/backend/mcp_server.py`.
 
-## Screenshots
-
-| Models: each GPU drawn to scale, with the open model booked in | Stats: memory and live speed per model |
-|---|---|
-| ![Models](docs/content/img/models.png) | ![Stats](docs/content/img/overview.png) |
-
-| Discover: new in llama.cpp, then trending GGUFs | Build / Update |
-|---|---|
-| ![Discover](docs/content/img/discover.png) | ![Build / Update](docs/content/img/build.png) |
-
 ## Install
 
-The one-liners above need no git, admin or compiler. Re-run them any time to update.
+The one-liners above install the original project; this build deploys from this repository. See [Fork differences](docs/content/fork-diff.md).
 
 The installer finds Python 3.10+ (on Windows it drops a private, SHA-256-pinned copy of
 python.org's embeddable Python if you have none), downloads the latest release, adds a

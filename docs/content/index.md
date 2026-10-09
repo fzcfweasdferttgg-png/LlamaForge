@@ -7,11 +7,7 @@ order: 1
 # LlamaForge
 
 > [!IMPORTANT]
-> **This build targets Ubuntu Server only.** Every change in it — LAN exposure
-> for the panel, chat and router ([Config](config.md), [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md)), the opt-in MCP HTTP
-> transport ([MCP Server](mcp.md)) and the DRM-sysfs GPU telemetry — is designed
-> for and was verified only on **Ubuntu Server**. Nothing here is tested on
-> Windows or macOS.
+> Fork build — tested on Ubuntu Server only. Differences from the original: [Fork differences](fork-diff.md).
 
 LlamaForge runs the real [llama.cpp](https://github.com/ggml-org/llama.cpp) server from a browser tab. Pick a model, see if it fits your GPU, load it, chat. Every `llama-server` flag is still there when you want it, without hand-editing `models.ini` or long command lines.
 
