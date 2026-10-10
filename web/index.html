@@ -210,7 +210,6 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .mid{font-weight:500;color:var(--ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:1px 8px;margin-left:8px;white-space:nowrap}
 .tag.vis{color:var(--cyan-text);border-color:var(--cyan-border)}
-.tag.be-vllm{color:var(--green);border-color:var(--green-border)}
 .tag.be-llamacpp{color:var(--amber-text);border-color:var(--amber-dim)}
 .tag.be-ikllama{color:var(--cyan-text);border-color:var(--cyan-border)}
 .buildtarget{display:flex;align-items:center;gap:12px;padding:10px 16px}
@@ -559,10 +558,6 @@ body.mode-lite .advanced-only{display:none !important}
     <details class="kgroup" style="margin-top:16px" id="router-log-details">
       <summary>Router Log (llama.cpp stdout/stderr)</summary>
       <div class="log" id="router-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
-    </details>
-    <details class="kgroup" style="margin-top:10px" id="vllm-log-details">
-      <summary>vLLM Log (WSL stdout/stderr)</summary>
-      <div class="log" id="vllm-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
     </details>
   </div>
   <div class="view" id="view-stats"><div class="skel" data-i18n="LOADING STATS...">LOADING STATS...</div></div>

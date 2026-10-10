@@ -1,15 +1,9 @@
 """Inference engines behind one interface.
 
-llama.cpp and vLLM grew as parallel universes: separate registries (models.ini
-vs vllm_models.json), separate schema builders, separate hub clients, separate
-process control, and a duplicated route for every verb (/api/load and
-/api/vllm/load, /api/save and /api/vllm/save, ...). They met in exactly one
-place - merge_vllm_models - and only on the read side. Every caller that wanted
-to act on "a model" had to know which engine it belonged to first.
-
-That does not survive a third engine. ik-llama is next on the roadmap and needs
-the same process-managed treatment vLLM has, which would mean a third column in
-every one of those pairs and a three-way branch at each call site.
+llama.cpp and its forks share the router but not the binary or the knob
+schema, and engines that manage their own process need the same verbs again.
+Every caller that wanted to act on "a model" had to know which engine it
+belonged to first.
 
 So: a Backend is the set of verbs the dashboard needs from an engine, and the
 engines are implementations of it. `for_model(id)` answers "who owns this?", so
@@ -31,8 +25,6 @@ A Backend implements:
 Pure stdlib.
 """
 import os
-
-import osplat, vllm_ctl, vllm_registry, wsl
 
 
 class Unsupported(Exception):
@@ -107,78 +99,6 @@ class LlamaCppBackend:
                           "Setup > prune instead")
 
 
-class VllmBackend:
-    """safetensors / AWQ / GPTQ / FP8 models served by `vllm serve` inside WSL2.
-
-    vLLM has no router and no hot reload: one process serves one model, and a
-    knob change means a restart. This backend owns that process."""
-    name = "vllm"
-
-    def __init__(self, deps):
-        self._d = deps
-
-    def available(self):
-        return osplat.IS_WIN          # vLLM rides WSL2
-
-    def list_models(self):
-        live = {i["model_id"]: i for i in self._d.vllm_mgr().status()} \
-            if self.available() else {}
-        rows = []
-        for mid in vllm_registry.models():
-            inst = live.get(mid)
-            status = STATE_MAP.get(inst["state"], "offline") if inst else "offline"
-            entry = vllm_registry.load().get(mid, {})
-            row = {"id": mid, "backend": self.name, "status": status,
-                   "failed": bool(inst and inst["state"] == "failed"),
-                   "modalities": ["text"], "in_ini": True,
-                   "settings": entry.get("settings", {}),
-                   "eff_ctx": vllm_registry.effective_settings(mid).get("max-model-len", "?"),
-                   "file_gib": round(entry.get("size_bytes", 0) / 1024**3, 2)
-                               if entry.get("size_bytes") else None}
-            if inst and status == "loaded":
-                row["endpoint"] = inst["endpoint"]
-            rows.append(row)
-        return rows
-
-    def schema(self):
-        return self._d.vllm_schema()
-
-    def _ref(self, mid):
-        entry = vllm_registry.load().get(mid, {})
-        return entry.get("wsl_path") or entry.get("repo") or mid
-
-    def load(self, mid):
-        if not vllm_registry.load().get(mid):
-            return False, f"unknown vLLM model: {mid}"
-        flags = vllm_ctl.settings_to_flags(vllm_registry.effective_settings(mid))
-        return self._d.vllm_mgr().start(mid, self._ref(mid), flags)
-
-    def unload(self, mid):
-        self._d.vllm_mgr().stop(mid)
-        return True, ""
-
-    def save(self, mid, knobs):
-        mgr = self._d.vllm_mgr()
-        running = any(i["model_id"] == mid and i["state"] in ("ready", "loading")
-                      for i in mgr.status())
-        vllm_registry.set_settings(mid, knobs)
-        if running:                    # no hot reload; bounce the process
-            mgr.stop(mid)
-            flags = vllm_ctl.settings_to_flags(vllm_registry.effective_settings(mid))
-            mgr.start(mid, self._ref(mid), flags)
-        return {"restarted": running, "was_running": running}
-
-    def delete(self, mid):
-        ok, err = self._d.vllm_dl().delete(mid)
-        if ok:
-            vllm_registry.remove(mid)
-        return ok, err
-
-
-STATE_MAP = {"ready": "loaded", "loading": "loading", "starting": "loading",
-             "failed": "offline", "stopped": "offline"}
-
-
 class IkLlamaBackend(LlamaCppBackend):
     """GGUF models served by ik_llama (ikawrakow's llama.cpp fork).
 
@@ -206,7 +126,7 @@ class Registry:
 
     def __init__(self, deps):
         self._d = deps
-        self._backends = [LlamaCppBackend(deps), IkLlamaBackend(deps), VllmBackend(deps)]
+        self._backends = [LlamaCppBackend(deps), IkLlamaBackend(deps)]
 
     def active_engine(self):
         """Which llama-family engine owns the router right now.

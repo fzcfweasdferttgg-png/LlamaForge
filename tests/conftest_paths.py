@@ -1,4 +1,4 @@
-"""Put backend/ on sys.path so tests can `import wsl`, `import vllm_ctl`, etc.
+"""Put backend/ on sys.path so tests can `import gateway`, `import routes`, etc.
 Imported for its side effect at the top of every test module."""
 import os, sys
 

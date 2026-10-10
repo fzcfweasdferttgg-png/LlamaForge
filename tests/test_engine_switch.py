@@ -40,7 +40,7 @@ class EngineSwitchRouteTest(unittest.TestCase):
 
     def test_rejects_an_unknown_engine(self):
         with self.assertRaises(routes.ApiError) as cm:
-            routes.post_engine_switch(Req(body={"engine": "vllm"}))
+            routes.post_engine_switch(Req(body={"engine": "ghost"}))
         self.assertEqual(cm.exception.status, 400)
         self.assertEqual(self.saved, {}, "config was written for a bad engine")
 

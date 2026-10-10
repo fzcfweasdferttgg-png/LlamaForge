@@ -62,5 +62,4 @@ The **Setup** tab (`backend/prereqs.py`) checks for `git`, `cmake`, `ninja`, and
 ## Everything else
 
 - **Dashboard won't open** — `run.ps1`/`run.sh` skip starting the router or dashboard if something is already listening on `router_port` (default `8080`) or `panel_port` (default `8090`); check nothing else on your machine is bound to those ports.
-- **Shutting everything down cleanly** — use `stop.ps1` (Windows) or `stop.sh` (Linux/macOS) rather than killing windows manually; they stop the dashboard, the router, and every `llama-server` process the router spawned (and, on Windows, any `vllm serve` process running inside WSL).
-- **vLLM startup looks stuck** — vLLM has no hot reload, so saving knobs on a loaded model restarts it; startup can take 1–5 minutes. Watch the vLLM Log panel rather than assuming it hung.
+- **Shutting everything down cleanly** — use `stop.ps1` (Windows) or `stop.sh` (Linux/macOS) rather than killing windows manually; they stop the dashboard, the router, and every `llama-server` process the router spawned.

@@ -14,8 +14,7 @@ The dashboard itself never sees inference traffic — clients talk to the llama.
 
 1. Calls the router's `/models` endpoint to learn whether it's up and which models are loaded: one by default (`--models-max 1`), several when [multi-model](setup.md) is on. Each model has its own `/metrics?model=<id>`, so token deltas stay attributed to the right one. A model pinned to another build runs in its own `llama-server` process outside the router, and the poller scrapes that process's `/metrics` directly.
 2. Scrapes `/metrics?model=<id>` for each loaded model's cumulative `llamacpp:prompt_tokens_total` and `llamacpp:tokens_predicted_total` counters, diffs them against the previous poll, and adds the delta to that model's running totals — only when that model stayed loaded across both polls, and only when the delta is non-negative (a drop means the router restarted and the counters reset, so it's treated as zero rather than subtracted).
-3. Separately polls vLLM's `/metrics` (`vllm:prompt_tokens_total` / `vllm:generation_tokens_total`) on `vllm_port` the same way, best-effort and silent on failure, so vLLM usage lands in the same per-model store.
-4. Persists everything to `stats.json` at the repo root via an atomic write (write to `.tmp`, then `os.replace`), throttled to at most once every `FLUSH_SECS = 15` seconds while dirty.
+3. Persists everything to `stats.json` at the repo root via an atomic write (write to `.tmp`, then `os.replace`), throttled to at most once every `FLUSH_SECS = 15` seconds while dirty.
 
 Each model's record in `stats.json` (`{"models": {...}, "daily": {...}, "first_seen": ...}`) tracks `prompt`, `generated`, `loaded_secs`, `gen_secs`, `runs`, and `last_used`. A "run" increments whenever generation transitions from idle to active (`_idle` flag), which approximates a request count without the router exposing one directly. Average tokens/sec (`avg_tps`) is `generated / gen_secs`, where `gen_secs` only accumulates during poll windows that had active generation — so it reflects throughput while generating, not wall-clock time the model was loaded. Daily totals are kept for `DAILY_KEEP = 30` days and trimmed on each write.
 
@@ -41,7 +40,6 @@ Each model's record in `stats.json` (`{"models": {...}, "daily": {...}, "first_s
 |---|---|---|
 | Poll cadence | `stats.py: POLL_SECS` | Router scraped every 5 seconds; `stats.json` flushed at most every 15 seconds (`FLUSH_SECS`) while dirty. |
 | Token attribution | `StatsTracker.poll_once()` | Deltas from `/metrics?model=<id>` credited to a model only if it was also loaded on the prior poll; negative deltas (counter reset) are dropped, not subtracted. |
-| vLLM usage | `StatsTracker._poll_vllm()` | Separately scrapes vLLM's `/metrics` on `vllm_port`; same delta/attribution logic, silent on failure. |
 | Run counting | `StatsTracker.poll_once()` | A "run" increments on each idle-to-active generation transition — an approximation, not a true request count. |
 | Avg tok/s | `StatsTracker.summary()` | `generated / gen_secs`; `gen_secs` accumulates only during poll windows with active generation. |
 | Daily retention | `stats.py: DAILY_KEEP` | 30 days of daily buckets kept; UI toggles between showing the last 14 or 30. |

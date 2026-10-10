@@ -1,9 +1,9 @@
 """Crash-safe file writes.
 
-Every file LlamaForge owns (config.json, models.ini, vllm_models.json,
-stats.json) is a small document rewritten in full. A plain truncating write
-means a crash, a power loss, or a full disk mid-write leaves a half-file - and
-for models.ini that loses every model the router knows about.
+Every file LlamaForge owns (config.json, models.ini, stats.json) is a small
+document rewritten in full. A plain truncating write means a crash, a power
+loss, or a full disk mid-write leaves a half-file - and for models.ini that
+loses every model the router knows about.
 
 The pattern: write a sibling temp file, fsync it, then os.replace() onto the
 target. os.replace is atomic on POSIX and on Windows (MoveFileEx with

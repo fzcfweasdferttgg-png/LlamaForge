@@ -1,12 +1,11 @@
 // Setup tab: prerequisites, detected hardware, drive scanning, startup options,
-// LAN access, the agent-connect panel, and vLLM/WSL installation.
+// LAN access and the agent-connect panel.
 import { $, $$, esc, setHTML, api, toast, askYes } from "./core.js";
 import { t } from "./i18n.js";
 import { S, models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 import { applyPool } from "./slots.js";
 
-let vllmSetupPoll = null;
 let setupGeneration = 0;
 const setupCleanups = new Set();
 let clearAgentSecret = () => {};
@@ -40,28 +39,6 @@ function invalidateSetup() {
 
 export function leaveSetup() {
   invalidateSetup();
-}
-
-function pollVllmSetup() {
-  clearInterval(vllmSetupPoll);
-  const log = $("#vllm-setup-log"); if (log) log.style.display = "";
-  const tick = async () => {
-    const s = await api("/api/vllm/setup");
-    const l = $("#vllm-setup-log");
-    if (l) { l.textContent = s.setup_log||"idle"; l.scrollTop = l.scrollHeight; }
-    const msg = $("#vllm-inst-msg");
-    const job = s.setup_job || {};
-    if (job.running) { if (msg) { msg.className = "msg work"; msg.textContent = "installing..."; } }
-    else if (job.phase === "done") {
-      if (msg) { msg.className = "msg ok"; msg.textContent = "installed"; }
-      clearInterval(vllmSetupPoll); toast(t("vLLM installed"), "ok"); setTimeout(loadSetup, 1200);
-    } else if (job.phase === "failed") {
-      if (msg) { msg.className = "msg err"; msg.textContent = t("install failed - see log"); }
-      clearInterval(vllmSetupPoll);
-    }
-  };
-  tick();
-  vllmSetupPoll = setInterval(tick, 2000);
 }
 
 function networkMarkup(net) {
@@ -561,7 +538,7 @@ export async function loadSetup() {
   const generation = invalidateSetup();
   const v = $("#view-setup");
   setHTML(v, `<div class="skel">${t("PROBING SYSTEM...")}</div>`);
-  const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup"),
+  const [s, net] = await Promise.all([api("/api/setup"), api("/api/network"),
     S.STATE ? null : api("/api/state").then(st => { if (st && !st.error) S.STATE = st; }, () => {})]);
   if (!setupViewActive(generation)) return;
   const p = s.prereqs, hw = s.hardware;
@@ -614,20 +591,7 @@ export async function loadSetup() {
     </div>
     ${slotsMarkup()}
     ${networkMarkup(net)}
-    <div id="agent-connect" class="card"></div>`
-    + (vs.supported === false ? "" : `<div class="card"><h3>${t("vLLM Backend (WSL2)")}</h3>
-      <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":t("NOT INSTALLED")}</span></div>
-      ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
-        <select id="vllm-distro" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
-        ${(vs.distros||[]).map(d=>`<option value="${esc(d.name)}" ${d.name===vs.chosen?"selected":""}>${esc(d.name)} (${esc(d.state)})</option>`).join("")}
-        </select></span></div>
-      <div class="kv"><span class="k">${t("GPU passthrough")}</span><span class="v ${vs.gpu.present?'ok':'bad'}">${vs.gpu.present?esc((vs.gpu.info||"").split("\n")[0]||"detected"):"NOT DETECTED (check NVIDIA driver)"}</span></div>
-      <div class="kv"><span class="k">${t("vLLM")}</span><span class="v ${vs.vllm.present?'ok':'bad'}">${vs.vllm.present?"v"+esc(vs.vllm.version):t("not installed")}</span></div>`
-      :`<div class="note">${t("WSL2 is required to run vLLM. Install it (admin PowerShell):")} <b>wsl --install -d Ubuntu</b>, reboot, then reload this tab.</div>`}
-      ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">${t("Install vLLM (uv, no sudo)")}</button><span class="msg" id="vllm-inst-msg"></span></div>
-      <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
-      <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
-    </div>`));
+    <div id="agent-connect" class="card"></div>`);
   wireNetwork(net, generation);
   $$("[data-install]", v).forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = "installing...";
@@ -659,16 +623,6 @@ export async function loadSetup() {
     await api("/api/config", {vram_bandwidths: ov});
     const m = $("#bw-msg"); m.className = "msg ok"; m.textContent = Object.keys(ov).length ? "saved" : t("cleared (using defaults)");
   };
-  const distroSel = $("#vllm-distro");
-  if (distroSel) distroSel.onchange = () => api("/api/config", {wsl_distro: distroSel.value}).then(() => loadSetup());
-  const instBtn = $("#btn-vllm-install");
-  if (instBtn) instBtn.onclick = async () => {
-    const msg = $("#vllm-inst-msg"); msg.className = "msg work"; msg.textContent = t("starting install...");
-    const r = await api("/api/vllm/setup/install", {distro: distroSel?distroSel.value:undefined});
-    if (r.started) { toast(t("vLLM install started"), "ok"); pollVllmSetup(); }
-    else msg.textContent = t("already running");
-  };
-  if (vs.setup_job && vs.setup_job.running) pollVllmSetup();
   renderAgentConnect(generation);
 }
 

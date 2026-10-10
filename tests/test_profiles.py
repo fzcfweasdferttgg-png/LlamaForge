@@ -94,14 +94,6 @@ class Plan(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nope"):
             self.plan(preset="nope")
 
-    def test_vllm_profiles_cannot_pin_a_llama_build(self):
-        with self.assertRaises(ValueError):
-            self.plan(backend="vllm", engine="b11000-cuda")
-
-    def test_vllm_profiles_cannot_use_presets(self):
-        with self.assertRaises(ValueError):
-            self.plan(backend="vllm", preset="coding")
-
     def test_pinned_dirs(self):
         profs = {"a": {"engine": "b11000-cuda"}, "b": {"engine": ""}}
         self.assertEqual(profiles.pinned_dirs(profs, self.installs), [self.old])

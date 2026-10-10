@@ -46,7 +46,7 @@ Set these environment variables before running the one-liner:
 
 Open **LlamaForge** from the Start menu or app menu, or run `llamaforge`. It starts the llama.cpp router and the dashboard if they aren't already running, then opens your browser at `http://127.0.0.1:8090`.
 
-To shut down the dashboard, the router and the models it spawned, run `llamaforge stop` (Linux/macOS) or `stop.ps1` in the install directory (Windows). Only processes LlamaForge started are stopped; any other `llama-server` you run is left alone. On Windows it also stops a `vllm serve` it started inside WSL.
+To shut down the dashboard, the router and the models it spawned, run `llamaforge stop` (Linux/macOS) or `stop.ps1` in the install directory (Windows). Only processes LlamaForge started are stopped; any other `llama-server` you run is left alone.
 
 ## Uninstall
 

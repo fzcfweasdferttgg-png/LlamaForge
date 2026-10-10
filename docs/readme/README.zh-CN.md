@@ -53,7 +53,7 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
   - 在 Setup 中开启 **Multi-model** 可同时保持一个主模型和若干 worker 加载。规划器按在你机器上实测的占用量，把每个模型放到放得下的 GPU 上。模型也可固定到各自的 llama.cpp（或 ik_llama.cpp）构建。
 - **Discover**：Hugging Face GGUF 搜索，打开即见本周新增。下载前每个量化版本都给出针对你显存的粗略适配评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传、自动注册，最后进入 **Load** 就绪状态。
 - **Will it run?**：选一个仓库和量化版本，得到适配结果和粗略速度估计。
-- **Build / Update**：一键官方 llama.cpp 构建并可回滚，或从源码构建（参数按你的 GPU 检测）。也驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) 以及 Windows 上 WSL2 里的 [vLLM](https://github.com/vllm-project/vllm)。
+- **Build / Update**：一键官方 llama.cpp 构建并可回滚，或从源码构建（参数按你的 GPU 检测）。也驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)。
 - **Stats**：来自路由器自身指标的每模型 token 数、速度和运行次数。无法做每客户端统计，因为客户端直连路由器。
 - **模型网关**：多个真实模型之上的一个虚拟模型名 — 请求按 LiteLLM 预设轮流分发。[详见](../content/gateway.md)。
 - **Recipes**：把配置以可读 JSON 分享；他人一次粘贴即可导入，缺模型时 LlamaForge 会下载。设有[社区画廊](../../recipes/)。
@@ -133,7 +133,7 @@ LlamaForge 不固定上下文大小、GPU 层数或多 GPU 切分。llama.cpp �
 
 一切都在 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**：
 [配置](../content/config.md)、[键盘快捷键](../content/keymap.md),
-[主题与色盲友好模式](../content/theming.md)、[vLLM](../content/vllm.md)、
+[主题与色盲友好模式](../content/theming.md)、
 [故障排除](../content/troubleshooting.md)、[更新内容](../content/whats-new.md)。
 [ROADMAP.md](../../ROADMAP.md) 有已发布和计划中的内容；这是早期预览，优先级跟随反馈。
 

@@ -56,7 +56,7 @@ class ConfigAllowlistTest(unittest.TestCase):
     def test_accepts_the_keys_the_ui_sets(self):
         status, out = routes.post_config(Req(body={
             "theme": "dark", "cvd": True, "skin": "classic", "ui_mode": "advanced",
-            "onboarded": True, "auto_load_model": "qwen", "wsl_distro": "Ubuntu"}))
+            "onboarded": True, "auto_load_model": "qwen"}))
         self.assertEqual(status, 200)
         self.assertEqual(self.saved["theme"], "dark")
         self.assertEqual(self.saved["skin"], "classic")
@@ -85,7 +85,6 @@ class ConfigAllowlistTest(unittest.TestCase):
 
     def test_rejects_ill_typed_values(self):
         for body in ({"ui_mode": "root"}, {"theme": "neon"}, {"skin": "neon"}, {"cvd": "yes"},
-                     {"vllm_port": 99999}, {"vllm_port": "8081"},
                      {"model_dirs": "not-a-list"}, {"onboarded": 1}):
             with self.assertRaises(ApiError, msg=str(body)):
                 routes.post_config(Req(body=body))
@@ -98,10 +97,8 @@ class ConfigAllowlistTest(unittest.TestCase):
         self.assertEqual(self.saved, {"theme": "light"})
         self.assertEqual(out["rejected"], ["server_bin"])
 
-    def test_valid_ports_and_dirs_pass(self):
-        routes.post_config(Req(body={"vllm_port": 8081,
-                                     "model_dirs": ["/models", "/mnt/d"]}))
-        self.assertEqual(self.saved["vllm_port"], 8081)
+    def test_valid_dirs_pass(self):
+        routes.post_config(Req(body={"model_dirs": ["/models", "/mnt/d"]}))
         self.assertEqual(self.saved["model_dirs"], ["/models", "/mnt/d"])
 
 
@@ -308,8 +305,8 @@ class ModelUnregisterTest(unittest.TestCase):
                 routes.post_model_unregister(Req(body={"model": "*"}))
         self.assertEqual(cm.exception.status, 400)
 
-    def test_unregister_rejects_vllm_models(self):
-        with mock.patch.object(routes, "_backend_for", return_value=("m", self._backend("vllm"))):
+    def test_unregister_rejects_non_gguf_backends(self):
+        with mock.patch.object(routes, "_backend_for", return_value=("m", self._backend("other"))):
             with self.assertRaises(ApiError) as cm:
                 routes.post_model_unregister(Req(body={"model": "m"}))
         self.assertEqual(cm.exception.status, 400)
@@ -476,15 +473,6 @@ class RouteTableTest(unittest.TestCase):
     def test_no_path_is_registered_twice_in_one_table(self):
         for table in (routes.GET_ROUTES, routes.POST_ROUTES):
             self.assertEqual(len(table), len(set(table)))
-
-    def test_vllm_routes_are_all_under_the_gated_prefix(self):
-        """server._vllm_gate short-circuits on /api/vllm/ - a vLLM route named
-        anything else would run on Linux and fail confusingly."""
-        for table in (routes.GET_ROUTES, routes.POST_ROUTES):
-            for path, handler in table.items():
-                if handler.__name__.startswith(("get_vllm", "post_vllm")):
-                    self.assertTrue(path.startswith("/api/vllm/"), path)
-
 
 if __name__ == "__main__":
     unittest.main()

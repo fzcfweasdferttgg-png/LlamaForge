@@ -210,19 +210,6 @@ class H(BaseHTTPRequestHandler):
                 return True
         return False
 
-    def _vllm_gate(self, p):
-        """vLLM rides on WSL2; short-circuit its routes on Linux/macOS."""
-        if p.startswith("/api/vllm/") and not routes.VLLM_SUPPORTED:
-            if p == "/api/vllm/setup":   # the Setup tab probes this one
-                self._send(200, {"supported": False, "wsl": {"present": False},
-                                 "distros": [], "gpu": {"present": False},
-                                 "vllm": {"present": False, "version": ""},
-                                 "setup_job": {"running": False}, "setup_log": ""})
-            else:
-                self._send(400, {"error": "vLLM backend requires Windows + WSL2"})
-            return True
-        return False
-
     # -------------------------------------------------------------- dispatch
     def _run(self, handler, req):
         """Call a route handler and write whatever it returns."""
@@ -243,8 +230,6 @@ class H(BaseHTTPRequestHandler):
             return
         p, _, query = self.path.partition("?")
         qs = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()} if query else {}
-        if self._vllm_gate(p):
-            return
 
         if p in ("/", "/index.html"):
             return self._file("index.html", "text/html; charset=utf-8")
@@ -262,8 +247,6 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         body = self._read_json_body(p)
         if body is _BODY_ERROR:
-            return
-        if self._vllm_gate(p):
             return
 
         headers = self._headers_lower()
@@ -434,7 +417,7 @@ def main():
     except Exception:
         pass
     stats.TRACKER.start()   # background usage poller
-    import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
+    import logfiles         # rotate router/model logs past 50 MB while they run (#26)
     logfiles.start_trimmer(routes.LOGDIR)
     if c.get("mcp_host"):       # opt-in MCP over HTTP (config mcp_host/mcp_port)
         try:

@@ -202,15 +202,15 @@ class TrimTest(_Tmp):
             self.assertFalse(logfiles.trim(p, max_bytes=100, keep=3))
         self.assertEqual(os.path.getsize(p), 200)     # nothing lost
 
-    def test_trim_all_covers_router_vllm_and_model_logs(self):
+    def test_trim_all_covers_router_and_model_logs(self):
         big = "x" * 200
-        for n in ("router.out.log", "router.err.log", "vllm.out.log",
-                  "vllm.err.log", "slot-m-abc123.log", "build.log", "panel.pid"):
+        for n in ("router.out.log", "router.err.log",
+                  "slot-m-abc123.log", "build.log", "panel.pid"):
             self.write(n, big)
         logfiles.trim_all(self.d, max_bytes=100)
         rotated = sorted(n[:-2] for n in os.listdir(self.d) if n.endswith(".1"))
         self.assertEqual(rotated, ["router.err.log", "router.out.log",
-                                   "slot-m-abc123.log", "vllm.err.log", "vllm.out.log"])
+                                   "slot-m-abc123.log"])
 
 
 class TrimmerTest(unittest.TestCase):

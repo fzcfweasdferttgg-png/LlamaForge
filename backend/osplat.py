@@ -1,9 +1,9 @@
 """Single choke point for OS differences (Windows / Linux / macOS).
 
-Mirrors wsl.py's role: the rest of the backend asks this module "what platform
-am I on / what does this platform's output mean" instead of sprinkling
-sys.platform checks around. All parsers are pure functions over text so they
-are unit-testable on any OS. Pure stdlib.
+The rest of the backend asks this module "what platform am I on / what does
+this platform's output mean" instead of sprinkling sys.platform checks
+around. All parsers are pure functions over text so they are unit-testable
+on any OS. Pure stdlib.
 """
 import os, re, subprocess, sys
 

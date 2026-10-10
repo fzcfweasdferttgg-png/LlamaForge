@@ -50,7 +50,7 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
   - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用の llama.cpp(または ik_llama.cpp)ビルドを固定することもできる。
 - **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load** 準備で終わる。
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
-- **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も、Windows では WSL2 上の [vLLM](https://github.com/vllm-project/vllm) も操作する。
+- **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も操作する。
 - **Stats**: ルーター自身のメトリクスから、モデルごとのトークン数、速度、実行回数。クライアントはルーターと直接通信するため、クライアント別の統計は不可能。
 - **モデルゲートウェイ**: 複数の実モデルの上の仮想モデル名ひとつ — リクエストは LiteLLM の自由なプリセットに従ってローテーション。[詳細](../content/gateway.md)。
 - **Recipes**: プロファイルを可読な JSON で共有。受け取った側は 1 回のペーストでインポートでき、モデルがなければ LlamaForge がダウンロードする。[コミュニティギャラリー](../../recipes/)がある。
@@ -103,7 +103,7 @@ LlamaForge はコンテキストサイズ、GPU レイヤー、マルチ GPU 分
 
 ## ドキュメント
 
-すべて **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)** にある: [設定](../content/config.md)、[キーボードショートカット](../content/keymap.md)、[テーマと色覚安全モード](../content/theming.md)、[vLLM](../content/vllm.md)、[トラブルシューティング](../content/troubleshooting.md)、[新着](../content/whats-new.md)。[ROADMAP.md](../../ROADMAP.md) に出荷済みと計画がある。アーリープレビューなので優先順位はフィードバックに従う。
+すべて **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)** にある: [設定](../content/config.md)、[キーボードショートカット](../content/keymap.md)、[テーマと色覚安全モード](../content/theming.md)、[トラブルシューティング](../content/troubleshooting.md)、[新着](../content/whats-new.md)。[ROADMAP.md](../../ROADMAP.md) に出荷済みと計画がある。アーリープレビューなので優先順位はフィードバックに従う。
 
 ## クレジットとライセンス
 

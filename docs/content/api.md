@@ -11,9 +11,6 @@ The LlamaForge dashboard backend (`backend/server.py`) listens on `panel_port` (
 `/api/*` request/response bodies are JSON. Every JSON response has
 `Cache-Control: no-store`.
 
-> [!NOTE]
-> If vLLM support isn't available on the host, every route is first checked by `_vllm_gate()`; requests to `/api/vllm/*` paths return an error response instead of reaching the normal handler.
-
 ## Agent-facing endpoints
 
 These are the endpoints external coding agents (Claude Code, Codex, etc.) talk to — see `backend/agentsetup.py` for the config generators that point agents at them.
@@ -31,7 +28,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `skin`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
+| GET | `/api/state` | Dashboard state: models (llama.cpp), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `skin`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
 | POST | `/api/models/unregister` | Remove a llama-family model from its `models.ini` registry without deleting the GGUF. Body: `{model, backend}`. Unloads it first when necessary. |
@@ -100,7 +97,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 |---|---|---|
 | GET | `/api/network` | Redacted Network Access status: canonical/legacy access scope, configured host and security/key status, key-present boolean, remediation message, configured port and LAN IP, plus `router_running`/`listener_status`. A listening port is observation only, not process-identity or authentication verification. |
 | POST | `/api/network` | Save a canonical Network Access request and restart the router. Body: `{access_scope: "local"|"lan", key_action: "keep"|"generate"|"replace"|"clear", api_key?: "..."}`. `replace` requires a strong replacement; `clear` is local-only; LAN has no unauthenticated path. For one release, the old `{host, api_key}` shape is accepted only for canonical hosts. A generated key is returned only as `generated_api_key` to that explicit request. Results distinguish saved configuration from `restart_status` (`running`, `starting`, or `failed`) and listener observation. |
-| POST | `/api/client/config` | Deliberately generate client snippets for `{model, backend}`. llama-family output may contain the router key; active vLLM output does not. Unknown, ambiguous, or unloaded vLLM targets are rejected. |
+| POST | `/api/client/config` | Deliberately generate client snippets for `{model, backend}`. llama-family output may contain the router key; unknown, ambiguous, or unloaded targets are rejected. |
 | GET | `/api/router/log` | Tail of the router's log. |
 | GET | `/api/stats` | Usage stats summary. |
 | POST | `/api/stats/reset` | Reset usage stats. |
@@ -122,32 +119,12 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/pi/install` / `/api/pi/remove` | Start a pi install (or update) or removal job; progress comes back through `GET /api/pi/status`. `409` if a job is already running. |
 | GET | `/api/mcp/setup` | Ready-to-paste client configs for LlamaForge's [MCP server](mcp.md), with this install's Python and script paths filled in. |
 
-## vLLM (WSL) management
-
-Only reachable when vLLM support is available on the host (`_vllm_gate`).
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/vllm/setup` | vLLM/WSL install status plus any running setup job. |
-| POST | `/api/vllm/setup/install` | Kick off the vLLM install script inside WSL. |
-| POST | `/api/vllm/update` | Run the vLLM update script inside WSL. |
-| GET | `/api/vllm/log` | Tail of the vLLM process log. |
-| GET | `/api/vllm/schema` | vLLM knob schema. |
-| GET | `/api/vllm/version` | Installed vs. latest PyPI vLLM version. |
-| POST | `/api/vllm/load` / `/api/vllm/unload` | Load/unload a registered vLLM model. |
-| POST | `/api/vllm/save` | Save a vLLM model's settings, restarting it if currently running. |
-| POST | `/api/vllm/hub/search` | Search Hugging Face for vLLM-servable repos. |
-| POST | `/api/vllm/hub/info` | Repo info sized against available VRAM. |
-| POST | `/api/vllm/hub/download` | Start a vLLM model download. |
-| GET | `/api/vllm/hub/progress` | Download progress. |
-| POST | `/api/vllm/hub/register` | Register a downloaded model into the vLLM registry. |
-| POST | `/api/vllm/delete` | Delete a downloaded vLLM model and deregister it. |
 
 ## Agent config and context wiki
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
+| POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small}`. It is POST-only; the active llama-family backend is required. |
 | POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`). It may use the stored key internally but never returns a key. |
 
 ## Model gateway
@@ -170,18 +147,18 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 
 ## Engine-agnostic model verbs
 
-These dispatch on the model's own backend, so the same call works for a
-llama.cpp GGUF and a vLLM safetensors repo. The body takes an optional
-`backend` hint (`"llamacpp"` / `"vllm"`); without it the id is looked up.
+These dispatch on the model's own backend, so the same call works for every
+llama-family engine. The body takes an optional `backend` hint (`"llamacpp"` /
+`"ikllama"`); without it the id is looked up.
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/models/load` | Load `{model}` on whichever engine owns it. |
 | POST | `/api/models/unload` | Unload `{model}`. |
 | POST | `/api/models/save` | Persist `{settings}` and apply them (restarting the process if that engine has no hot reload). |
-| POST | `/api/models/delete` | Delete the model's files, where the engine supports it (vLLM only; llama.cpp returns 400). |
+| POST | `/api/models/delete` | Delete the model's files, where the engine supports it (llama-family engines return 400). |
 
-The engine-specific paths (`/api/load`, `/api/vllm/load`, …) remain as aliases.
+The engine-specific paths (`/api/load`, …) remain as aliases.
 
 ## Request requirements
 

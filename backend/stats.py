@@ -25,16 +25,6 @@ M_PROMPT_PER_SEC = "llamacpp:prompt_tokens_seconds"
 M_GEN_PER_SEC    = "llamacpp:predicted_tokens_seconds"
 M_REQ_PROCESSING = "llamacpp:requests_processing"
 
-# vLLM Prometheus counters (different names than llama.cpp). Any missing -> 0.
-VLLM_PROMPT_TOTAL = "vllm:prompt_tokens_total"
-VLLM_GEN_TOTAL    = "vllm:generation_tokens_total"
-
-
-def vllm_token_totals(metrics):
-    """(prompt_total, gen_total) from parsed vLLM /metrics."""
-    return (metrics.get(VLLM_PROMPT_TOTAL, 0.0),
-            metrics.get(VLLM_GEN_TOTAL, 0.0))
-
 
 POLL_SECS  = 5       # how often we scrape the router
 FLUSH_SECS = 15      # min interval between stats.json writes
@@ -69,8 +59,6 @@ class StatsTracker:
         self.lock = threading.Lock()
         self.data = self._load()
         self._prev = {}            # model -> (prompt_total, gen_total) from last poll
-        self._vprev = None         # (prompt, gen) from last vLLM poll
-        self._vprev_model = None
         self._idle = {}            # model -> was generation idle last poll (run count)
         self._dirty = False
         self._last_flush = 0.0
@@ -178,35 +166,6 @@ class StatsTracker:
         self._dirty = True
 
     # ---------- polling ----------
-    def _poll_vllm(self):
-        """Scrape vLLM's /metrics (if a model is loaded there) and attribute
-        token deltas the same way as llama.cpp. Best-effort; silent on failure.
-        Call under self.lock."""
-        try:
-            port = config.load().get("vllm_port", 8081)
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3) as r:
-                metrics = _parse_metrics(r.read().decode(errors="replace"))
-        except Exception:
-            self._vprev = None
-            return
-        p, g = vllm_token_totals(metrics)
-        model = None
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=3) as r:
-                data = json.loads(r.read().decode())
-            ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
-            model = ids[0] if ids else None
-        except Exception:
-            model = None
-        if self._vprev is not None and model and model == self._vprev_model:
-            dp, dg = p - self._vprev[0], g - self._vprev[1]
-            if dp < 0 or dg < 0:
-                dp = dg = 0
-            if dp or dg:
-                self._record_tokens(model, dp, dg)
-        self._vprev = (p, g)
-        self._vprev_model = model
-
     def poll_once(self):
         # One /models call tells us both whether the router is up and which
         # models are loaded. The router's /metrics is per-model and 400s without
@@ -276,7 +235,6 @@ class StatsTracker:
                 else:
                     self._idle[model] = True
                 self._prev[model] = (p, g)
-            self._poll_vllm()
             self._flush()
 
     def run_forever(self):
@@ -295,7 +253,7 @@ class StatsTracker:
         """Zero the whole store (user-initiated from the Stats tab)."""
         with self.lock:
             self.data = _empty()
-            self._prev, self._idle, self._vprev = {}, {}, None
+            self._prev, self._idle = {}, {}
             self._dirty = True
             self._flush(force=True)
 

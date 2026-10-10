@@ -1,5 +1,5 @@
 // The Models tab: GPU telemetry, the model list, the per-model knob editor,
-// load/unload, compare, presets, and the router/vLLM log panels.
+// load/unload, compare, presets, and the router log panel.
 //
 // Rendering contract - the thing to preserve when editing this file:
 // renderModels() reconciles rows against the DOM instead of rebuilding it.
@@ -23,7 +23,6 @@ let openId = localStorage.getItem("lf_openid") || null;   // expanded row, persi
 let selId = null;                 // keyboard-selected row
 let compareMode = false;
 let onlySet = false, kquery = "", mquery = "", favOnly = false;
-let vllmSchemaPending = false;
 let loadBusy = false;
 let knobEpoch = 0;
 const cmpSet = new Set();         // model ids picked for compare
@@ -125,18 +124,9 @@ function knobGroups(m, schema) {
   }).join("");
 }
 function editorLive(m) {
-  return m.backend === "vllm"
-    ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
+  return `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
-  if (m.backend === "vllm") {
-    return `<button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
-      ${m.status==="loaded"||m.status===t("loading")?`<button class="ghost" data-act="vunload">${m.status===t("loading")?t("Cancel / Stop"):t("Stop")}</button>`:`<button data-act="vload">${t("Load")}</button>`}
-      <button class="ghost" data-act="client">${t("Client config")}</button>
-      <button class="ghost" data-act="profile" title="${t("save a one-click launch for this model")}">${t("Save as profile")}</button>
-      <button class="danger" data-act="vdelete" title="${t("remove model + delete its files from WSL")}">${t("Delete")}</button>`;
-  }
   return `<button class="primary" data-act="save">${t("Save + Reload")}</button>
       ${m.status==="loaded"||m.status===t("loading")?`<button class="ghost" data-act="unload">${m.status===t("loading")?t("Cancel / Unload"):t("Unload")}</button>`:`<button data-act="load"${slots.slotsOn()?` title="${t("load as the main model: it gets the fastest GPU that fits")}"`:""}>${t("Load")}</button>`}
       ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">${t("Load as worker")}</button>`:""}
@@ -145,26 +135,11 @@ function editorButtons(m) {
       <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">${t("Unregister")}</button>`;
 }
 function editorNote(m) {
-  if (m.backend === "vllm")
-    return `<div class="note">vLLM runs one model at a time inside WSL. Saving knobs on a loaded model restarts it (vLLM has no hot reload). Startup can take 1&ndash;5 minutes; watch the vLLM Log panel below.</div>`;
   return m.status === t("loading")
     ? `<div class="note">${t("Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).")}</div>` : "";
 }
 // A plain message (no knob grid) when the editor can't be built.
 function editorBlocked(m) {
-  if (m.backend === "vllm") {
-    if (!S.VLLM_SCHEMA) {
-      if (!vllmSchemaPending) {
-        vllmSchemaPending = true;
-        api("/api/vllm/schema").then(s => {
-          S.VLLM_SCHEMA = s; vllmSchemaPending = false; invalidateKnobs(); renderModels();
-        });
-      }
-      return `<div class="note">${t("Loading vLLM knob schema...")}</div>`;
-    }
-    if (S.VLLM_SCHEMA.error) return `<div class="note" style="color:var(--red)">vLLM knobs unavailable: ${esc(S.VLLM_SCHEMA.error)} &mdash; install vLLM from the Setup tab.</div>`;
-    return null;
-  }
   if (!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
   if (!S.SCHEMA) return `<div class="note">${t("Loading knob schema...")}</div>`;
   if (S.SCHEMA.error) return `<div class="note" style="color:var(--red)">${t("Could not read knobs from")} <code>llama-server --help</code>: ${esc(S.SCHEMA.error)}<br>${t("Check")} <code>server_bin</code> ${t("in config.json - the schema is retried automatically once it's fixed.")}</div>`;
@@ -174,10 +149,8 @@ function editorBlocked(m) {
 function editor(m) {
   const blocked = editorBlocked(m);
   if (blocked !== null) return blocked;
-  const schema = m.backend === "vllm" ? S.VLLM_SCHEMA : S.SCHEMA;
-  const placeholder = m.backend === "vllm"
-    ? t("filter knobs (e.g. tensor, memory, quant)...")
-    : t("filter knobs (e.g. cache, rope, temp)...");
+  const schema = S.SCHEMA;
+  const placeholder = t("filter knobs (e.g. cache, rope, temp)...");
   return `<div class="ed-slot">${slots.block(m, renderModels)}</div>
     <div class="ed-live">${editorLive(m)}</div>
     <div class="toolbar ed-tools">
@@ -220,7 +193,7 @@ function shownModels() {
     .filter(m => (!mquery || m.id.toLowerCase().includes(mquery)) && (!favOnly || favs.has(m.id)))
     .sort((a, b) => (favs.has(b.id)?1:0) - (favs.has(a.id)?1:0));
 }
-const BACKEND_LABEL = { vllm: t("vLLM"), ikllama: "ik_llama", llamacpp: "llama.cpp" };
+const BACKEND_LABEL = { ikllama: "ik_llama", llamacpp: "llama.cpp" };
 
 // The engine tag only carries information when more than one engine is serving
 // models. On a llama.cpp-only install it was 15 identical LLAMA.CPP tags - pure
@@ -255,8 +228,7 @@ function headSig(m, cols, showBackend) {
 // Keyed so only a different model, backend or schema rebuilds the knob grid.
 function knobSig(m) {
   return JSON.stringify([m.id, m.backend, m.in_ini,
-    m.backend === "vllm" ? (S.VLLM_SCHEMA ? S.VLLM_SCHEMA.count||0 : -1)
-                         : (S.SCHEMA ? S.SCHEMA.count||0 : -1), knobEpoch]);
+    S.SCHEMA ? S.SCHEMA.count||0 : -1, knobEpoch]);
 }
 
 function rowIdentity(backend, id) {
@@ -381,8 +353,7 @@ async function processQ() {
   const job = loadQ[0];
   let r = null;
   try {
-    r = beOf(job.id) === "vllm" ? await api("/api/vllm/load", {model: job.id})
-                                : await slots.load(job.id);
+    r = await slots.load(job.id);
   } catch (e) {}
   // a planner refusal is an answer, not a crash: say it (the open row shows the details)
   if (r && r.success === false && typeof r.reason === "string")
@@ -400,16 +371,15 @@ on("load-registered", async id => {
   enqueueLoad(id);
 });
 async function quickAction(act, id) {
-  const be = beOf(id);
   if (act === "load") { enqueueLoad(id); return; }
   if (act === "unload") {
-    await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
+    await api("/api/unload", {model: id});
     toast(t("Unloaded"), "ok"); await refresh(true); return;
   }
   if (act === "stop") {
     const qi = loadQ.findIndex(j => j.id === id);     // still queued -> just drop it
     if (qi > 0) { loadQ.splice(qi, 1); renderModels(); return; }
-    await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
+    await api("/api/unload", {model: id});
     toast(t("Cancelled"), "ok"); await refresh(true);
   }
 }
@@ -586,7 +556,7 @@ async function savePresetFrom(model) {
 
 /* ---------- GGUF metadata card ---------- */
 function metaBlock(m) {
-  if (m.backend === "vllm" || !m.in_ini) return "";
+  if (!m.in_ini) return "";
   const meta = metaCache[m.id];
   if (meta === undefined) { setTimeout(() => fetchMeta(m.id), 0); return `<div class="metacard"><div class="m"><span class="mv">${t("reading GGUF header...")}</span></div></div>`; }
   if (!meta || !Object.keys(meta).length) return compatNote(m.id);
@@ -776,8 +746,6 @@ export async function refresh(silent) {
     renderModels();
     updateCmpRun();
     emit("state", s);
-    const vlog = $("#vllm-log-details");
-    if (vlog && s.vllm_supported === false) vlog.style.display = "none";
   } catch (e) {
     if (!silent) setHTML($("#list"), `<div class="skel" style="color:var(--red)">${t("BACKEND UNREACHABLE")}</div>`);
   }
@@ -788,13 +756,6 @@ on("refresh", silent => refresh(silent));
 export async function refreshRouterLog() {
   const el = $("#router-log"); if (!el) return;
   const s = await api("/api/router/log");
-  const wasBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-  el.textContent = s.log || "idle";
-  if (wasBottom) el.scrollTop = el.scrollHeight;
-}
-export async function refreshVllmLog() {
-  const el = $("#vllm-log"); if (!el) return;
-  const s = await api("/api/vllm/log");
   const wasBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
   el.textContent = s.log || "idle";
   if (wasBottom) el.scrollTop = el.scrollHeight;
@@ -812,10 +773,6 @@ export function initModels() {
   const routerLog = $("#router-log-details");
   if (routerLog) routerLog.addEventListener("toggle", () => {
     if (routerLog.open) refreshRouterLog();
-  });
-  const vllmLog = $("#vllm-log-details");
-  if (vllmLog) vllmLog.addEventListener("toggle", () => {
-    if (vllmLog.open) refreshVllmLog();
   });
 
   document.addEventListener("change", e => {
@@ -972,26 +929,6 @@ export function initModels() {
         msg.className = "msg work"; msg.textContent = t("removing from models.ini...");
         const r = await api("/api/models/unregister", {model: id, backend: beOf(id)});
         if (r.ok) { toast(t("Unregistered — file kept on disk"), "ok"); setOpenId(null); }
-      } else if (act === "vsave") {
-        const settings = {}; $$("[data-k]", row).forEach(el => settings[el.dataset.k] = el.value.trim());
-        msg.className = "msg work"; msg.textContent = t("saving vLLM knobs...");
-        const r = await api("/api/vllm/save", {model: id, settings});
-        msg.className = "msg ok"; msg.textContent = r.restarted ? t("saved - restarting") : "saved";
-        toast(r.restarted ? t("Saved & restarting") : t("Saved"), "ok");
-        invalidateKnobs();
-      } else if (act === "vload") {
-        msg.className = "msg work"; msg.textContent = t("starting vLLM (1-5 min)...");
-        const r = await api("/api/vllm/load", {model: id});
-        r.ok ? toast(t("vLLM starting"),"ok") : (msg.className="msg err", msg.textContent=r.error||t("load failed"));
-      } else if (act === "vunload") {
-        msg.className = "msg work"; msg.textContent = t("stopping vLLM...");
-        await api("/api/vllm/unload", {model: id}); toast(t("vLLM stopped"), "ok");
-      } else if (act === "vdelete") {
-        if (!(await askYes(t("Its files are deleted from WSL. This cannot be undone."), {title: `Delete ${id}`, ok: t("Delete"), danger: true}))) return;
-        msg.className = "msg work"; msg.textContent = t("deleting from WSL...");
-        const r = await api("/api/vllm/delete", {model: id});
-        r.ok ? toast(t("Deleted"),"ok") : (msg.className="msg err", msg.textContent=r.error||t("delete failed"));
-        setOpenId(null);
       }
       await refresh(true);
     } catch (err) { msg.className = "msg err"; msg.textContent = String(err); }

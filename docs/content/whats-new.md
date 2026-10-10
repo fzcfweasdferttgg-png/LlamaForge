@@ -19,7 +19,7 @@ This page summarizes the most recent additions to LlamaForge. Each entry links t
 - **No font CDN.** The panel's fonts ship with it, so it renders the same offline and no third party learns you opened it.
 - **Stats count every loaded model**, including models running as their own process, with live tokens per second for each. See [Stats](stats.md).
 - **Vision projectors pair again.** A scan only attached an `mmproj` file to models on a fixed list of architectures, so Gemma 4, Qwen 3.5 and other current vision models lost theirs ([Discussion #16](https://github.com/dadwritestech/LlamaForge/discussions/16)). A projector now pairs when its width matches the model's, the same check llama.cpp makes when it loads one. Several quants of one model can share a projector, and with several projectors F16 wins. Files named `<model>-mmproj-*.gguf` count as projectors, in a scan and in Discover.
-- **Logs stay small.** With `verbose = true` a router log could grow to gigabytes, and the panel read all of it every time the log view refreshed, using tens of GB of RAM ([#26](https://github.com/dadwritestech/LlamaForge/issues/26)). The panel now reads only the end of a log, and once a router, vLLM or model log passes 50 MB it moves to `.1` (7 old copies kept), both when the process starts and every minute while it runs. On Windows, a router started by `run.ps1` is rotated from its next restart from the panel.
+- **Logs stay small.** With `verbose = true` a router log could grow to gigabytes, and the panel read all of it every time the log view refreshed, using tens of GB of RAM ([#26](https://github.com/dadwritestech/LlamaForge/issues/26)). The panel now reads only the end of a log, and once a router or model log passes 50 MB it moves to `.1` (7 old copies kept), both when the process starts and every minute while it runs. On Windows, a router started by `run.ps1` is rotated from its next restart from the panel.
 - **Docs search reads the whole page**, not only titles and headings, and says so when nothing matches.
 - **Fixes.** An out-of-memory load on a model with `split-mode = tensor` now says that tensor split turns llama.cpp's fit off and suggests `split-mode = layer`. A `pi_run` that gave no answer and had every tool call fail is reported as a failure. The ik_llama update check reads ik_llama's own default branch (`main`). A busy router port points you at `config.json`.
 
@@ -54,7 +54,7 @@ See [Models & Tuning](models.md) and [HTTP API](api.md).
 
 Setup can now persist one or more model folders instead of walking every drive, while an explicit blank list still selects the platform defaults. A llama.cpp model can be **Unregistered** from `models.ini` without deleting its GGUF file. The Models view also avoids polling collapsed logs, shares GPU telemetry through a short cache instead of spawning `nvidia-smi` per browser poll, and keeps the CRT scanline look without the expensive full-viewport blend mode.
 
-Fresh bootstrap runs now accept an existing llama.cpp checkout and derive its build/server paths, removing the hand-edit step reported by WSL2 users.
+Fresh bootstrap runs now accept an existing llama.cpp checkout and derive its build/server paths, removing the hand-edit step.
 
 See [Setup](setup.md), [Models & Tuning](models.md), and [Install](install.md).
 

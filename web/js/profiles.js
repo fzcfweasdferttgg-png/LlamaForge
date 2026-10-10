@@ -29,7 +29,7 @@ function render() {
     <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">${t("Profiles")}</span>
     ${names.map(n => `<span class="pchip" data-prof-launch="${esc(n)}" title="launch: ${esc(describe(P[n]))}">`
       + `&#9654; ${esc(n)}`
-      + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="${t("share as a recipe")}">&#8599;</span>`)
+      + `<span class="px" data-prof-share="${esc(n)}" title="${t("share as a recipe")}">&#8599;</span>`
       + `<span class="px" data-prof-del="${esc(n)}" title="${t("delete profile")}">&times;</span></span>`).join("")}
     <span class="pchip" data-prof-gallery title="tested setups shared by the community"><span class="g g-list" aria-hidden="true">&#9776;</span> ${t("browse recipes")}</span>
     <span class="pchip" data-prof-import title="${t("paste a recipe someone shared")}">+ import recipe</span>
@@ -52,21 +52,19 @@ async function launch(name) {
 }
 
 async function openSave({ id, backend }) {
-  const c = cfgOf(), llama = backend !== "vllm";
+  const c = cfgOf();
   const engineKey = backend || c.active_engine || "llamacpp";
   const bound = ((c.preset_bindings || {})[engineKey] || {})[id] || "";
   let installs = [];
-  if (llama) {
-    const r = await api("/api/engine/prebuilt");
-    installs = (r && r.installs) || [];
-  }
+  const r = await api("/api/engine/prebuilt");
+  installs = (r && r.installs) || [];
   const base = id.split("/").pop().replace(/\.gguf$/i, "").slice(0, 40);
   const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
-  const presetSel = llama ? `<div class="fld" style="margin-top:12px"><label>${t("Preset")}</label><select id="prof-preset">
+  const presetSel = `<div class="fld" style="margin-top:12px"><label>${t("Preset")}</label><select id="prof-preset">
       ${opt("", "none (the model's saved settings)", !bound)}
       ${Object.keys(c.presets || {}).map(n => opt(n, n, n === bound)).join("")}
-    </select></div>` : "";
-  const engineSel = llama && installs.length ? `<div class="fld" style="margin-top:12px"><label>${t("Engine")}</label><select id="prof-engine">
+    </select></div>`;
+  const engineSel = installs.length ? `<div class="fld" style="margin-top:12px"><label>${t("Engine")}</label><select id="prof-engine">
       ${opt("", "whichever build is active (follows updates)", true)}
       ${installs.map(i => {
         const dir = i.dir.split(/[\\/]/).pop();

@@ -7,7 +7,6 @@
 export const S = {
   STATE: null,        // latest /api/state payload
   SCHEMA: null,       // llama.cpp knob schema
-  VLLM_SCHEMA: null,  // vLLM knob schema
 };
 
 /** Model rows from the last poll, or [] before the first one. */

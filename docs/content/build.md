@@ -39,7 +39,6 @@ A rebuild (`BuildManager.run_build()`) runs in a background thread: it first val
 3. Review the **Build Flags** pills — these are auto-detected for your GPU/CPU (or your previously saved custom flags, if any).
 4. Leave **git pull first** checked (it's checked by default when you're behind) to pull the latest commits before building, or uncheck it to rebuild the current checkout as-is.
 5. Click **Pull latest & Rebuild** (or **Rebuild current** if already up to date). The build runs in the background; watch progress and any errors in the Build Log panel below, which polls live until the build finishes or fails.
-6. On Windows, the same tab has a **vLLM (pip package in WSL)** card showing its installed vs. latest PyPI version, with an **Update vLLM to <version>** button when a newer release is available.
 
 ## Screenshot
 

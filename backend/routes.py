@@ -24,13 +24,10 @@ import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, sta
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
-import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import gateway, mcp_server, piinstall, logfiles
 from builder import BuildManager
 
-# vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
-VLLM_SUPPORTED = osplat.IS_WIN
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB     = os.path.join(ROOT, "web")
@@ -47,10 +44,9 @@ def _builder_for(target):
 DOWNLOADS = hub.DownloadManager()
 APP_UPDATE = selfupdate.UpdateJob(ROOT)
 
-VLLM_SETUP_JOB = vllm_job.WslJob(LOGDIR, "vllm-setup.log")
 
 # The engine registry is built at the bottom of this module, once the helpers it
-# depends on (model_state, router, cfg, vllm_mgr, ...) exist. Backends receive
+# depends on (model_state, router, cfg, ...) exist. Backends receive
 # this module itself as their dependency bundle: it keeps them free of import
 # cycles and lets a test hand in a stub with the same handful of functions.
 REGISTRY = None
@@ -83,13 +79,10 @@ class Req:
 
 
 # ---------------------------------------------------------------- shared state
-_VLLM = None
-_VLLM_DL = None
 _SCHEMA = None          # cached knob schema (active engine)
 _SCHEMA_KEY = None      # (server_bin, mtime) the cache was built from
 _IK_SCHEMA = None       # cached schema for ik_llama binary
 _IK_SCHEMA_KEY = None
-_VLLM_SCHEMA = None
 
 # Saving router-affecting config and restarting the process is one transaction.
 # ThreadingHTTPServer may run network and engine mutations concurrently; without
@@ -102,33 +95,6 @@ def cfg():          return config.load()
 def router_base():  return f"http://127.0.0.1:{cfg()['router_port']}"
 
 
-def vllm_mgr():
-    """Lazily build the vLLM manager from current config."""
-    global _VLLM
-    c = cfg()
-    distro = c.get("wsl_distro") or wsl.default_distro()
-    if _VLLM is None:
-        _VLLM = vllm_ctl.Manager(
-            distro=distro, port=c.get("vllm_port", 8081),
-            venv="~/.llamaforge/vllm-venv", logdir=LOGDIR)
-        _VLLM.reconcile()
-    else:
-        _VLLM.distro = distro
-        _VLLM.port = c.get("vllm_port", 8081)
-    return _VLLM
-
-
-def vllm_dl():
-    global _VLLM_DL
-    c = cfg()
-    distro = c.get("wsl_distro") or wsl.default_distro()
-    if _VLLM_DL is None:
-        _VLLM_DL = vllm_download.Manager(distro)
-    else:
-        _VLLM_DL.distro = distro
-    return _VLLM_DL
-
-
 def _tail_file(path, n):
     return logfiles.tail_lines(path, n)   # never the whole file (issue #26)
 
@@ -138,14 +104,6 @@ def router_log_tail(n=400):
     out = _tail_file(os.path.join(LOGDIR, "router.out.log"), n)
     if not err and not out:
         return "(no router log yet - restart LlamaForge to start capturing router.err.log / router.out.log)"
-    return "".join(out) + ("\n--- stderr ---\n" if out and err else "") + "".join(err)
-
-
-def vllm_log_tail(n=400):
-    err = _tail_file(os.path.join(LOGDIR, "vllm.err.log"), n)
-    out = _tail_file(os.path.join(LOGDIR, "vllm.out.log"), n)
-    if not err and not out:
-        return "(no vLLM log yet - load a vLLM model to start capturing vllm.out/err.log)"
     return "".join(out) + ("\n--- stderr ---\n" if out and err else "") + "".join(err)
 
 
@@ -238,8 +196,8 @@ def _gpu_telemetry():
     return [{"error": "no GPU information (nvidia-smi absent and DRM sysfs empty)"}]
 
 
-# nvidia-smi startup is most of /api/state's response time (and is slower under
-# WSL2).  A ten-second snapshot keeps the dashboard live without launching a
+# nvidia-smi startup is most of /api/state's response time.  A ten-second
+# snapshot keeps the dashboard live without launching a
 # process for every browser poll or every open tab.
 _GPU_TELEMETRY = telemetry.TimedCache(_gpu_telemetry, ttl=10)
 
@@ -278,38 +236,16 @@ def ik_schema():
     return _IK_SCHEMA
 
 
-def vllm_schema():
-    global _VLLM_SCHEMA
-    if _VLLM_SCHEMA is None:
-        import vllm_argspec
-        c = cfg()
-        distro = c.get("wsl_distro") or wsl.default_distro()
-        _VLLM_SCHEMA = vllm_argspec.build_schema(distro, "~/.llamaforge/vllm-venv")
-    return _VLLM_SCHEMA
-
-
-def installed_repos(results, ini_sections, vllm_ids):
+def installed_repos(results, ini_sections):
     """Which Discover results are already on this machine. GGUF downloads land
-    in a '<org>--<name>' folder that models.ini paths retain; vLLM registry
-    keys are the repo ids themselves."""
+    in a '<org>--<name>' folder that models.ini paths retain."""
     blob = " ".join(kv.get("model", "") for kv in ini_sections.values())
-    vset = set(vllm_ids)
     out = []
     for r in results:
         repo = r.get("repo", "")
-        if repo and (repo in vset or repo.replace("/", "--") in blob):
+        if repo and repo.replace("/", "--") in blob:
             out.append(repo)
     return out
-
-
-def vllm_save(model_id, settings, is_running, restart):
-    """Persist knob changes; restart the process if the model is loaded
-    (vLLM has no hot reload). Returns whether a restart was triggered."""
-    vllm_registry.set_settings(model_id, settings)
-    if is_running:
-        restart(model_id)
-        return True
-    return False
 
 
 # ---------- model list (router status + ini settings) ----------
@@ -498,41 +434,6 @@ def _measure_tok_s(mid):
     if elapsed < 0.01:
         return 0.0
     return round(tokens / elapsed, 1)
-
-
-# ---------- unified model list (llama.cpp + vLLM) ----------
-STATE_MAP = {"ready": "loaded", "loading": "loading", "starting": "loading",
-             "failed": "offline", "stopped": "offline"}
-
-
-def merge_vllm_models(base, vllm_status, vllm_ids, router_port):
-    """Deprecated: superseded by backends.Registry.state(), which asks each
-    engine for its own rows instead of grafting one engine onto another. Kept
-    because it is the documented shape of a model row."""
-    """Tag every existing (llama.cpp) row and append vLLM rows.
-    base is model_state()'s dict; vllm_status is Manager.status();
-    vllm_ids is vllm_registry.models()."""
-    llama_ep = f"http://127.0.0.1:{router_port}"
-    for m in base["models"]:
-        m["backend"] = "llamacpp"
-        if m.get("status") == "loaded":
-            m["endpoint"] = llama_ep
-    live = {i["model_id"]: i for i in vllm_status}
-    for mid in vllm_ids:
-        inst = live.get(mid)
-        status = STATE_MAP.get(inst["state"], "offline") if inst else "offline"
-        entry = vllm_registry.load().get(mid, {})
-        row = {"id": mid, "backend": "vllm", "status": status,
-               "failed": bool(inst and inst["state"] == "failed"),
-               "modalities": ["text"], "in_ini": True,
-               "settings": entry.get("settings", {}),
-               "eff_ctx": vllm_registry.effective_settings(mid).get("max-model-len", "?"),
-               "file_gib": round(entry.get("size_bytes", 0) / 1024**3, 2)
-                           if entry.get("size_bytes") else None}
-        if inst and status == "loaded":
-            row["endpoint"] = inst["endpoint"]
-        base["models"].append(row)
-    return base
 
 
 # ---------- anthropic shim ----------
@@ -789,7 +690,6 @@ def get_state(req):
     s["gpus"] = _GPU_TELEMETRY.get()
     s["config"] = _public_config(c)
     s["platform"] = osplat.current()
-    s["vllm_supported"] = VLLM_SUPPORTED
     s["backends"] = [b.name for b in REGISTRY.enabled()]
     s["active_engine"] = c.get("active_engine", "llamacpp")
     s["panel_host"] = c.get("panel_host", "127.0.0.1")
@@ -904,33 +804,6 @@ def get_network(req):
     return 200, _network_status(cfg())
 
 
-def get_vllm_log(req):
-    return 200, {"log": vllm_log_tail(400)}
-
-
-def get_vllm_setup(req):
-    c = cfg()
-    distro = c.get("wsl_distro") or wsl.default_distro()
-    s = vllm_setup.status(distro)
-    s["supported"] = True
-    s["setup_job"] = VLLM_SETUP_JOB.progress()
-    s["setup_log"] = VLLM_SETUP_JOB.tail(300)
-    return 200, s
-
-
-def get_vllm_schema(req):
-    return 200, vllm_schema()
-
-
-def get_vllm_version(req):
-    c = cfg()
-    distro = c.get("wsl_distro") or wsl.default_distro()
-    return 200, {
-        "installed": vllm_setup._vllm_version(distro),
-        "latest": vllm_setup.latest_pypi_version(force=req.flag("force")),
-    }
-
-
 def get_feed(req):
     """"New this week": model support llama.cpp just merged (marked against the
     running engine's build) and whether a newer LlamaForge release is out."""
@@ -962,10 +835,6 @@ def post_app_restart(req):
         return 200, {"ok": False, "error": "nothing to restart for"}
     selfupdate.restart(ROOT, osplat.current())
     return 200, {"ok": True}
-
-
-def get_vllm_hub_progress(req):
-    return 200, vllm_dl().progress()
 
 
 def get_model_metadata(req):
@@ -1038,7 +907,7 @@ def _resolve_model_row(mid, hint=""):
         raise ApiError(400, "backend must be a string")
     if hint in backends.LLAMA_FAMILY:
         hint = REGISTRY.active_engine()
-    elif hint and hint != "vllm":
+    elif hint:
         raise ApiError(400, f"unknown backend: {hint}")
 
     rows = [row for row in REGISTRY.state().get("models", [])
@@ -1079,14 +948,6 @@ def post_client_config(req):
     elif backend in backends.LLAMA_FAMILY:
         endpoint = _llama_client_endpoint(c)
         api_key = network_policy.effective_key(c)
-    elif backend == "vllm":
-        live = next((item for item in vllm_mgr().status()
-                     if item.get("model_id") == row["id"]
-                     and item.get("state") == "ready"), None)
-        if not live or not live.get("endpoint"):
-            raise ApiError(400, f"vLLM model {row['id']} is not ready; load it first")
-        endpoint = live["endpoint"]
-        api_key = ""
     else:
         raise ApiError(400, f"unsupported backend: {backend}")
     shell = "powershell" if osplat.IS_WIN else "posix"
@@ -1159,7 +1020,7 @@ def post_agent_config(req):
 #
 # These dispatch on the model's own backend, so a third engine needs an entry in
 # backends.Registry rather than a duplicate of every route below. The
-# engine-specific paths (/api/load, /api/vllm/load, ...) remain as aliases: they
+# engine-specific paths (/api/load, ...) remain as aliases: they
 # are what the shipped dashboard and any existing scripts call.
 
 def _backend_for(req):
@@ -1212,7 +1073,7 @@ def post_model_unregister(req):
     if not mid or mid == "*":
         raise ApiError(400, "a model id is required")
     if backend.name not in config.PRESET_ENGINES:
-        raise ApiError(400, "vLLM models use Delete; unregister is for GGUF registries")
+        raise ApiError(400, "unregister is for GGUF registries")
     path = config.ini_path(backend.name)
     if mid not in config.read_sections(path):
         raise ApiError(404, "model is not registered")
@@ -1855,8 +1716,7 @@ def post_scan_prune(req):
 def post_hub_search(req):
     try:
         res = hub.search(req.body.get("query", ""), req.body.get("sort", "downloads"))
-        inst = installed_repos(res, config.read_sections(),
-                               vllm_registry.models() if VLLM_SUPPORTED else [])
+        inst = installed_repos(res, config.read_sections())
         return 200, {"results": res, "vram_mib": total_vram_mib(), "installed": inst}
     except Exception as e:
         return 200, {"error": str(e), "results": []}
@@ -2015,8 +1875,6 @@ CONFIG_WRITABLE = {
     "web_lang":                _v_lang,
     "onboarded":               _v_bool,
     "auto_load_model":         _v_str,
-    "wsl_distro":              _v_str,
-    "vllm_port":               _v_port,
     "model_dirs":              _v_dirs,
     "anthropic_default_model": _v_str,
     "anthropic_shim_enabled":  _v_bool,
@@ -2238,84 +2096,6 @@ def _post_engine_switch_locked(req):
     return 200, {"ok": ok, "active_engine": engine, "error": err}
 
 
-def post_vllm_load(req):
-    mid = req.body.get("model", "")
-    ok, err = REGISTRY.get("vllm").load(mid)
-    return (200 if ok else 400), {"ok": ok, "error": err}
-
-
-def post_vllm_unload(req):
-    REGISTRY.get("vllm").unload(req.body.get("model", ""))
-    return 200, {"ok": True}
-
-
-def post_vllm_setup_install(req):
-    c = cfg()
-    distro = req.body.get("distro") or c.get("wsl_distro") or wsl.default_distro()
-    if req.body.get("distro"):
-        config.update({"wsl_distro": req.body["distro"]})
-    ok = VLLM_SETUP_JOB.start(vllm_setup.install_script(), distro)
-    return 200, {"started": ok}
-
-
-def post_vllm_save(req):
-    out = REGISTRY.get("vllm").save(req.body.get("model", ""),
-                                    req.body.get("settings", {}))
-    return 200, {"ok": True, "restarted": out["restarted"]}
-
-
-def post_vllm_update(req):
-    c = cfg()
-    distro = c.get("wsl_distro") or wsl.default_distro()
-    ok = VLLM_SETUP_JOB.start(vllm_setup.update_script(), distro)
-    return 200, {"started": ok}
-
-
-def post_vllm_hub_search(req):
-    try:
-        res = vllm_hub.search(req.body.get("query", ""), req.body.get("sort", "downloads"))
-        inst = installed_repos(res, {}, vllm_registry.models())
-        return 200, {"results": res, "vram_mib": total_vram_mib(), "installed": inst}
-    except Exception as e:
-        return 200, {"error": str(e), "results": []}
-
-
-def post_vllm_hub_info(req):
-    try:
-        return 200, vllm_hub.repo_info(req.body.get("repo", ""), total_vram_mib())
-    except Exception as e:
-        return 200, {"error": str(e)}
-
-
-def post_vllm_hub_download(req):
-    repo = req.body.get("repo", "")
-    info = {}
-    try:
-        info = vllm_hub.repo_info(repo, total_vram_mib())
-    except Exception:
-        pass
-    ok = vllm_dl().start(repo, int(req.body.get("size_bytes") or info.get("size_bytes") or 0))
-    return 200, {"started": ok}
-
-
-def post_vllm_hub_register(req):
-    repo = req.body.get("repo", "")
-    try:
-        wsl_path = vllm_dl().wsl_path(repo)
-    except ValueError as e:
-        raise ApiError(400, str(e))
-    vllm_registry.upsert(repo, {
-        "repo": repo, "wsl_path": wsl_path,
-        "size_bytes": int(req.body.get("size_bytes") or 0),
-        "quant": req.body.get("quant", "")})
-    return 200, {"ok": True, "added": repo}
-
-
-def post_vllm_delete(req):
-    ok, err = REGISTRY.get("vllm").delete(req.body.get("model", ""))
-    return (200 if ok else 500), {"ok": ok, "error": err}
-
-
 def post_count_tokens(req):
     if not cfg().get("anthropic_shim_enabled", True):
         raise ApiError(404, "not found")
@@ -2475,11 +2255,6 @@ GET_ROUTES = {
     "/api/stats":             get_stats,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
-    "/api/vllm/log":          get_vllm_log,
-    "/api/vllm/setup":        get_vllm_setup,
-    "/api/vllm/schema":       get_vllm_schema,
-    "/api/vllm/version":      get_vllm_version,
-    "/api/vllm/hub/progress": get_vllm_hub_progress,
     "/api/feed":              get_feed,
     "/api/recipes/gallery":   get_recipes_gallery,
     "/api/app/update":        lambda req: (200, APP_UPDATE.progress()),
@@ -2546,16 +2321,6 @@ POST_ROUTES = {
     "/api/engine/prebuilt/install": post_engine_prebuilt_install,
     "/api/engine/prebuilt/cancel":  post_engine_prebuilt_cancel,
     "/api/engine/prebuilt/use":     post_engine_prebuilt_use,
-    "/api/vllm/load":           post_vllm_load,
-    "/api/vllm/unload":         post_vllm_unload,
-    "/api/vllm/setup/install":  post_vllm_setup_install,
-    "/api/vllm/save":           post_vllm_save,
-    "/api/vllm/update":         post_vllm_update,
-    "/api/vllm/hub/search":     post_vllm_hub_search,
-    "/api/vllm/hub/info":       post_vllm_hub_info,
-    "/api/vllm/hub/download":   post_vllm_hub_download,
-    "/api/vllm/hub/register":   post_vllm_hub_register,
-    "/api/vllm/delete":         post_vllm_delete,
     "/v1/messages/count_tokens": post_count_tokens,
     "/api/agent/config":        post_agent_config,
     "/api/agent/apply":         post_agent_apply,

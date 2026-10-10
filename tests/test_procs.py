@@ -178,23 +178,6 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(procs.parse_cim("garbage"), {})
 
 
-class VllmTest(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, True)
-
-    def test_not_set_up_means_wsl_is_left_alone(self):
-        with mock.patch.object(procs, "IS_WIN", True):
-            self.assertIsNone(procs.vllm_command({"vllm_port": 8081}, self.root))
-
-    def test_only_the_server_on_our_port(self):
-        open(os.path.join(self.root, "vllm_models.json"), "w").close()
-        with mock.patch.object(procs, "IS_WIN", True):
-            cmd = procs.vllm_command({"vllm_port": 8123, "wsl_distro": "Ubuntu"}, self.root)
-        self.assertEqual(cmd[:3], ["wsl.exe", "-d", "Ubuntu"])
-        self.assertIn("--port 8123( |$)", cmd[-1])
-
-
 class StopTest(unittest.TestCase):
     def test_removes_the_pidfiles_of_what_it_stopped(self):
         root = tempfile.mkdtemp()

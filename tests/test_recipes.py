@@ -108,10 +108,6 @@ class Export(unittest.TestCase):
         r = recipes.export("coder", prof(), self.section, {}, [])
         self.assertIsNone(r["engine"])
 
-    def test_vllm_profiles_cannot_be_exported(self):
-        with self.assertRaises(ValueError):
-            recipes.export("v", prof(backend="vllm"), {}, {}, INSTALLS)
-
 
 class Parse(unittest.TestCase):
     def good(self, **kw):

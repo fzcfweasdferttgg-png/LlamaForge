@@ -47,7 +47,7 @@ PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600,
 UNSUPPORTED_VERSION = -32022
 
 INSTRUCTIONS = (
-    "LlamaForge runs local LLMs (llama.cpp; vLLM on Windows) on this machine's GPUs. "
+    "LlamaForge runs local LLMs (llama.cpp) on this machine's GPUs. "
     "status shows what is loaded and where; list_models what is installed. "
     "load_model loads one (fit_check first in multi-model mode; in single-model mode "
     "a load replaces the running model). search_models, list_files and download_model "

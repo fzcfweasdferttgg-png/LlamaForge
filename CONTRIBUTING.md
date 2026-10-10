@@ -8,7 +8,7 @@ conventions keep things moving fast.
   Optional extras (like the tray icon) must be imported lazily and degrade to a no-op.
 - **Frontend is vanilla JS** in `web/` — no framework, no build step. Every dynamic
   value goes through `esc()`, and `setHTML()` is the single HTML sink.
-- **LlamaForge never does inference itself.** It drives llama.cpp / ik_llama / vLLM.
+- **LlamaForge never does inference itself.** It drives llama.cpp and its forks.
   Features that belong upstream should go upstream.
 
 ## Running tests

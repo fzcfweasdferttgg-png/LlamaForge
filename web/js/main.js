@@ -112,7 +112,3 @@ setInterval(() => {
   if (ui.activeTab() === "models" && $("#router-log-details")?.open)
     models.refreshRouterLog();
 }, 3000);
-setInterval(() => {
-  if (ui.activeTab() === "models" && $("#vllm-log-details")?.open)
-    models.refreshVllmLog();
-}, 3000);

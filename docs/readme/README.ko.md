@@ -55,7 +55,7 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
   - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 얍니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
 - **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load** 준비로 끝납니다.
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
-- **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동하고, Windows에서는 WSL2의 [vLLM](https://github.com/vllm-project/vllm)도 구동합니다.
+- **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동합니다.
 - **Stats**: 라우터 자체 메트릭에서 모델별 토큰, 속도, 실행 횟수를 집계합니다. 클라이언트는 라우터에 직접 연결하므로 클라이언트별 통계는 불가능합니다.
 - **모델 게이트웨이**: 여러 실제 모델 위의 가상 모델 이름 하나 — 요청은 LiteLLM 프리셋에 따라 번갈아 배분됩니다. [자세히](../content/gateway.md).
 - **Recipes**: 프로필을 읽기 쉬운 JSON으로 공유; 다른 사람은 붙여넣기 한 번으로 가져오고, 모델이 없으면 LlamaForge가 다운로드합니다. [커뮤니티 갤러리](../../recipes/)가 있습니다.
@@ -137,7 +137,7 @@ LAN 접근은 Setup에서 선택 사항이며 키가 필요합니다(이 빌드�
 
 모든 문서는 **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**에 있습니다:
 [설정](../content/config.md), [키보드 단축키](../content/keymap.md),
-[테마 및 색각 보호 모드](../content/theming.md), [vLLM](../content/vllm.md),
+[테마 및 색각 보호 모드](../content/theming.md),
 [문제 해결](../content/troubleshooting.md), [새로운 점](../content/whats-new.md).
 [ROADMAP.md](../../ROADMAP.md)에 출시된 항목과 계획이 있습니다. 얼리 프리뷰이므로 우선순위는 피드백을 따릅니다.
 

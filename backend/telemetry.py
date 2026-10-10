@@ -1,8 +1,8 @@
 """Small thread-safe caches for slow host telemetry probes.
 
-GPU tools such as nvidia-smi take tens of milliseconds to start, especially
-inside WSL2.  Dashboard requests should share a recent result instead of
-spawning the same process for every browser poll.
+GPU tools such as nvidia-smi take tens of milliseconds to start. Dashboard
+requests should share a recent result instead of spawning the same process
+for every browser poll.
 """
 import copy, threading, time
 

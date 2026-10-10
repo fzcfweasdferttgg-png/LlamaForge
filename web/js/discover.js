@@ -1,5 +1,5 @@
-// Discover tab: search huggingface.co for GGUF (llama.cpp) or safetensors
-// (vLLM) repos, rate each against real VRAM, and drive the download.
+// Discover tab: search huggingface.co for GGUF (llama.cpp) repos, rate each
+// against real VRAM, and drive the download.
 import { $, $$, esc, setHTML, api, toast, meter, fmtDur } from "./core.js";
 import { t } from "./i18n.js";
 import { S } from "./state.js";
@@ -105,7 +105,6 @@ export function loadDiscover() {
       <div class="toolbar">
         <select id="hub-mode" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
           <option value="gguf">${t("GGUF (llama.cpp)")}</option>
-          <option value="safetensors">safetensors (vLLM)</option>
         </select>
         <input class="search" id="hub-q" placeholder="${t("search models (e.g. qwen coder, gemma vision)... or leave blank to browse")}">
         <select id="hub-sort" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
@@ -128,11 +127,6 @@ export function loadDiscover() {
     const r = await api("/api/hub/resume", {});
     if (r.ok) { toast(t("Resuming download"), "ok"); ggufDlPoll(); } else toast(t("Nothing to resume"), "err");
   };
-  // vLLM (safetensors) is Windows/WSL-only; drop the mode on other platforms
-  if (S.STATE && S.STATE.vllm_supported === false) {
-    const opt = $('#hub-mode option[value="safetensors"]');
-    if (opt) opt.remove();
-  }
   // restore last search (mode/sort/query survive tab switches + reloads)
   try {
     const saved = JSON.parse(localStorage.getItem("lf_hub") || "{}");
@@ -150,7 +144,6 @@ export function loadDiscover() {
 async function hubSearch() {
   localStorage.setItem("lf_hub", JSON.stringify({
     mode: $("#hub-mode").value, sort: $("#hub-sort").value, q: $("#hub-q").value.trim()}));
-  if ($("#hub-mode") && $("#hub-mode").value === "safetensors") return vllmHubSearch();
   const msg = $("#hub-msg"); msg.className = "msg work"; msg.textContent = t("searching huggingface.co...");
   const r = await api("/api/hub/search", {query: $("#hub-q").value.trim(), sort: $("#hub-sort").value});
   if (r.error) { msg.className = "msg err"; msg.textContent = r.error.slice(0,80); return; }
@@ -251,63 +244,3 @@ function ggufDlPoll() {
   }, 1000);
 }
 
-/* ---------- vLLM (safetensors) ---------- */
-async function vllmHubSearch() {
-  const msg = $("#hub-msg"); msg.className = "msg work"; msg.textContent = t("searching safetensors repos...");
-  const r = await api("/api/vllm/hub/search", {query: $("#hub-q").value.trim(), sort: $("#hub-sort").value});
-  if (r.error) { msg.className = "msg err"; msg.textContent = r.error.slice(0,80); return; }
-  $("#hub-vram").textContent = (r.vram_mib/1024).toFixed(1);
-  msg.className = "msg ok"; msg.textContent = `${r.results.length} repos`;
-  const inst = new Set(r.installed || []);
-  setHTML($("#hub-results"), `<div class="list">${r.results.map(m => hubRow(m, inst, "vhub-repo")).join("")}</div>`);
-  $$("#hub-results .vhub-repo").forEach(h => h.onclick = () => vllmHubInfo(h.parentElement));
-}
-
-async function vllmHubInfo(row) {
-  const open = row.classList.toggle("open");
-  if (!open) return;
-  const box = $(".edit", row);
-  setHTML(box, `<div class="note">${t("reading repo (summing shards, detecting quant)...")}</div>`);
-  const r = await api("/api/vllm/hub/info", {repo: row.dataset.repo});
-  if (r.error) { setHTML(box, `<div class="note" style="color:var(--red)">${esc(r.error.slice(0,120))}</div>`); return; }
-  const [qtxt, qcol] = QUANT_BADGE[r.quant] || [r.quant.toUpperCase(), "var(--dim)"];
-  const [ftxt, fcol] = VFIT_LABEL[r.fit] || VFIT_LABEL.unknown;
-  const nvfp4Note = r.quant === "nvfp4" ? `<div class="note" style="color:var(--green)">NVFP4 &mdash; native on your Blackwell GPUs</div>` : "";
-  setHTML(box, `
-    <div class="kv"><span class="k">${t("weights size")}</span><span class="v">${esc((r.size_bytes/1e9).toFixed(1))} GB</span></div>
-    <div class="kv"><span class="k">quantization</span><span class="v"><span class="tag" style="color:${qcol};border-color:${qcol}">${qtxt}</span></span></div>
-    <div class="kv"><span class="k">${t("VRAM fit")}</span><span class="v"><span class="tag" style="color:${fcol};border-color:${fcol}">${ftxt}</span></span></div>
-    ${nvfp4Note}
-    <div class="actions">
-      <button class="primary" data-vdl="${esc(row.dataset.repo)}" data-size="${r.size_bytes}" data-quant="${esc(r.quant)}" ${r.fit==="wont"?`title="${t("larger than usable VRAM")}"`:""}>${t("Download to WSL")}</button>
-      <span class="msg" data-vmsg></span>
-    </div>`);
-  $(`[data-vdl]`, box).onclick = e =>
-    vllmHubDownload(e.target.dataset.vdl, parseInt(e.target.dataset.size), e.target.dataset.quant);
-}
-
-async function vllmHubDownload(repo, sizeBytes, quant) {
-  const r = await api("/api/vllm/hub/download", {repo, size_bytes: sizeBytes});
-  if (!r.started) { toast(t("A download is already running"), "err"); return; }
-  toast(t("Download started"), "ok");
-  $("#hub-dlcard").style.display = ""; $("#dl-done").style.display = "none";
-  $("#dl-run").style.display = "none"; dlPrev = null;   // WSL transfer: no cancel
-  clearInterval(dlPoll);
-  dlPoll = setInterval(async () => {
-    const s = await api("/api/vllm/hub/progress");
-    $("#dl-file").textContent = `${s.repo} (WSL cache)`;
-    const pct = s.total ? Math.round(100*s.downloaded/s.total) : 0;
-    setHTML($("#dl-meter"), meter(s.downloaded, Math.max(s.total,1)));
-    $("#dl-prog").textContent = s.phase==="done" ? "complete"
-      : s.phase==="failed" ? ("FAILED: " + (s.error||"").slice(0,80))
-      : `${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
-    if (s.phase === "done") {
-      clearInterval(dlPoll);
-      const rr = await api("/api/vllm/hub/register", {repo, size_bytes: sizeBytes, quant});
-      dlFinished(rr.ok ? [rr.added] : [], rr.ok ? "" : (rr.error || "registration failed"),
-                 () => api("/api/vllm/hub/register", {repo, size_bytes: sizeBytes, quant})
-                         .then(r => r.ok ? [r.added] : []));
-    }
-    if (s.phase === "failed") clearInterval(dlPoll);
-  }, 1000);
-}

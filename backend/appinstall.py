@@ -17,7 +17,7 @@ import argparse, json, os, shutil, sys
 MANIFEST = ".lf-files.json"
 # Top-level names that belong to the user, not to a release.
 USER_TOP = {"config.json", "models.ini", "models-ikllama.ini", "stats.json",
-            "vllm_models.json", "engines", "logs", "models", "wiki", "llama.cpp",
+            "engines", "logs", "models", "wiki", "llama.cpp",
             "embers", "agents", "python", MANIFEST}
 # Paths in config.example.json that are placeholders, not real installs.
 _PLACEHOLDER_KEYS = ("llama_src", "build_dir", "server_bin")
@@ -131,7 +131,7 @@ def ensure_config(dest):
 APP_DATA = ("engines", "logs", "stats.json", ".lf-python", "agents")
 # The user's settings and models: removed only when they ask for everything.
 USER_DATA = ("config.json", "config.json.corrupt", "models.ini", "models-ikllama.ini",
-             "vllm_models.json", "models", "wiki", "llama.cpp", "embers")
+             "models", "wiki", "llama.cpp", "embers")
 
 
 def _remove(path):

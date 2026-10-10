@@ -119,7 +119,7 @@ class BuildManager:
         puts it in bin/Release with an .exe suffix instead, so on Windows the
         guess was always wrong and had to be corrected by hand in config.json
         after every build. Both names are probed rather than keying off the host
-        OS, so a cross-build or a WSL-built tree resolves the same way.
+        OS, so a cross-built tree resolves the same way.
         """
         if not build_dir:
             return None

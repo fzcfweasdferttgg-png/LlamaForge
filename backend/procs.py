@@ -16,8 +16,6 @@ an unrelated app that happened to sit on 8080. Now:
   (slotproc.py, recorded in `logs/slotprocs.json`). One is stopped only if it
   is a llama-server and holds its recorded port, or is still starting under
   our panel.
-* vLLM is stopped only when it has been set up, and only the server on the
-  configured port.
 
     python procs.py --stop <install dir>
 """
@@ -210,17 +208,6 @@ def plan(cfg, logdir, procs, port_owner):
     return steps
 
 
-def vllm_command(cfg, root):
-    """The WSL command that stops our vLLM server, or None when vLLM was never set up."""
-    if not IS_WIN or not os.path.isfile(os.path.join(root, "vllm_models.json")):
-        return None
-    port = int(cfg.get("vllm_port") or 8081)
-    distro = cfg.get("wsl_distro") or ""
-    pattern = f"vllm serve .*--port {port}( |$)"
-    cmd = ["wsl.exe"] + (["-d", distro] if distro else [])
-    return cmd + ["--", "bash", "-lc", f"pkill -f '{pattern}' 2>/dev/null; true"]
-
-
 def stop(root):
     try:
         with open(os.path.join(root, "config.json"), encoding="utf-8-sig") as f:
@@ -255,10 +242,6 @@ def stop(root):
         os.remove(os.path.join(logdir, SLOTPROCS))
     except OSError:
         pass
-    vllm = vllm_command(cfg, root)
-    if vllm:
-        _run(vllm, timeout=30)
-        print("stopped LlamaForge's vLLM server, if one was running")
     pid = read_pid(logdir, "gateway")
     if pid:
         kill(pid)

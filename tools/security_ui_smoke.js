@@ -394,87 +394,38 @@ async function run() {
   await assertSecretState("client-secret-after-close");
   check(document.activeElement === llamaClient, "client-dialog-focus-return");
 
-  const vllmRow = document.querySelector('.row[data-id="vllm-fixture"]');
-  click(".rhead", vllmRow, "missing-vllm-row-head");
-  const vllmClient = await waitFor(
-    '.row[data-id="vllm-fixture"].open [data-act="client"]', () => true,
-    "missing-vllm-client-action");
-  vllmClient.click();
-  const vllmDialog = await waitFor("#modal-root dialog .snip",
-    element => element.textContent.includes("127.0.0.1:8081"),
-    "vllm-client-preview-missing");
-  check(!vllmDialog.closest("dialog").textContent.includes(SENTINEL),
-    "vllm-client-secret-leak");
-  await assertSecretState("vllm-client-secret-state");
-  await closeDialog(vllmDialog.closest("dialog"), "vllm-dialog-not-closed");
-
-  await setModelScenario("shared-llamacpp", ["llamacpp", "vllm"]);
+  await setModelScenario("shared-llamacpp", ["llamacpp", "ikllama"]);
   const modelSearch = document.querySelector("#model-search");
   modelSearch.dispatchEvent(new Event("input", {bubbles: true}));
-  let sharedRows = [...document.querySelectorAll('.row[data-id="shared-fixture"]')];
+  const sharedRows = [...document.querySelectorAll('.row[data-id="shared-fixture"]')];
   check(sharedRows.length === 2, "shared-model-row-count");
-  let sharedVllm = sharedRows.find(row => row.querySelector(".be-vllm"));
-  let sharedLlama = sharedRows.find(row => row.querySelector(".be-llamacpp"));
-  check(sharedVllm?.dataset.backend === "vllm", "shared-vllm-row-ownership");
+  const sharedIk = sharedRows.find(row => row.querySelector(".be-ikllama"));
+  const sharedLlama = sharedRows.find(row => row.querySelector(".be-llamacpp"));
   check(sharedLlama?.dataset.backend === "llamacpp", "shared-llama-row-ownership");
-  click(".rhead", sharedVllm, "missing-shared-vllm-row-head");
-  const sharedVllmClient = await waitFor(
-    '.row[data-id="shared-fixture"][data-backend="vllm"] [data-act="client"]',
-    () => true, "missing-shared-vllm-client");
+  check(sharedIk?.dataset.backend === "ikllama", "shared-ik-row-ownership");
+  click(".rhead", sharedIk, "missing-shared-ik-row-head");
+  const sharedIkClient = await waitFor(
+    '.row[data-id="shared-fixture"][data-backend="ikllama"] [data-act="client"]',
+    () => true, "missing-shared-ik-client");
   const sharedClientBefore = apiRequests(
     await requests(), "/api/client/config", "POST").length;
-  sharedVllmClient.click();
-  const sharedVllmDialog = await waitFor("#modal-root dialog .snip",
-    element => element.textContent.includes("127.0.0.1:8081"),
-    "shared-vllm-client-preview-missing");
+  sharedIkClient.click();
+  const sharedIkDialog = await waitFor("#modal-root dialog .snip",
+    element => element.textContent.includes("127.0.0.1:8080"),
+    "shared-ik-client-preview-missing");
   const sharedClientPosts = apiRequests(
     await requests(), "/api/client/config", "POST");
   check(sharedClientPosts.length === sharedClientBefore + 1,
-    "shared-vllm-client-post-count");
+    "shared-ik-client-post-count");
   check(JSON.stringify(sharedClientPosts.at(-1).body) === JSON.stringify({
-    model: "shared-fixture", backend: "vllm",
-  }), "shared-vllm-client-request-shape");
-  check(!sharedVllmDialog.closest("dialog").textContent.includes(SENTINEL),
-    "shared-vllm-router-secret");
-  await assertSecretState("shared-vllm-secret-state");
-  await closeDialog(sharedVllmDialog.closest("dialog"),
-    "shared-vllm-dialog-not-closed");
-
-  await setModelScenario("shared-ikllama", ["ikllama", "vllm"]);
-  modelSearch.dispatchEvent(new Event("input", {bubbles: true}));
-  sharedRows = [...document.querySelectorAll('.row[data-id="shared-fixture"]')];
-  check(sharedRows.length === 2, "switched-model-row-count");
-  sharedVllm = sharedRows.find(row => row.querySelector(".be-vllm"));
-  const sharedIk = sharedRows.find(row => row.querySelector(".be-ikllama"));
-  check(sharedVllm?.dataset.backend === "vllm", "switched-vllm-row-ownership");
-  check(sharedIk?.dataset.backend === "ikllama", "switched-ik-row-ownership");
-  if (!sharedVllm.classList.contains("open")) {
-    click(".rhead", sharedVllm, "missing-switched-vllm-row-head");
-  }
-  const switchedVllmClient = await waitFor(
-    '.row[data-id="shared-fixture"][data-backend="vllm"] [data-act="client"]',
-    () => true, "missing-switched-vllm-client");
-  const switchedClientBefore = apiRequests(
-    await requests(), "/api/client/config", "POST").length;
-  switchedVllmClient.click();
-  const switchedVllmDialog = await waitFor("#modal-root dialog .snip",
-    element => element.textContent.includes("127.0.0.1:8081"),
-    "switched-vllm-client-preview-missing");
-  const switchedClientPosts = apiRequests(
-    await requests(), "/api/client/config", "POST");
-  check(switchedClientPosts.length === switchedClientBefore + 1 &&
-    JSON.stringify(switchedClientPosts.at(-1).body) === JSON.stringify({
-      model: "shared-fixture", backend: "vllm",
-    }), "switched-vllm-client-request-shape");
-  check(!switchedVllmDialog.closest("dialog").textContent.includes(SENTINEL),
-    "switched-vllm-router-secret");
-  await assertSecretState("switched-vllm-secret-state");
-  await closeDialog(switchedVllmDialog.closest("dialog"),
-    "switched-vllm-dialog-not-closed");
+    model: "shared-fixture", backend: "ikllama",
+  }), "shared-ik-client-request-shape");
+  await assertSecretState("shared-ik-secret-state");
+  await closeDialog(sharedIkDialog.closest("dialog"),
+    "shared-ik-dialog-not-closed");
 
   await setModelScenario("default", []);
-  await waitUntil(() => document.querySelector('.row[data-id="llama-fixture"]') &&
-    document.querySelector('.row[data-id="vllm-fixture"]'),
+  await waitUntil(() => document.querySelector('.row[data-id="llama-fixture"]'),
   "default-models-not-restored", 12000);
 
   const delayedLlamaRow = document.querySelector('.row[data-id="llama-fixture"]');

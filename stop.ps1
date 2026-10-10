@@ -1,6 +1,6 @@
 # LlamaForge one-click shutdown. Mirror of run.ps1.
 # Stops the router this copy started, its model instances, the dashboard, and
-# (if set up) its vLLM server - nothing else on the machine. The rules live in
+# and nothing else on the machine. The rules live in
 # backend\procs.py. Safe to run repeatedly.
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

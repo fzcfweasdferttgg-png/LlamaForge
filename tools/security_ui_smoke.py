@@ -42,30 +42,20 @@ DEFAULT_MODELS = [
     {"id": "llama-fixture", "backend": "llamacpp", "status": "loaded",
      "settings": {}, "modalities": ["text"], "in_ini": True,
      "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
-    {"id": "vllm-fixture", "backend": "vllm", "status": "loaded",
-     "settings": {}, "modalities": ["text"], "in_ini": True,
-     "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
 ]
 MODEL_SCENARIOS = {
     "default": (DEFAULT_MODELS, "llamacpp"),
-    # Deliberately put vLLM first. State rows are not specified to be ordered
-    # by backend, and this catches DOM reconciliation that keys only on id.
+    # Deliberately put the sibling engine first. State rows are not specified
+    # to be ordered by backend, and this catches DOM reconciliation that keys
+    # only on id.
     "shared-llamacpp": ([
-        {"id": "shared-fixture", "backend": "vllm", "status": "loaded",
+        {"id": "shared-fixture", "backend": "ikllama", "status": "loaded",
          "settings": {}, "modalities": ["text"], "in_ini": True,
          "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
         {"id": "shared-fixture", "backend": "llamacpp", "status": "loaded",
          "settings": {}, "modalities": ["text"], "in_ini": True,
          "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
     ], "llamacpp"),
-    "shared-ikllama": ([
-        {"id": "shared-fixture", "backend": "vllm", "status": "loaded",
-         "settings": {}, "modalities": ["text"], "in_ini": True,
-         "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
-        {"id": "shared-fixture", "backend": "ikllama", "status": "loaded",
-         "settings": {}, "modalities": ["text"], "in_ini": True,
-         "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
-    ], "ikllama"),
 }
 LOCAL_NETWORK = {
     "access_scope": "local", "host": "127.0.0.1", "port": 8080,
@@ -277,7 +267,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path.startswith("/api/"):
             self.server.fixture.record("GET", path, None)
-        if path in ("/api/schema", "/api/vllm/schema"):
+        if path == "/api/schema":
             self._send(200, SCHEMA)
         elif path == "/api/state":
             models, active_engine = self.server.fixture.snapshot_models()
@@ -289,8 +279,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 "gpus": [],
                 "config": public_config,
                 "platform": "windows",
-                "vllm_supported": True,
-                "backends": ["llamacpp", "vllm"],
+                "backends": ["llamacpp", "ikllama"],
                 "active_engine": active_engine,
                 "config_error": None,
                 "onboarding": {
@@ -298,12 +287,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     "ui_mode": "advanced", "onboarded": True,
                 },
             })
-        elif path in ("/api/router/log", "/api/vllm/log"):
+        elif path == "/api/router/log":
             self._send(200, {"log": "fixture idle"})
         elif path == "/api/setup":
             self._send(200, SETUP)
-        elif path == "/api/vllm/setup":
-            self._send(200, {"supported": False})
         elif path == "/api/network":
             with self.server.fixture.lock:
                 network = copy.deepcopy(self.server.fixture.network)
@@ -444,17 +431,6 @@ class FixtureHandler(BaseHTTPRequestHandler):
                          "-H 'Authorization: Bearer " + SENTINEL + "'"),
                 "environment": ("OPENAI_BASE_URL=http://127.0.0.1:8080/v1\n"
                                 "OPENAI_API_KEY=" + SENTINEL),
-                "payload": json.dumps({"model": model, "messages": []}),
-            }
-        elif (backend == "vllm" and
-              model in ("vllm-fixture", "shared-fixture")):
-            endpoint = "http://127.0.0.1:8081"
-            payload = {
-                "backend": backend, "endpoint": endpoint,
-                "auth_required": False, "model_loaded": True,
-                "curl": "curl http://127.0.0.1:8081/v1/chat/completions",
-                "environment": ("OPENAI_BASE_URL=http://127.0.0.1:8081/v1\n"
-                                "OPENAI_API_KEY=not-required"),
                 "payload": json.dumps({"model": model, "messages": []}),
             }
         else:

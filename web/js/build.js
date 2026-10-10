@@ -1,7 +1,5 @@
 // Build tab: current commit vs upstream, CMake flags, rebuild, log.
 // Supports both llama.cpp and ik_llama build targets via a toggle.
-// Also surfaces the vLLM pip package version, since updating it is a build-ish
-// concern rather than a setup one.
 import { $, esc, setHTML, api, toast, agoText, fmtDur } from "./core.js";
 import { t } from "./i18n.js";
 import { mountEngineCard } from "./engine.js";
@@ -34,7 +32,6 @@ export async function loadBuild(force) {
   const b = await api("/api/build/info" + q);
   const st = await api("/api/state");
   const activeEngine = st.active_engine || "llamacpp";
-  const vver = await api("/api/vllm/version" + (force ? "?force=1" : ""));
   const cur = b.current||{}, up = b.updates||{};
   const flags = b.saved_flags && Object.keys(b.saved_flags).length ? b.saved_flags : b.recommended_flags||{};
   const behind = up.ok ? up.behind : 0;
@@ -78,13 +75,7 @@ export async function loadBuild(force) {
       </div>
       <div class="note">Rebuilds ${esc(label)} with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
-    <div class="card"><h3>Build Log · ${esc(label)}</h3><div class="log" id="build-log">idle</div></div>`
-    + (vver.error ? "" : `<div class="card"><h3>${t("vLLM (pip package in WSL)")}</h3>
-      <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
-      <div class="kv"><span class="k">${t("latest on PyPI")}</span><span class="v">${esc(vver.latest||"?")}</span></div>
-      ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?t("vLLM is up to date."):t("Install vLLM from the Setup tab first.")}</div>`}
-      <div class="log" id="vllm-update-log" style="display:none">idle</div>
-    </div>`));
+    <div class="card"><h3>Build Log · ${esc(label)}</h3><div class="log" id="build-log">idle</div></div>`);
 
   mountEngineCard($("#engine-prebuilt"), {force});
 
@@ -112,24 +103,6 @@ export async function loadBuild(force) {
   const refBtn = $("#btn-refresh-upstream");
   if (refBtn) refBtn.onclick = () => { refBtn.disabled = true; loadBuild(true); };
   pollBuild();
-  const updBtn = $("#btn-vllm-update");
-  if (updBtn) updBtn.onclick = async () => {
-    const msg = $("#vllm-upd-msg"); msg.className = "msg work"; msg.textContent = t("starting update...");
-    const r = await api("/api/vllm/update");
-    if (r.started) {
-      toast(t("vLLM update started"), "ok");
-      $("#vllm-update-log").style.display = "";
-      const iv = setInterval(async () => {
-        const s = await api("/api/vllm/setup");
-        const l = $("#vllm-update-log");
-        if (l) { l.textContent = s.setup_log||""; l.scrollTop = l.scrollHeight; }
-        if (s.setup_job && !s.setup_job.running) {
-          clearInterval(iv); msg.className = "msg ok"; msg.textContent = "done";
-          setTimeout(loadBuild, 1200);
-        }
-      }, 2000);
-    } else msg.textContent = t("a job is already running");
-  };
 }
 
 async function startBuild() {

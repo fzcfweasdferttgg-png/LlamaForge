@@ -6,7 +6,7 @@ order: 2
 
 # Discover Models
 
-Search huggingface.co for GGUF (and safetensors, for vLLM) models directly from the dashboard, see which files will actually fit your GPU before downloading, and pause or resume large transfers.
+Search huggingface.co for GGUF models directly from the dashboard, see which files will actually fit your GPU before downloading, and pause or resume large transfers.
 
 ## What it does
 
@@ -28,11 +28,10 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 ## How to use it
 
 1. Open the **Discover** tab. It opens on **New this week**: model architectures llama.cpp just merged, each marked against your engine build, above Hugging Face GGUFs that are new and trending in the last 14 days. Type a query (e.g. `qwen coder`, `gemma vision`) to search, and use the sort dropdown for most downloaded, newest or most liked.
-2. Switch the mode dropdown to **safetensors (vLLM)** if you want a full-precision/quantized model for the vLLM backend instead (Windows + WSL2 only — this option is hidden on platforms without vLLM support).
-3. Click a repo row to expand its file list. Each file shows its size and a fit badge (FITS VRAM / TIGHT / CPU OFFLOAD).
-4. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
-5. Use **Pause** to suspend a running download (the partial file is kept) and **Resume** to continue it later. **Cancel download** stops it and discards the partial file.
-6. When a download finishes, LlamaForge adds it to `models.ini` by itself (even if you closed the tab). Click **Load** to load it, or load it later from the Models tab.
+2. Click a repo row to expand its file list. Each file shows its size and a fit badge (FITS VRAM / TIGHT / CPU OFFLOAD).
+3. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
+4. Use **Pause** to suspend a running download (the partial file is kept) and **Resume** to continue it later. **Cancel download** stops it and discards the partial file.
+5. When a download finishes, LlamaForge adds it to `models.ini` by itself (even if you closed the tab). Click **Load** to load it, or load it later from the Models tab.
 
 ## Screenshot
 

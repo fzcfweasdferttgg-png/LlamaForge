@@ -55,7 +55,7 @@ every server flag instead of a curated subset.
   - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own llama.cpp (or ik_llama.cpp) build.
 - **Discover**: Hugging Face GGUF search that opens on what's new this week. Every quant gets a rough fit rating for your VRAM before you download (FITS / TIGHT / CPU OFFLOAD). Downloads resume after interruption, register themselves, and end ready to **Load**.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
-- **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) and, on Windows, [vLLM](https://github.com/vllm-project/vllm) in WSL2.
+- **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp).
 - **Stats**: per-model tokens, speed and run counts from the router's own metrics. Per-client stats aren't possible, because clients talk to the router directly.
 - **Model gateway**: one virtual model name over several real models - requests alternate across them, driven by free-form LiteLLM presets. [Details](docs/content/gateway.md).
 - **Recipes**: share a profile as readable JSON; others import it in one paste and LlamaForge downloads the model if missing. There's a [community gallery](recipes/).
@@ -136,7 +136,7 @@ vulnerability privately: [SECURITY.md](SECURITY.md).
 
 Everything is at **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
 [configuration](docs/content/config.md), [keyboard shortcuts](docs/content/keymap.md),
-[themes & colorblind-safe mode](docs/content/theming.md), [vLLM](docs/content/vllm.md),
+[themes & colorblind-safe mode](docs/content/theming.md),
 [troubleshooting](docs/content/troubleshooting.md), and [what's new](docs/content/whats-new.md).
 [ROADMAP.md](ROADMAP.md) has what's shipped and planned; it's an early preview, so priorities follow feedback.
 

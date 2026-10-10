@@ -37,8 +37,6 @@ DEFAULTS = {
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
     "router_allow_keyless_lan": False,       # opt-in: LAN router without an API key (fail-closed by default)
-    "wsl_distro":  "",                        # WSL distro that runs vLLM ("" = auto-pick default)
-    "vllm_port":   8081,                      # port vLLM serves on (WSL localhost-forwarded to Windows)
     "cmake_flags": {},                       # persisted build flags (from hardware detect)
     "git_remote":  "https://github.com/ggml-org/llama.cpp",
     # ik_llama mirrors the llama.cpp path trio and, like it, ships empty: these

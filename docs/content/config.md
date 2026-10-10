@@ -26,8 +26,6 @@ order: 1
 | `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
 | `router_allow_keyless_lan` | bool | `false` | Opt-in: start a LAN router without an API key. Fail-closed by default; set it only on a network you trust. |
 | `router_local_key` | string | `""` | The key LlamaForge generates for itself when you set none, so the router always runs keyed. Minted at startup; never shown in the dashboard. |
-| `wsl_distro` | string | `""` | WSL distro that runs vLLM. Empty string auto-picks the default distro. |
-| `vllm_port` | int | `8081` | Port vLLM serves on inside WSL (localhost-forwarded to Windows). |
 | `cmake_flags` | object | `{}` | Persisted CMake build flags, normally seeded from hardware detection. |
 | `git_remote` | string | `"https://github.com/ggml-org/llama.cpp"` | Remote used to clone/update the `llama.cpp` source. |
 | `active_engine` | string | `"llamacpp"` | Which llama-family binary the router uses: `"llamacpp"` or `"ikllama"`. |
@@ -73,7 +71,7 @@ order: 1
 
 `prebuilt_channel` (`"nightly"` or `"stable"`, the channel the Build / Update tab's prebuilt-engine card follows) is not in `DEFAULTS`: it is written the first time you install a prebuilt engine, and the card reads it as `"nightly"` until then.
 
-`POST /api/config` accepts only the settings the dashboard itself changes: `ui_mode`, `theme`, `cvd`, `skin`, `onboarded`, `auto_load_model`, `wsl_distro`, `vllm_port`, `model_dirs`, `anthropic_default_model`, `anthropic_shim_enabled`, `vram_bandwidths`, `vram_predict_enabled`, `multi_model`, `slot_cap`, `slot_headroom_mib` and `slot_autoload`. Any other key is refused and named in the response; the rest are edited by their own endpoints or by hand in `config.json`.
+`POST /api/config` accepts only the settings the dashboard itself changes: `ui_mode`, `theme`, `cvd`, `skin`, `onboarded`, `auto_load_model`, `model_dirs`, `anthropic_default_model`, `anthropic_shim_enabled`, `vram_bandwidths`, `vram_predict_enabled`, `multi_model`, `slot_cap`, `slot_headroom_mib` and `slot_autoload`. Any other key is refused and named in the response; the rest are edited by their own endpoints or by hand in `config.json`.
 
 ## Preset bindings
 

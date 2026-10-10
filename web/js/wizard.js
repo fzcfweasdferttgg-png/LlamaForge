@@ -52,7 +52,7 @@ function wizHardware(body) {
 }
 
 function wizModel(body) {
-  const ms = models().filter(m => m.backend !== "vllm");
+  const ms = models();
   if (!ms.length) { wizStarters(body); return; }
   const opts = ms.map(m => `<option value="${esc(m.id)}"${m.id === WIZ.model ? " selected" : ""}>${esc(m.id)}</option>`).join("");
   setHTML(body, `<div class="wizard-step"><h2>${t("Pick a model")}</h2>

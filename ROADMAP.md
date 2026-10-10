@@ -62,9 +62,6 @@ Released:
   unified-memory VRAM-fit ratings on Apple Silicon, package-manager-aware
   Setup (brew; exact install hints on Linux), with CI running the full test
   suite on windows / ubuntu / macos runners.
-- **vLLM backend (WSL2)** — a second inference engine alongside llama.cpp for
-  safetensors / AWQ / GPTQ / FP8 / NVFP4 models, sharing the same model list,
-  Discover tab, and stats. Windows/WSL2-only for now (hidden on Linux/macOS).
 - **ik_llama engine** — build and drive **ik_llama.cpp** as a second
   llama-family engine, switched from the Build tab. The switch is gated on a
   router-mode capability probe (a binary without `--models-preset` is refused
@@ -119,10 +116,6 @@ Released:
 
 - **Local-only VRAM-fit predictions** — fit ratings remain entirely on-device.
   LlamaForge will not build hosted or crowdsourced performance reporting.
-- **Native (non-WSL) vLLM on Linux** — vLLM currently rides WSL2 on Windows only.
-
-## Under consideration
-
 - More engines as demand shows (TabbyAPI/ExLlama, etc.).
 
 ---

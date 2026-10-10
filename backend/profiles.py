@@ -17,8 +17,6 @@ def plan(prof, installs, presets):
     backend = prof.get("backend") or "llamacpp"
     switch_bin = None
     if prof.get("engine"):
-        if backend == "vllm":
-            raise ValueError("vLLM profiles can't pin a llama.cpp build")
         inst = _install_named(installs, prof["engine"])
         if not inst or not inst.get("server_bin"):
             raise ValueError(f"engine build {prof['engine']} is no longer installed - "
@@ -27,8 +25,6 @@ def plan(prof, installs, presets):
             switch_bin = inst["server_bin"]
     settings = None
     if prof.get("preset"):
-        if backend == "vllm":
-            raise ValueError("presets are llama.cpp knobs; vLLM profiles can't use one")
         preset = presets.get(prof["preset"])
         if preset is None:
             raise ValueError(f"preset {prof['preset']} no longer exists")

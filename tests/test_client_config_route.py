@@ -48,7 +48,7 @@ class ClientSetupGeneratorTest(unittest.TestCase):
 
     def test_unauthenticated_target_uses_not_required_marker(self):
         out = clientsetup.generate(
-            "http://127.0.0.1:8081/", "", "v", "vllm", "posix")
+            "http://127.0.0.1:8081/", "", "v", "llamacpp", "posix")
         self.assertFalse(out["auth_required"])
         self.assertNotIn("Authorization", out["curl"])
         self.assertIn("OPENAI_API_KEY=not-required", out["environment"])
@@ -99,11 +99,9 @@ class ClientSetupGeneratorTest(unittest.TestCase):
 
 
 class ClientConfigRouteTest(unittest.TestCase):
-    def _call(self, body, rows, cfg=None, active="llamacpp", vllm_status=()):
+    def _call(self, body, rows, cfg=None, active="llamacpp"):
         with mock.patch.object(routes, "REGISTRY", FakeRegistry(rows, active)), \
-             mock.patch.object(routes, "cfg", return_value=cfg or BASE_CFG), \
-             mock.patch.object(routes, "vllm_mgr") as manager:
-            manager.return_value.status.return_value = list(vllm_status)
+             mock.patch.object(routes, "cfg", return_value=cfg or BASE_CFG):
             return routes.post_client_config(Req(body=body))
 
     def test_llama_target_includes_router_credential_only_on_explicit_post(self):
@@ -158,36 +156,13 @@ class ClientConfigRouteTest(unittest.TestCase):
                 )
         self.assertEqual(cm.exception.status, 503)
 
-    def test_vllm_ready_target_uses_manager_endpoint_and_never_router_key(self):
-        status, out = self._call(
-            {"model": "vmodel", "backend": "vllm"},
-            [{"id": "vmodel", "backend": "vllm", "status": "loaded",
-              "endpoint": "http://caller-controlled.invalid"}],
-            vllm_status=[{"model_id": "vmodel", "state": "ready",
-                          "endpoint": "http://127.0.0.1:8081"}],
-        )
-        self.assertEqual(status, 200)
-        rendered = json.dumps(out)
-        self.assertEqual(out["endpoint"], "http://127.0.0.1:8081")
-        self.assertNotIn(SECRET, rendered)
-        self.assertNotIn("caller-controlled", rendered)
-
-    def test_vllm_unloaded_is_rejected_without_llama_fallback(self):
-        with self.assertRaises(ApiError) as cm:
-            self._call(
-                {"model": "vmodel", "backend": "vllm"},
-                [{"id": "vmodel", "backend": "vllm", "status": "offline"}],
-            )
-        self.assertEqual(cm.exception.status, 400)
-        self.assertIn("load it first", str(cm.exception))
-
     def test_unknown_and_ambiguous_ownership_are_rejected(self):
         with self.assertRaises(ApiError) as unknown:
             self._call({"model": "missing"}, [])
         self.assertEqual(unknown.exception.status, 400)
         rows = [
             {"id": "same", "backend": "llamacpp", "status": "loaded"},
-            {"id": "same", "backend": "vllm", "status": "loaded"},
+            {"id": "same", "backend": "ikllama", "status": "loaded"},
         ]
         with self.assertRaises(ApiError) as ambiguous:
             self._call({"model": "same"}, rows)

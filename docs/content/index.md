@@ -11,7 +11,7 @@ order: 1
 
 LlamaForge runs the real [llama.cpp](https://github.com/ggml-org/llama.cpp) server from a browser tab. Pick a model, see if it fits your GPU, load it, chat. Every `llama-server` flag is still there when you want it, without hand-editing `models.ini` or long command lines.
 
-LlamaForge contains no llama.cpp source code. The backend (`backend/server.py`, pure Python standard library) drives llama.cpp's own router API, edits `models.ini`, fetches the official llama.cpp build for your GPU, and shells out to `git` / `cmake` only if you build from source. It also drives **vLLM** as a second, optional backend for full-precision and safetensors models.
+LlamaForge contains no llama.cpp source code. The backend (`backend/server.py`, pure Python standard library) drives llama.cpp's own router API, edits `models.ini`, fetches the official llama.cpp build for your GPU, and shells out to `git` / `cmake` only if you build from source.
 
 ## Who it is for
 
@@ -36,7 +36,6 @@ The ports and bind addresses are configured by the `panel_port`, `router_port`, 
 
 Clients — `curl`, an OpenAI SDK, or any OpenAI-compatible chat client — talk to the router, not the dashboard. The dashboard's job is configuration: it writes model presets into `models.ini`, starts and stops the router, and reads back the router's own metrics endpoint for the Stats tab.
 
-When vLLM is enabled (Windows only, via WSL2), it runs as another process inside WSL and is bridged back to a Windows localhost port (`vllm_port` in `config.json`); it shares the same Models list, Discover tab, and stats as llama.cpp.
 
 ## Where to go next
 

@@ -37,7 +37,7 @@ response never returns the key.
 ## How to use it
 
 1. Open the **Setup** tab, find the **Connect an agent** card, and pick Claude Code, Codex, or pi.dev under **Agent**.
-2. Choose a **Model** from the active llama-family engine (and, for Claude Code, a **Small model**). vLLM agent setup is deferred.
+2. Choose a **Model** from the active llama-family engine (and, for Claude Code, a **Small model**).
 3. Press **Show configuration**. This is the only preview action: it is an explicit POST and is not fetched on render or selection change.
 4. Review or copy the preview, then click **Apply** only to write the config into the agent's real local config file.
 5. Launch the agent. Claude Code must run on the same machine as LlamaForge — its endpoint is always `127.0.0.1`.

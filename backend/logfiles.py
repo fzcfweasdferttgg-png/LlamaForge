@@ -29,8 +29,7 @@ TAIL_CAP = 4 * 1024 * 1024      # most a tail ever reads, whatever n asks for
 BLOCK = 64 * 1024
 TRIM_EVERY = 60                 # seconds between trim_all() passes
 # Logs a long-running process appends to (build logs restart on each run).
-WATCHED = ("router.out.log", "router.err.log", "vllm.out.log", "vllm.err.log",
-           "slot-*.log")
+WATCHED = ("router.out.log", "router.err.log", "slot-*.log")
 
 
 def tail_lines(path, n, max_bytes=TAIL_CAP, block=BLOCK):

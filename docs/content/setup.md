@@ -10,7 +10,7 @@ Check build prerequisites, install what is missing with your permission, scan yo
 
 ## What it does
 
-The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), multi-model, speed estimates and vLLM follow below.
+The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), multi-model and speed estimates follow below.
 
 **Prerequisite detection.** `backend/prereqs.py` checks for four command-line tools — `git`, `cmake`, `ninja`, and `python` (via `shutil.which`, running `--version` to confirm and capture the installed version) — plus the platform C++ compiler and the CUDA toolkit. On Windows, the compiler check (`find_msvc()`) shells out to `vswhere.exe` to locate an MSVC install with the C++ desktop workload, falling back to a glob for `cl.exe` under `Program Files\Microsoft Visual Studio`. On macOS/Linux it looks for `clang++` or `g++` on `PATH`. CUDA detection reads `nvcc --version` (or `$CUDA_PATH`) and is skipped entirely on macOS, where Metal is used instead.
 
@@ -28,7 +28,7 @@ After a successful install, the running process's `PATH` is refreshed from the r
 
 **Registry prune.** `POST /api/scan/prune` ("Check for deleted models") takes a list of model IDs, re-checks each one's `model` path in `models.ini` against disk, and — only for entries whose file no longer exists — unloads it from the router if currently loaded, then removes its section from `models.ini` with `config.remove_section()`. An entry whose file has reappeared since the check is left alone. This edits `models.ini` only; it never touches files on disk.
 
-The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the Build tab), lets you pick a model under **Startup** to auto-load on launch (`auto_load_model` in `config.json`), and — on Windows — the vLLM/WSL2 install flow described in [vLLM Backend](vllm.md).
+The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the Build tab), lets you pick a model under **Startup** to auto-load on launch (`auto_load_model` in `config.json`).
 
 **Speed Estimates.** An optional card (marked advanced) with **VRAM GB/s**, **RAM GB/s** and **Disk GB/s** fields. They override the memory-bandwidth figures behind the "Will it run?" panel and Discover's speed badges (`vram_bandwidths` in `config.json`); blank means the detected preset or default.
 
@@ -81,7 +81,7 @@ but the router is stopped; LAN protection is not currently active or verified.�
 Changing an agent or model selection does not fetch credentials. Press **Show
 configuration** to make the explicit POST preview, then choose **Apply** only if
 you want LlamaForge to write the agent's local config file. Agent setup supports
-the active llama-family backend; vLLM agent setup is deferred. Context injection
+the active llama-family backend. Context injection
 for Codex and pi uses the loopback panel endpoint, so it is local-machine-only. The same card installs the pi coding agent and lists the MCP server snippets; see [Connect an Agent](agents.md) and [MCP Server](mcp.md).
 
 ## Screenshot
@@ -113,4 +113,4 @@ The port check only observes a listener; it cannot prove listener ownership or
 authentication. An `unsafe_legacy` warning means LlamaForge deliberately refused
 to start/restart until the configured host and key are repaired.
 
-See also [Build & Update](build.md) for the same hardware detection used to pick CMake flags, and [vLLM Backend](vllm.md) for the WSL2 install flow shown at the bottom of this tab on Windows.
+See also [Build & Update](build.md) for the same hardware detection used to pick CMake flags,.

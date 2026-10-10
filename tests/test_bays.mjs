@@ -23,7 +23,7 @@ test("bayInputs reads footprints, the main and the loaded llama.cpp models from 
       {id: "big", status: "loaded"},
       {id: "nap", status: "sleeping"},
       {id: "cold", status: "unloaded"},
-      {id: "vl", status: "loaded", backend: "vllm"},
+      {id: "vl", status: "loaded", backend: "other"},
     ],
   };
   assert.deepEqual(bays.bayInputs(st), {fps: {big: {"0": 20 * GiB}}, main: "big", up: ["big", "nap"]});

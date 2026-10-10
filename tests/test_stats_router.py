@@ -10,7 +10,6 @@ class RouterCase(unittest.TestCase):
         fd, self.path = tempfile.mkstemp(suffix=".json"); os.close(fd); os.unlink(self.path)
         stats.STATS_FILE = self.path
         self.tr = stats.StatsTracker()
-        self.tr._poll_vllm = lambda: None   # keep the test off the network
 
     def tearDown(self):
         stats.STATS_FILE = self._orig

@@ -24,7 +24,7 @@ body:
     id: os
     attributes:
       label: OS
-      options: [Windows, Windows (WSL2), Linux, macOS]
+      options: [Windows, Linux, macOS]
     validations:
       required: true
   - type: input
@@ -37,7 +37,7 @@ body:
     attributes:
       label: Engine and build
       description: Shown on the Build tab.
-      placeholder: e.g. llama.cpp b11351, ik_llama, vLLM 0.x
+      placeholder: e.g. llama.cpp b11351, ik_llama
   - type: input
     id: model
     attributes:

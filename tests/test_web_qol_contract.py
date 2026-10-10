@@ -26,7 +26,7 @@ class WebQolContractTest(unittest.TestCase):
         src = read("web/js/main.js")
         self.assertIn('router-log-details', src)
         self.assertIn('.open', src)
-        self.assertNotIn('models.refreshRouterLog();\nmodels.refreshVllmLog();', src)
+        self.assertIn('.open)\n    models.refreshRouterLog();', src)
 
     def test_no_blend_mode_overlays(self):
         # A fixed full-viewport layer with mix-blend-mode repaints the whole
