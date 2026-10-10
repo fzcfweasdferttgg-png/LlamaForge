@@ -2,8 +2,8 @@
 
 # Fork 차이
 
-원본 LlamaForge에 아래 변경 사항을 더했습니다. 나머지는 업스트림 그대로입니다.
-Ubuntu Server에서만 테스트했습니다.
+원본 LlamaForge에 아래 변경 사항을 더했습니다. '이 빌드에서 제거됨'에 나열된
+기능은 빠졌습니다. Ubuntu Server에서만 테스트했습니다.
 
 ## LAN 노출 (옵트인)
 
@@ -24,11 +24,31 @@ Streamable HTTP로 제공합니다. 기본적으로 꺼져 있습니다. 세부 
 읽습니다. 장치 이름과 토큰은 `llama-server --list-devices`에서 오므로, 다중 모델
 플래너는 `CUDA0`만이 아니라 `Vulkan0`도 인식합니다.
 
+## 모델 게이트웨이(LiteLLM)
+
+**Gateway** 탭이 [LiteLLM](https://github.com/BerriAI/litellm)(MIT)을 관리되는
+사이드카로 실행합니다: 가상 모델 이름 하나가 여러 실제 모델에 요청을 번갈아
+보내고(`gateway_models`), 자유 형식의 LiteLLM 프리셋(`gateway_presets`)으로
+조정합니다. 기본적으로 꺼져 있습니다. 자체 포트(`gateway_port`, 기본값 8300),
+자체 venv(`tools/litellm/venv`), 패널 API와 MCP 도구로 관리합니다.
+세부 내용: [모델 게이트웨이](../content/gateway.md).
+
 ## Engines(사전 빌드)
 
 Build / Update 탭은 이제 **Engines**입니다: llama.cpp 계열 엔진 세 개 — llama.cpp(ggml-org),
 ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) —의 빌드를 내려받아 고르고, 라우터가 돌릴 엔진을 전환합니다.
 소스 빌드와 vLLM 백엔드는 제거되었습니다. 자세한 내용: [Engines](../content/build.md).
+
+## UI 현지화
+
+웹 UI는 영어, 러시아어, 일본어, 한국어, 중국어(간체)를 지원합니다. 언어는 엔진
+배지 옆 탑바에서 고르고 브라우저에 저장됩니다(localStorage `lf_lang`); `config.json`의
+`web_lang`이 패널 기본값을 정합니다. 번역이 없는 문자열은 영어로 표시됩니다.
+
+## 이 빌드에서 제거됨
+
+Chat, Voice, Embers(미니 에이전트), Context 위키, Help 뷰어, 탑바 시계,
+크레딧/스타 배너는 제거되었습니다. 나머지는 업스트림 그대로입니다.
 
 ## 설치 및 업데이트
 

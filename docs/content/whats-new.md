@@ -12,6 +12,8 @@ This page summarizes the most recent additions to LlamaForge. Each entry links t
 
 - **Engines tab.** Download and pick prebuilt Ubuntu builds for three llama.cpp-family engines - [llama.cpp](https://github.com/ggml-org/llama.cpp), [ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp) and [beellama.cpp](https://github.com/Anbeeld/beellama.cpp) - and switch which one the router runs. Fork releases are pickable by tag, ik_llama builds match your CPU's instruction set, and any installed build rolls back with one click. See [Engines](build.md).
 - **Building from source and the vLLM backend are removed** in this build: the panel downloads and drives prebuilt engines only.
+- **Web UI localization.** The interface speaks English, Russian, Japanese, Korean and Simplified Chinese, picked in the topbar beside the engine badge.
+- **Trimmed.** Chat, Voice, Embers, the Context wiki, the Help viewer, the topbar clock and the credit banner are cut from this build.
 
 ## v0.16: several models at once, an MCP server
 

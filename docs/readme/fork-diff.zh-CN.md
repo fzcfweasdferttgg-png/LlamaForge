@@ -2,7 +2,7 @@
 
 # Fork 差异
 
-原版 LlamaForge 加上以下改动。其余全部保持上游原样。仅在 Ubuntu Server 上测试过。
+原版 LlamaForge 加上以下改动，减去「本构建中移除」一节所列功能。仅在 Ubuntu Server 上测试过。
 
 ## 局域网暴露（opt-in）
 
@@ -24,11 +24,30 @@ Streamable HTTP 提供 MCP server。默认关闭。详情：[MCP Server](../cont
 `llama-server --list-devices`，因此多模型规划器说的是 `Vulkan0`
 而不只是 `CUDA0`。
 
+## 模型网关（LiteLLM）
+
+**Gateway** 标签页把 [LiteLLM](https://github.com/BerriAI/litellm)（MIT）作为受管
+边车运行：一个虚拟模型名在多个真实模型间轮换请求（`gateway_models`），用自由格式的
+LiteLLM 预设（`gateway_presets`）调校。默认关闭；独立端口（`gateway_port`，默认 8300）、
+独立 venv（`tools/litellm/venv`），通过面板 API 和 MCP 工具管理。
+详情：[模型网关](../content/gateway.md)。
+
 ## Engines（预构建）
 
 Build / Update 标签页现在是 **Engines**：下载并选择三个 llama.cpp 系列引擎 — llama.cpp（ggml-org）、
 ik_llama.cpp（Thireus 构建）和 beellama.cpp（Anbeeld）— 的构建，并切换路由器运行哪一个。
 从源码构建和 vLLM 后端已移除。详情：[Engines](../content/build.md)。
+
+## 界面本地化
+
+Web UI 支持英语、俄语、日语、韩语和简体中文。语言在引擎徽章旁边的顶栏选择，
+按浏览器记住（localStorage `lf_lang`）；`config.json` 的 `web_lang` 设置面板默认值。
+缺少翻译的字符串回退到英文。
+
+## 本构建中移除
+
+Chat、Voice、Embers（迷你代理）、Context wiki、Help 查看器、顶栏时钟和
+credit/star 横幅已删除。其余保持上游原样。
 
 ## 安装与更新
 

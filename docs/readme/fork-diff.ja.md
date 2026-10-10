@@ -2,7 +2,7 @@
 
 # フォークの差分
 
-オリジナルの LlamaForge に以下の変更を加えたもの。それ以外は upstream そのまま。テストは Ubuntu Server のみ。
+オリジナルの LlamaForge に以下の変更を加えたもの。「このビルドで削除されたもの」に挙げた機能は除く。テストは Ubuntu Server のみ。
 
 ## LAN 露出(オプトイン)
 
@@ -16,11 +16,31 @@
 
 `nvidia-smi` がない場合、GPU 状態(VRAM 使用/合計、使用率、温度)はカーネルの DRM sysfs から読む。デバイス名とトークンは `llama-server --list-devices` に由来するため、マルチモデルプランナーは `CUDA0` だけでなく `Vulkan0` も扱える。
 
+## モデルゲートウェイ(LiteLLM)
+
+**Gateway** タブが [LiteLLM](https://github.com/BerriAI/litellm)(MIT)を管理サイドカーとして動かす。仮想モデル名 1つが複数の実モデルにリクエストを
+交互に振り分ける(`gateway_models`)。調整は自由形式の LiteLLM プリセット
+(`gateway_presets`)。既定ではオフ。専用ポート(`gateway_port`、既定 8300)、
+専用 venv(`tools/litellm/venv`)、パネルの API と MCP ツールで管理する。
+詳細: [モデルゲートウェイ](../content/gateway.md)。
+
 ## Engines(プリビルトビルド)
 
 Build / Update タブは **Engines** になった: llama.cpp 系エンジン 3つ — llama.cpp(ggml-org)、
 ik_llama.cpp(Thireus ビルド)、beellama.cpp(Anbeeld) — のビルドを取得して選び、ルーターが動かすものを切り替える。
 ソースからのビルドと vLLM バックエンドは削除された。詳細: [Engines](../content/build.md)。
+
+## UI のローカライズ
+
+Web UI は英語・ロシア語・日本語・韓国語・簡体字中国語に対応する。言語はエンジン
+バッジの横のトップバーで選び、ブラウザーに記憶される(localStorage `lf_lang`)。
+`config.json` の `web_lang` がパネルの既定値。翻訳のない文字列は英語で表示される。
+
+## このビルドで削除されたもの
+
+Chat、Voice、Embers(ミニエージェント)、Context ウィキ、Help ビューア、
+トップバーの時計、クレジット/スターのバナーは取り除かれた。それ以外は
+アップストリームそのまま。
 
 ## インストールと更新
 

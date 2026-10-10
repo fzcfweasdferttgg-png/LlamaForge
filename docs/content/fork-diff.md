@@ -8,8 +8,8 @@ order: 3
 
 English · [한국어](../readme/fork-diff.ko.md) · [日本語](../readme/fork-diff.ja.md) · [简体中文](../readme/fork-diff.zh-CN.md) · [Русский](../readme/fork-diff.ru.md)
 
-The original LlamaForge plus the changes below. Everything else is upstream
-as-is. Tested on Ubuntu Server only.
+The original LlamaForge plus the changes below, minus the features listed under
+*Removed in this build*. Tested on Ubuntu Server only.
 
 ## LAN exposure (opt-in)
 
@@ -47,6 +47,19 @@ The Build / Update tab is **Engines**: download and select builds for three
 llama.cpp-family engines - llama.cpp (ggml-org), ik_llama.cpp (Thireus
 prebuilts) and beellama.cpp (Anbeeld) - and switch what the router runs.
 Building from source and the vLLM backend are gone. Details: [Engines](build.md).
+
+## Web UI localization
+
+The web UI speaks English, Russian, Japanese, Korean and Simplified Chinese.
+A picker in the topbar, beside the engine badge, chooses the language and stores
+it per browser (localStorage `lf_lang`); `web_lang` in `config.json` sets a panel
+default. Strings missing a translation fall back to English.
+
+## Removed in this build
+
+Chat, Voice and Embers (the mini-agent), the Context wiki, the Help viewer,
+the topbar clock and the credit/star banner are cut. Everything else is
+upstream as-is.
 
 ## Install and updates
 
