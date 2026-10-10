@@ -59,12 +59,12 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | GET | `/api/setup` | Hardware recommendation (CPU/GPU detection). |
 | POST | `/api/setup/install` | Install a helper tool by name (e.g. Node.js for pi; Windows/macOS only). |
 | GET | `/api/gpus` | GPU telemetry via a shared 10-second cache (`nvidia-smi`, or the kernel's DRM sysfs when it is absent). |
-| POST | `/api/engine/switch` | Point the router at `llamacpp` or `ikllama` (sets `active_engine`); refused if the target binary has no router mode. |
-| GET | `/api/engine/prebuilt` | Installed official llama.cpp builds, which one is active, and the latest release on a channel (`?channel=`, `?force=1` to skip the cache). |
-| GET | `/api/engine/prebuilt/status` | Progress and log tail of a prebuilt download/install. |
-| POST | `/api/engine/prebuilt/install` | Download and install the latest official build for your GPU. Body: `channel`, optional `variant`. |
-| POST | `/api/engine/prebuilt/cancel` | Cancel a running prebuilt install. |
-| POST | `/api/engine/prebuilt/use` | Switch to an already-installed build (rollback). Body: `dir`, which must be one `/api/engine/prebuilt` lists. |
+| POST | `/api/engine/switch` | Point the router at `llamacpp`, `ikllama` or `beellama` (sets `active_engine`); refused if the target binary has no router mode. |
+| GET | `/api/engine/prebuilt` | Installed builds of one engine (`?engine=`, default `llamacpp`), which one is active, and the latest release: a channel for llama.cpp (`?channel=`), a tag for the forks (`?tag=`). `?force=1` skips the cache. |
+| GET | `/api/engine/prebuilt/status` | Progress and log tail of a prebuilt download/install (`?engine=`). |
+| POST | `/api/engine/prebuilt/install` | Download and install a build. Body: `engine`, `channel` (llama.cpp), optional `tag` (forks) and `variant`. |
+| POST | `/api/engine/prebuilt/cancel` | Cancel a running prebuilt install. Body: `engine`. |
+| POST | `/api/engine/prebuilt/use` | Switch to an already-installed build (rollback). Body: `engine`, `dir`, which must be one `/api/engine/prebuilt` lists. |
 | GET | `/api/starters` | Starter-model suggestions sized to your total VRAM. |
 | GET | `/api/feed` | "New this week": architectures llama.cpp just merged, marked against your engine build, plus whether a newer LlamaForge release is out. |
 | GET | `/api/app/update` | Progress of a LlamaForge self-update. |

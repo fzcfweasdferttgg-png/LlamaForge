@@ -60,7 +60,7 @@ if (location.hash) ui.switchTab(location.hash.slice(1));
 // The engine badge changes about once a session and is only re-rendered
 // (through the audited setHTML/esc sink) when the engine actually changes -
 // the guard below makes this once-a-second probe a no-op otherwise.
-const ENGINE_LABEL = { llamacpp: "llama.cpp", ikllama: "ik_llama" };
+const ENGINE_LABEL = { llamacpp: "llama.cpp", ikllama: "ik_llama", beellama: "beellama" };
 let shownEngine = null;
 
 function renderEngineBadge() {

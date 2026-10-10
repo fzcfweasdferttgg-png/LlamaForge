@@ -41,6 +41,13 @@ several real models (`gateway_models`), tuned by free-form LiteLLM presets
 own venv (`tools/litellm/venv`), managed through the panel's API and MCP
 tools. Details: [Model gateway](gateway.md).
 
+## Engines (prebuilt builds)
+
+The Build / Update tab is **Engines**: download and select builds for three
+llama.cpp-family engines - llama.cpp (ggml-org), ik_llama.cpp (Thireus
+prebuilts) and beellama.cpp (Anbeeld) - and switch what the router runs.
+Building from source is gone. Details: [Engines](build.md).
+
 ## Install and updates
 
 The one-line installers in the README install the original project. This build

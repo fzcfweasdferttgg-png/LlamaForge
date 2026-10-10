@@ -1,68 +1,51 @@
 ---
-title: Build & Update
+title: Engines
 section: guides
 order: 3
 ---
 
-# Build & Update
+# Engines
 
-Check whether your local llama.cpp checkout is behind upstream, and rebuild it with CMake flags auto-detected for your machine's GPU and CPU — without hand-typing `cmake` commands.
+Download and pick the build each engine runs - llama.cpp, ik_llama and beellama - and switch what the router drives. No compiler, no checkout: everything arrives as a prebuilt Ubuntu binary.
 
-## What it does
+## The three engines
 
-The Build tab (labelled **Build / Update** in the sidebar) does three things: installs an official prebuilt llama.cpp (no compiler), reports how your local `llama_src` checkout compares to upstream `github.com/ggml-org/llama.cpp`, and shows the CMake flags this machine should build with.
+The **Engines** tab shows one card per engine and a switcher for the one the router runs:
 
-**Official prebuilt builds.** On the llama.cpp target, the top card, **Engine · official llama.cpp builds**, installs a binary from `github.com/ggml-org/llama.cpp` releases with no compiler or checkout needed (`backend/prebuilt.py`, `engines/llama.cpp/` under the LlamaForge folder). It picks the variant for this PC (the **variant** dropdown lists the alternatives; the default is `auto`) and a **channel**: `nightly` (every upstream merge) or `stable` (curated releases). The install is checked against GitHub's SHA-256 and test-run before the router is switched to it; the button reads **Install llama.cpp <tag>**, **Update to <tag>** or **Reinstall**, and **Check now** refreshes the lookup. Older installs stay on disk (the newest 3 are kept) and each has a **Use** button to roll back. The source-build cards below it are headed **Or build from source**.
+| Engine | Builds come from | Picked for this machine |
+|---|---|---|
+| **llama.cpp** | `github.com/ggml-org/llama.cpp` releases | variant by GPU: CUDA by driver (newest the driver supports; Blackwell needs 12.8+), then Vulkan, Metal, CPU. A **channel**: `nightly` (every upstream merge) or `stable` (curated releases). |
+| **ik_llama.cpp** | `github.com/Thireus/ik_llama.cpp` releases (tags `main-bNNNN-<sha>`) | GPU backend (Vulkan on AMD/Intel, CUDA by driver on NVIDIA) times the CPU-ISA build (`avx2` up to `avx512_vnni_vbmi_bf16`) read from `/proc/cpuinfo`. |
+| **beellama.cpp** | `github.com/Anbeeld/beellama.cpp` releases (`vX.Y.Z`; previews `preview-vX.Y.Z`) | GPU backend: Vulkan on AMD/Intel, CUDA by driver on NVIDIA, else CPU. ROCm/SYCL builds exist and can be picked by hand. |
 
-**Current vs. upstream.** `backend/builder.py`'s `BuildManager.current_commit()` reads the local checkout's HEAD (`git log -1`) and branch. `check_updates()` runs `git fetch --quiet origin`, works out the remote's default branch for that checkout (`origin/HEAD`, else `origin/main`, else `origin/master`; llama.cpp uses `master`, ik_llama.cpp uses `main`), then runs `git rev-list --count HEAD..<that branch>` to report how many commits you're behind, plus the latest upstream commit's hash and subject. This check is cached for 15 minutes (`UPDATE_TTL = 900` seconds) so opening the Build tab doesn't `git fetch` GitHub on every visit; a failed fetch is retried sooner (`UPDATE_TTL_FAIL = 60` seconds). The **Check GitHub now** button bypasses the cache with `force=1`, and a finished build clears the cache outright so the next check is fresh.
+All three are llama.cpp-family: they speak the same router API, so only one runs as the router at a time (the switcher, `POST /api/engine/switch`), and a model can still pin its own build.
 
-**Auto-detected build flags.** `backend/hardware.py`'s `recommend()` inspects your GPU(s) (via `nvidia-smi`, or Apple's unified memory on macOS) and CPU, then returns a dict of `{cmake_flags, notes, runtime, gpus, cpu}`:
+## How an install works
 
-- On **macOS**, it returns `GGML_METAL=ON` and `GGML_NATIVE=ON`, with a note that Metal uses unified memory as VRAM. No CUDA branch runs on Mac.
-- If one or more **NVIDIA GPUs** are detected, it sets `GGML_CUDA=ON`, and if compute capabilities were readable, `CMAKE_CUDA_ARCHITECTURES` to the sorted, deduplicated list of detected architectures (e.g. `86;89`). It also sets `GGML_CUDA_FA_ALL_QUANTS=ON` to enable flash attention across all quantized KV cache combinations.
-- If **no NVIDIA GPU** is detected, it configures a CPU-only build (no CUDA flags) and notes that fact.
-- On Windows/Linux either way, it always sets `GGML_NATIVE=ON`. If the CPU looks like it supports AVX-512 (`avx512_hint` — on Linux read from real CPU flags; on Windows a name-based heuristic for Ryzen 7/9 (7000- and 9000-series), Xeon, and Threadripper parts), it additionally sets `GGML_AVX512=ON`, `GGML_AVX512_VNNI=ON`, `GGML_AVX512_VBMI=ON`, and `GGML_AVX512_BF16=ON`.
-- It also returns a `runtime` recommendation (not a CMake flag, but a suggested per-model default): `fit=on` and `flash-attn=auto` on every platform. Memory sizing (context, GPU layers, split) is left to llama.cpp's own `--fit` rather than pinned.
+The card's button reads **Install <tag>**, **Update to <tag>** or **Reinstall**; **Check now** refreshes the lookup (the result is cached 15 minutes). One install runs at a time, on a background thread, with live progress and a log:
 
-These flags are shown as pills on the Build tab and used as the default for a rebuild; if you've previously saved custom flags (`cmake_flags` in `config.json`), those are shown instead until you clear them.
+1. **resolve** - the newest release with a build for this machine (a release is skipped while its assets are still uploading). For the forks the **release** dropdown lets you pick any recent tag instead.
+2. **download** - resumable; a `.part` file picks up where it stopped.
+3. **verify** - GitHub's own `sha256:` digest when the asset publishes one; otherwise a size check (said so in the log).
+4. **extract** - every archive member is checked to land inside the install dir before a byte is written, so a hostile archive leaves nothing behind.
+5. **test** - `llama-server --version` must exit 0 on this machine before anything is switched.
+6. **activate** - `server_bin` (or `ik_llama_server_bin` / `beellama_server_bin`) points at the new binary and the router restarts on it.
 
-A rebuild (`BuildManager.run_build()`) runs in a background thread: it first validates that `llama_src`/`build_dir` are set and the source exists (an unset path is reported plainly instead of running `cmake -B  -S ` and surfacing CMake's own error), optionally `git pull --ff-only origin`, backs up the current binaries directory (`bin/Release` on Windows/MSVC, `bin` elsewhere) to a timestamped copy beside it (e.g. `bin/Release-backup-20261006-120000`) before touching anything, runs `cmake -B <build_dir> -S <llama_src> -DCMAKE_BUILD_TYPE=Release` with your flags, then `cmake --build <build_dir> --config Release --parallel <jobs>`. Output streams to a log file the dashboard polls live. On success it records where `llama-server` actually landed into `config.json`, so a first build doesn't leave you hand-fixing `server_bin`.
-
-**"Built, with warnings."** `cmake --build` returns a single exit code for the whole build, so a failing non-essential target (the npm/`sharp` UI-asset step on Windows is the common one) used to be reported as a hard **BUILD FAILED** even though `llama-server` itself built. Now, if the build step fails but a *freshly built* `llama-server` is present (freshness proven by comparing its mtime to the build's start, so a stale binary from a previous build can't mask a real compile failure), the build is reported as **built, with warnings** — the binary is recorded and usable, and the failing step is left in the log for you to read. A build that produced no fresh binary is still a hard failure.
-
-**Two llama-family engines.** The Build tab has a **Build Target** toggle (**llama.cpp** / **ik_llama**). Building the `ik_llama` target uses its own `ik_llama_src` / `ik_llama_build_dir` / `ik_llama_cmake_flags` and produces a separate binary. When the target isn't the active engine, a **Switch to <engine>** button (`POST /api/engine/switch`) points the router at it by setting `active_engine` and restarting the router. The switch is gated on a capability probe (`router_ctl.supports_router_mode()`): because LlamaForge drives the router as `<server_bin> --models-preset ...`, a binary whose `llama-server` predates router mode is **refused** with an explanation rather than being switched to and taking the router down. Each engine reads its own `models.ini` (ik_llama uses a `-ikllama` sibling), and the knob editor reflects whichever engine is active.
-
-## How to use it
-
-1. Open the **Build / Update** tab. To skip the compiler, use the **Engine** card at the top (llama.cpp target) and click **Install llama.cpp**. To build from source, the **Or build from source** card (headed **Current Build** on the ik_llama target) shows your checkout's commit, branch, and date; **Upstream** shows whether you're behind the remote's default branch and by how many commits (an error is shown if that branch can't be found, never a false "up to date").
-2. Click **Check GitHub now** to force a fresh upstream check instead of waiting for the 15-minute cache.
-3. Review the **Build Flags** pills — these are auto-detected for your GPU/CPU (or your previously saved custom flags, if any).
-4. Leave **git pull first** checked (it's checked by default when you're behind) to pull the latest commits before building, or uncheck it to rebuild the current checkout as-is.
-5. Click **Pull latest & Rebuild** (or **Rebuild current** if already up to date). The build runs in the background; watch progress and any errors in the Build Log panel below, which polls live until the build finishes or fails.
-
-## Screenshot
-
-![Build tab](docs/img/build.png)
+Installs live side by side in `engines/<engine>/<tag>-<variant>/` with an `lf-install.json` manifest. The newest 3 are kept (never the active one, never one a model or profile pins) and each has a **Use** button to roll back - switching builds is just a change of which binary the router runs.
 
 ## Reference
 
 | Concept | Source | Behavior |
 |---|---|---|
-| Current commit | `BuildManager.current_commit()` | `git log -1` (hash, subject, date) + current branch on `llama_src`. |
-| Upstream check | `BuildManager.check_updates()` | `git fetch` + `git rev-list --count HEAD..<origin default branch>` (resolved per checkout via `resolve_remote_branch()`); cached 15 min (60s on failure), bypassed with `force=1`. |
-| Recommended flags | `hardware.recommend()` | Returns `cmake_flags`, human-readable `notes`, a `runtime` suggestion, and the detected `gpus`/`cpu`. |
-| macOS flags | `hardware.recommend()` | `GGML_METAL=ON`, `GGML_NATIVE=ON`. |
-| NVIDIA GPU flags | `hardware.recommend()` | `GGML_CUDA=ON`, `CMAKE_CUDA_ARCHITECTURES=<archs>` (if readable), `GGML_CUDA_FA_ALL_QUANTS=ON`. |
-| CPU-only flags | `hardware.recommend()` | No CUDA flags; `GGML_NATIVE=ON` still set. |
-| AVX-512 flags | `hardware.recommend()` | `GGML_AVX512`, `GGML_AVX512_VNNI`, `GGML_AVX512_VBMI`, `GGML_AVX512_BF16` — all `ON` when `avx512_hint` is true. |
-| Runtime suggestion | `hardware.recommend()["runtime"]` | `fit=on`, `flash-attn=auto` on every platform. |
-| Rebuild | `BuildManager.run_build()` | Validates paths, optional `git pull --ff-only`, backs up prior binaries, `cmake` configure + build (Release, parallel jobs = CPU count by default), records the built `server_bin`. |
-| Partial success | `BuildManager.run_build()` | Build-step failure with a fresh `llama-server` present → `done_warnings` (amber "built with warnings"); no fresh binary → hard `failed`. |
-| Engine target / switch | Build tab toggle, `POST /api/engine/switch` | Builds `llama.cpp` or `ik_llama`; switching sets `active_engine` and restarts the router, refused if the target binary has no router mode. |
-| Prebuilt engine | Engine card, `backend/prebuilt.py`, `/api/engine/prebuilt*` | Installs an official ggml-org release (`nightly` or `stable` channel), SHA-256 checked and test-run first; keeps the newest 3 installs, **Use** rolls back. |
+| Release lookup | `backend/prebuilt.py` `resolve()` / `resolve_release()` | llama.cpp channels; fork repos by tag or newest (stable before preview). Cached 15 min (60 s on failure), `force=1` refreshes. |
+| Variant pick | `choose()` / `choose_fork()` | llama.cpp: CUDA by driver then Vulkan/Metal/CPU. Forks: GPU backend by hardware; ik_llama also picks the CPU-ISA build from `/proc/cpuinfo` (`pick_isa`). A manual `variant` always wins. |
+| Install / rollback | `Installer`, `list_installs()`, `prune_installs()` | Download -> verify -> extract -> test-run -> activate; keep 3; `POST /api/engine/prebuilt/use` rolls back to any listed install. |
+| Engine switch | `POST /api/engine/switch` | Sets `active_engine` (`llamacpp` / `ikllama` / `beellama`) and restarts the router; refused when the binary has no router mode. |
+| Per-model pins | `model_builds` (builds.py) | A model can run on its own build in a side process while the router runs another. |
+| Binaries in config | `server_bin`, `ik_llama_server_bin`, `beellama_server_bin` | The binary each engine runs; empty leaves the engine disabled. See [config.json Reference](config.md). |
 
 ## Troubleshooting
 
-If the upstream status shows "check failed," `git fetch` couldn't reach GitHub (network issue, or `llama_src` isn't a valid checkout) — check `llama_src` in `config.json` points at a real git clone. If a build fails, the Build Log panel shows the failing `cmake` step's output; prior binaries are always backed up first (to a `<binaries dir>-backup-<timestamp>` folder beside them, e.g. `bin/Release-backup-…`) so a bad build doesn't leave you without a working server. If flag detection looks wrong (e.g. no GPU found on a machine that has one), verify `nvidia-smi` is on `PATH` and reports the GPU — `hardware.detect_gpus()` shells out to it directly.
+"can't reach GitHub releases" means the lookup failed - the panel retries sooner than the normal cache. An install that says "this build does not run here" failed its test-run; the log under the card shows the `llama-server --version` output. Windows/macOS assets are ignored: this fork targets Ubuntu Server, so the cards list Ubuntu x64 builds only.
 
-See also [Models & Tuning](models.md) for the flags the resulting `llama-server` binary exposes, and [config.json Reference](config.md) for `llama_src`, `build_dir`, `server_bin`, and `cmake_flags`.
+See also [Models & Tuning](models.md) for the flags a `llama-server` binary exposes.

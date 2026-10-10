@@ -22,11 +22,11 @@ _PIN_KEYS = ("n-gpu-layers", "tensor-split", "ctx-size")
 _RULES = [
     ("arch", r"unknown model architecture",
      "This llama.cpp build doesn't know this model's architecture.",
-     "Update llama.cpp (Build / Update tab). New architectures land in llama.cpp "
+     "Update llama.cpp (Engines tab). New architectures land in llama.cpp "
      "first, and this model is newer than your build."),
     ("tokenizer", r"unknown pre-tokenizer type",
      "This llama.cpp build doesn't know this model's tokenizer.",
-     "Update llama.cpp (Build / Update tab)."),
+     "Update llama.cpp (Engines tab)."),
     ("quant", r"has invalid ggml type \d+",
      "This llama.cpp build can't read the model's quant type.",
      None),

@@ -110,9 +110,9 @@ class Advice(unittest.TestCase):
     def test_the_fix_is_a_per_model_build_when_ik_is_there(self):
         a = compat.advice("ik-only", ["PQ2_0"], "llamacpp", ik_built=True)
         self.assertIn("this model's build", a)
-        self.assertNotIn("Build / Update", a)
+        self.assertNotIn("Engines", a)
         a = compat.advice("ik-only", ["PQ2_0"], "llamacpp")
-        self.assertIn("Build / Update", a)
+        self.assertIn("Engines", a)
         self.assertIn("this model's build", a)
 
     def test_the_models_own_build_is_what_counts(self):
@@ -132,7 +132,7 @@ class Advice(unittest.TestCase):
             self.assertIn("PQ2_0", a)
             self.assertIn("Update ik_llama.cpp", a)
         a = compat.advice("ik-only", ["PQ2_0"], "llamacpp", ik_built=True, ik_missing=["PQ2_0"])
-        self.assertIn("Build / Update", a)
+        self.assertIn("Engines", a)
         self.assertIn("this model's build", a)
 
 

@@ -11,7 +11,7 @@ order: 1
 
 LlamaForge runs the real [llama.cpp](https://github.com/ggml-org/llama.cpp) server from a browser tab. Pick a model, see if it fits your GPU, load it, chat. Every `llama-server` flag is still there when you want it, without hand-editing `models.ini` or long command lines.
 
-LlamaForge contains no llama.cpp source code. The backend (`backend/server.py`, pure Python standard library) drives llama.cpp's own router API, edits `models.ini`, and fetches the official llama.cpp build for your GPU.
+LlamaForge contains no llama.cpp source code. The backend (`backend/server.py`, pure Python standard library) drives llama.cpp's own router API, edits `models.ini`, and fetches prebuilt engine binaries (llama.cpp, ik_llama and beellama) for your GPU.
 
 ## Who it is for
 

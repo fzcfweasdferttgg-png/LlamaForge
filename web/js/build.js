@@ -1,59 +1,40 @@
-// Build tab: engine builds and the engine switch. Source builds are gone;
-// the prebuilt card (engine.js) is how a binary gets here.
-import { $, esc, setHTML, api, toast } from "./core.js";
+// Engines tab: download and select builds for the three engines (llama.cpp,
+// ik_llama, beellama) and switch which one the router runs. Source builds are
+// gone; the prebuilt cards (engine.js) are how a binary gets here.
+import { $, $$, esc, setHTML, api, toast } from "./core.js";
 import { t } from "./i18n.js";
 import { mountEngineCard } from "./engine.js";
 
-let _target = localStorage.getItem("build_target") || "llamacpp";
-
-function setTarget(t) {
-  _target = t;
-  localStorage.setItem("build_target", t);
-}
-
-const ENGINE_LABELS = {
-  llamacpp: "llama.cpp",
-  ikllama: "ik_llama",
-};
+const ENGINES = [["llamacpp", "llama.cpp"], ["ikllama", "ik_llama.cpp"],
+                 ["beellama", "beellama.cpp"]];
 
 export async function loadBuild(force) {
   const v = $("#view-build");
   const st = await api("/api/state");
   const activeEngine = st.active_engine || "llamacpp";
-  const label = ENGINE_LABELS[_target] || _target;
-  const isActive = _target === activeEngine;
 
   setHTML(v, `
     <div class="card buildtarget">
-      <span class="k">${t("Build Target")}</span>
-      <span class="mode-toggle">
-        <button class="${_target==='llamacpp'?'active':''}" id="btn-tgt-llamacpp">llama.cpp</button>
-        <button class="${_target==='ikllama'?'active':''}" id="btn-tgt-ikllama">ik_llama</button>
-      </span>
-      <span class="buildtarget-active">
-        ${t("Active engine:")} <strong class="${isActive?'ok':'dim'}">${esc(ENGINE_LABELS[activeEngine]||activeEngine)}</strong>
-        ${!isActive?`<button class="ghost" id="btn-switch-engine">Switch to ${esc(label)}</button>`:''}
-      </span>
+      <span class="k">${t("Active engine")}</span>
+      <span class="mode-toggle">${ENGINES.map(([id, label]) =>
+        `<button class="${activeEngine === id ? "active" : ""}" data-eng="${id}">${label}</button>`).join("")}</span>
+      <span class="buildtarget-active"><span class="note" style="margin:0">${t("The engine the router runs; each model can still pin its own build.")}</span></span>
     </div>
-    ${_target === "llamacpp" ? `<div id="engine-prebuilt"></div>` : ""}`);
+    ${ENGINES.map(([id]) => `<div id="eng-card-${id}"></div>`).join("")}`);
 
-  if (_target === "llamacpp") mountEngineCard($("#engine-prebuilt"), {force});
-
-  $("#btn-tgt-llamacpp").onclick = () => { setTarget("llamacpp"); loadBuild(); };
-  $("#btn-tgt-ikllama").onclick = () => { setTarget("ikllama"); loadBuild(); };
-
-  const switchBtn = $("#btn-switch-engine");
-  if (switchBtn) switchBtn.onclick = async () => {
-    switchBtn.disabled = true;
-    switchBtn.textContent = "switching...";
-    const r = await api("/api/engine/switch", {engine: _target});
+  for (const [id] of ENGINES) {
+    mountEngineCard($(`#eng-card-${id}`), {engine: id, force});
+  }
+  $$("[data-eng]", v).forEach(b => b.onclick = async () => {
+    if (b.dataset.eng === activeEngine) return;
+    b.disabled = true;
+    const r = await api("/api/engine/switch", {engine: b.dataset.eng});
     if (r.ok) {
-      toast(`Switched to ${label}`, "ok");
+      toast(t("Switched engine build"), "ok");
       setTimeout(loadBuild, 1500);
     } else {
       toast(r.error || t("switch failed"), "err");
-      switchBtn.disabled = false;
-      switchBtn.textContent = `Switch to ${label}`;
+      b.disabled = false;
     }
-  };
+  });
 }

@@ -24,9 +24,10 @@ order: 1
 | `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
 | `router_allow_keyless_lan` | bool | `false` | Opt-in: start a LAN router without an API key. Fail-closed by default; set it only on a network you trust. |
 | `router_local_key` | string | `""` | The key LlamaForge generates for itself when you set none, so the router always runs keyed. Minted at startup; never shown in the dashboard. |
-| `active_engine` | string | `"llamacpp"` | Which llama-family binary the router uses: `"llamacpp"` or `"ikllama"`. |
+| `active_engine` | string | `"llamacpp"` | Which llama-family binary the router uses: `"llamacpp"`, `"ikllama"` or `"beellama"`. |
 | `ik_llama_server_bin` | string | `""` | Path to ik_llama's `llama-server` binary; empty leaves the engine disabled. |
 | `ik_llama_models_ini` | string | `""` | ik_llama's own registry; empty resolves to a `-ikllama` sibling of `models_ini`. |
+| `beellama_server_bin` | string | `""` | Path to beellama's `llama-server` binary; empty leaves the engine disabled. |
 | `auto_load_model` | string | `""` | Model id to load automatically on launch. Empty string disables auto-load. |
 | `pi_bin` | string | `""` | The pi coding agent: a `.js` entry, a package directory or a binary. Empty resolves the copy LlamaForge installed, then `PATH`. See [Connecting Coding Agents](agents.md). |
 | `presets` | object | `{}` | Named knob sets: `{name: {knob: value}}`, managed from the dashboard. |
@@ -56,7 +57,7 @@ order: 1
 | `slot_headroom_mib` | int | `1536` | VRAM kept free per GPU beyond every plan, in MiB (0–32768). |
 | `slot_autoload` | bool | `False` | Let client requests load models themselves, which bypasses the placement planner. Changing it restarts a running router. |
 | `slots` | object | `{"main": "", "placed": {}}` | Multi-model bookkeeping: the main model id, and the `models.ini` keys LlamaForge wrote per placed model (so turning `multi_model` off can put the file back the way you wrote it). |
-| `model_builds` | object | `{}` | Per-model engine pin: `{model_id: install dir name or "ik_llama"}`. A model pinned to a build other than the router's own runs in its own process. |
+| `model_builds` | object | `{}` | Per-model engine pin: `{model_id: install dir name or "ik_llama" / "beellama"}`. A model pinned to a build other than the router's own runs in its own process. |
 | `slot_port_base` | int | `8100` | First port used for those per-model processes. |
 
 52 keys total, matching `DEFAULTS` in `backend/config.py`.
@@ -68,7 +69,7 @@ order: 1
 ## Preset bindings
 
 Binding a preset makes it the default for a model in the active llama-family
-engine (`llamacpp` or `ikllama`). When a binding is created or its preset is
+engine (`llamacpp`, `ikllama` or `beellama`). When a binding is created or its preset is
 edited, LlamaForge materializes only preset knobs that the model has not set.
 `preset_binding_snapshots` records those materialized values so unbinding,
 deleting a preset, or removing a knob cleans up only values that are still

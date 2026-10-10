@@ -315,10 +315,11 @@ class Cancelled(Exception):
 class Installer:
     """One install at a time on a background thread, with pollable state."""
 
-    def __init__(self, root, log_dir, on_installed=None, detect=None):
+    def __init__(self, root, log_dir, on_installed=None, detect=None, engine="llamacpp"):
         # on_installed(server_bin) points config at the new binary; injected so
         # this module stays free of config/router imports.
-        self.engines = os.path.join(root, "engines", "llama.cpp")
+        self.engine = engine
+        self.engines = os.path.join(root, "engines", ENGINE_DIRS[engine])
         self.cudart_cache = os.path.join(root, "engines", "cudart")
         self.dl_dir = os.path.join(root, "engines", "_dl")
         self.on_installed = on_installed
@@ -352,8 +353,8 @@ class Installer:
             self.state["cancel"] = True
             return True
 
-    def start(self, channel="nightly", variant=None):
-        if channel not in CHANNELS:
+    def start(self, channel="nightly", variant=None, tag=None):
+        if self.engine == "llamacpp" and channel not in CHANNELS:
             raise ValueError(f"unknown channel: {channel}")
         with self.lock:
             if self.state["running"]:
@@ -361,7 +362,7 @@ class Installer:
             self.state = self._idle()
             self.state.update(running=True, phase="resolving", started=time.time())
         open(self.log_path, "w").close()
-        threading.Thread(target=self._run, args=(channel, variant), daemon=True).start()
+        threading.Thread(target=self._run, args=(channel, variant, tag), daemon=True).start()
         return True
 
     # ---- steps ----
@@ -454,17 +455,22 @@ class Installer:
             raise RuntimeError(f"llama-server --version exited {r.returncode} - "
                                "this build does not run here (see log)")
 
-    def _run(self, channel, variant):
+    def _run(self, channel, variant, tag=None):
         try:
             plat, gpus, driver = (self.detect() if self.detect else _detect())
             self._log(f"platform {plat[0]}-{plat[1]}, {len(gpus)} NVIDIA GPU(s), "
                       f"driver CUDA {'.'.join(map(str, driver)) if driver else 'n/a'}")
-            rel = resolve(channel, plat=plat, gpus=gpus, driver=driver)
-            pick = choose(rel["assets"], plat, gpus, driver, variant=variant)
+            if self.engine == "llamacpp":
+                rel = resolve(channel, plat=plat, gpus=gpus, driver=driver)
+                pick = choose(rel["assets"], plat, gpus, driver, variant=variant)
+            else:
+                rel = resolve_release(self.engine, tag=tag)
+                pick = choose_fork(self.engine, rel["assets"], plat, gpus, driver,
+                                   variant=variant)
             if not pick["bin"]:
                 raise RuntimeError(pick["reason"] or "no matching build")
             self.state.update(tag=rel["tag"], variant=pick["variant"])
-            self._log(f"{channel}: {rel['label']} -> {rel['tag']}, {pick['variant']} ({pick['reason']})")
+            self._log(f"{self.engine}: {rel['label']} -> {rel['tag']}, {pick['variant']} ({pick['reason']})")
 
             final = os.path.join(self.engines, f"{rel['tag']}-{pick['variant']}")
             sbin = find_server_bin(final) if os.path.isfile(os.path.join(final, MANIFEST)) else None
@@ -517,3 +523,181 @@ def _detect():
     import hardware
     gpus = hardware.detect_gpus()
     return platform_key(), gpus, (detect_driver() if gpus else None)
+
+
+# ------------------------------------------------- fork engines (ik, beellama)
+
+ENGINE_DIRS = {"llamacpp": "llama.cpp", "ikllama": "ikllama", "beellama": "beellama"}
+FORK_SOURCES = {
+    "ikllama": {"repo": "Thireus/ik_llama.cpp", "label": "ik_llama"},
+    "beellama": {"repo": "Anbeeld/beellama.cpp", "label": "beellama"},
+}
+
+_IK_BIN_RE = re.compile(
+    r"^ik_llama-.+-bin-ubuntu-(cpu|vulkan|cuda-\d+\.\d+)-x64-"
+    r"(avx2|avx512|avx512_vnni|avx512_vnni_bf16|avx512_vnni_vbmi|avx512_vnni_vbmi_bf16)\.zip$")
+_IK_CUDART_RE = re.compile(r"^ik_llama-cudart-.+-bin-ubuntu-cuda-(\d+)\.(\d+)-x64\.zip$")
+_BEE_BIN_RE = re.compile(
+    r"^beellama-.+-bin-ubuntu-(cpu|cuda-\d+\.\d+|vulkan|rocm-[\d.]+|sycl)-x64\.tar\.gz$")
+_BEE_CPU_RE = re.compile(r"^beellama-.+-bin-ubuntu-x64\.tar\.gz$")
+
+# Highest first; x86-only (anything else keeps the baseline build).
+_ISA_LADDER = (
+    ("avx512_vnni_vbmi_bf16", ("avx512f", "avx512_vnni", "avx512_vbmi", "avx512_bf16")),
+    ("avx512_vnni_bf16", ("avx512f", "avx512_vnni", "avx512_bf16")),
+    ("avx512_vnni_vbmi", ("avx512f", "avx512_vnni", "avx512_vbmi")),
+    ("avx512_vnni", ("avx512f", "avx512_vnni")),
+    ("avx512", ("avx512f",)),
+    ("avx2", ("avx2",)),
+)
+
+
+def pick_isa(cpu_flags, arch="x64"):
+    """The best Thireus CPU-ISA build for these /proc/cpuinfo flags."""
+    if arch != "x64":
+        return "avx2"
+    flags = set((cpu_flags or "").split())
+    if "avx512vbmi" in flags:
+        flags.add("avx512_vbmi")
+    if "avx512bf16" in flags:
+        flags.add("avx512_bf16")
+    for isa, need in _ISA_LADDER:
+        if all(n in flags for n in need):
+            return isa
+    return "avx2"
+
+
+def parse_fork_asset(engine, name):
+    """Decode an ik_llama / beellama Ubuntu asset name; None otherwise."""
+    if engine == "ikllama":
+        m = _IK_CUDART_RE.match(name)
+        if m:
+            return {"kind": "cudart", "variant": f"cuda-{m.group(1)}.{m.group(2)}",
+                    "cuda": (int(m.group(1)), int(m.group(2)))}
+        m = _IK_BIN_RE.match(name)
+        if m:
+            base, isa = m.groups()
+            cm = _CUDA_VARIANT_RE.match(base)
+            return {"kind": "bin", "variant": f"{base}-{isa}",
+                    "cuda": (int(cm.group(1)), int(cm.group(2))) if cm else None}
+        return None
+    m = _BEE_BIN_RE.match(name)
+    if m:
+        base = m.group(1)
+        cm = _CUDA_VARIANT_RE.match(base)
+        return {"kind": "bin", "variant": base,
+                "cuda": (int(cm.group(1)), int(cm.group(2))) if cm else None}
+    if _BEE_CPU_RE.match(name):
+        return {"kind": "bin", "variant": "cpu", "cuda": None}
+    return None
+
+
+def cpu_flags_text():
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("flags"):
+                    return line.split(":", 1)[1]
+    except OSError:
+        pass
+    return ""
+
+
+def choose_fork(engine, assets, plat, gpus, driver, variant=None, flags=None):
+    """Pick a fork build for this machine: backend by GPU, CPU-ISA by flags
+    (ik_llama only). Same result shape as choose()."""
+    rel_os, arch = plat
+    if rel_os != "ubuntu":
+        return {"bin": None, "cudart": None, "variant": None,
+                "reason": f"{FORK_SOURCES[engine]['label']} ships Ubuntu builds only",
+                "alternatives": []}
+    bins, cudarts = {}, {}
+    for a in assets or []:
+        info = parse_fork_asset(engine, a.get("name", ""))
+        if not info:
+            continue
+        (bins if info["kind"] == "bin" else cudarts)[info["variant"]] = (a, info)
+    out = {"bin": None, "cudart": None, "variant": None, "reason": "",
+           "alternatives": sorted(bins)}
+    isa = pick_isa(flags if flags is not None else cpu_flags_text(), arch) \
+        if engine == "ikllama" else None
+    order = [i for i, _ in _ISA_LADDER]
+
+    def candidates(base):
+        """Variants of one backend, closest CPU-ISA first."""
+        def key(v):
+            suffix = v[len(base) + 1:] if v.startswith(base + "-") else ""
+            return order.index(suffix) if suffix in order else len(order)
+        return sorted([v for v in bins if v == base or v.startswith(base + "-")], key=key)
+
+    pick, reason = None, ""
+    if variant:
+        if variant in bins:
+            pick, reason = variant, "chosen manually"
+        else:
+            out["reason"] = f"no {variant} build for ubuntu-{arch}"
+            return out
+    elif gpus and driver:
+        cudas = sorted({info["cuda"] for _, info in bins.values()
+                        if info.get("cuda") and info["cuda"][0] <= driver[0]})
+        if cudas:
+            pick = (candidates("cuda-%d.%d" % cudas[-1]) or [None])[0]
+            reason = f"NVIDIA GPU, driver supports CUDA {driver[0]}.{driver[1]}"
+        else:
+            reason = f"no CUDA build fits driver CUDA {driver[0]}.{driver[1]} - update the NVIDIA driver"
+    if not pick:
+        for base in ("vulkan", "cpu"):
+            c = candidates(base)
+            if c:
+                pick = c[0]
+                reason = reason or {"vulkan": "Vulkan works on NVIDIA, AMD and Intel GPUs",
+                                    "cpu": "CPU build"}[base]
+                break
+    if not pick:
+        out["reason"] = f"no {FORK_SOURCES[engine]['label']} build for ubuntu-{arch}"
+        return out
+
+    asset, info = bins[pick]
+    cudart = None
+    if info.get("cuda") and engine == "ikllama":
+        cand = cudarts.get(f"cuda-{info['cuda'][0]}.{info['cuda'][1]}")
+        if cand:
+            cudart = cand[0]
+    out.update(variant=pick, reason=reason)
+    if not _uploaded(asset) or (cudart and not _uploaded(cudart)):
+        out["reason"] = f"{pick} build is still uploading"
+        return out
+    out.update(bin=asset, cudart=cudart)
+    return out
+
+
+def resolve_release(engine, tag=None, get_json=_get_json, plat=None):
+    """Newest usable release of a fork repo (stable before preview), or one
+    exact tag when the user picked a release themselves."""
+    api = "https://api.github.com/repos/" + FORK_SOURCES[engine]["repo"]
+    if tag:
+        return _norm(get_json(f"{api}/releases/tags/{tag}"), "release")
+    rels = [r for r in get_json(api + "/releases?per_page=15") if not r.get("draft")]
+    plat = plat or platform_key()
+    for want_preview in (False, True):
+        for rel in rels:
+            if bool(rel.get("prerelease")) != want_preview:
+                continue
+            if choose_fork(engine, rel.get("assets"), plat, [], None)["bin"]:
+                return _norm(rel, "release")
+    raise RuntimeError(
+        f"no {FORK_SOURCES[engine]['label']} release has Ubuntu builds yet")
+
+
+def list_releases(engine, get_json=_get_json):
+    """Recent releases [{tag, label, published, prerelease}] of a fork repo,
+    for the release picker; newest first, drafts skipped."""
+    api = "https://api.github.com/repos/" + FORK_SOURCES[engine]["repo"]
+    out = []
+    for rel in get_json(api + "/releases?per_page=15"):
+        if rel.get("draft"):
+            continue
+        out.append({"tag": rel.get("tag_name", ""), "label": rel.get("tag_name", ""),
+                    "published": rel.get("published_at", ""),
+                    "prerelease": bool(rel.get("prerelease"))})
+    return out

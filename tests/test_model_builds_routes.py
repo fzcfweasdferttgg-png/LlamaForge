@@ -109,7 +109,7 @@ class PinLookup(Base):
         self.write_cfg(model_builds={"m1": "b7000-cuda"})
         with mock.patch.object(routes.prebuilt, "list_installs", return_value=self.installs), \
                 mock.patch.object(routes.config, "get_profiles", return_value={}):
-            self.assertIn(os.path.dirname(self.b7000), routes.PREBUILT.protected())
+            self.assertIn(os.path.dirname(self.b7000), routes.INSTALLERS["llamacpp"].protected())
 
 
 class SingleModeLoads(Base):
@@ -299,7 +299,7 @@ class SetBuild(Base):
         os.remove(self.ik)
         with self.assertRaises(ApiError) as e:
             routes.post_model_build(Req(body={"model": "m1", "build": "ik_llama"}))
-        self.assertIn("Build / Update", str(e.exception))
+        self.assertIn("Engines", str(e.exception))
 
 
 if __name__ == "__main__":

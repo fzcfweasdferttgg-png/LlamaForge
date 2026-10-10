@@ -152,11 +152,11 @@ def advice(cls, types, engine, build="", ik_built=False, ik_missing=()):
                 f"\"invalid ggml type\").")
         if ik_built and stale:
             return head + (f" ik_llama.cpp does, but the build here predates {stale}: update "
-                           f"it in Build / Update, then pick it as this model's build.")
+                           f"it in Engines, then pick it as this model's build.")
         if ik_built:
             return head + " ik_llama.cpp can: pick it as this model's build."
         return head + (" ik_llama.cpp defines it, and so may the llama.cpp fork the model "
-                       "was published for. Build ik_llama.cpp in Build / Update, then pick "
+                       "was published for. Build ik_llama.cpp in Engines, then pick "
                        "it as this model's build.")
     if cls == "mainline-only" and on_ik:
         if build:
@@ -166,7 +166,7 @@ def advice(cls, types, engine, build="", ik_built=False, ik_missing=()):
                 f"llama.cpp to load it.")
     if on_ik and stale:
         return (f"Uses {stale}, newer than the ik_llama.cpp build here: it can crash loading "
-                f"the file instead of saying why. Update ik_llama.cpp in Build / Update.")
+                f"the file instead of saying why. Update ik_llama.cpp in Engines.")
     return ""
 
 
@@ -179,11 +179,11 @@ def load_failure(t):
                 f"published for.")
     if t in MAINLINE and t not in IK:
         return (f"The file uses {name} (type {t}), which is newer than this build or "
-                f"mainline-only. Update llama.cpp (Build / Update tab); ik_llama.cpp "
+                f"mainline-only. Update llama.cpp (Engines tab); ik_llama.cpp "
                 f"doesn't have it.")
     if t in MAINLINE or t in IK:
         return (f"The file uses {name} (type {t}), which is newer than this build. "
-                f"Update it (Build / Update tab).")
+                f"Update it (Engines tab).")
     return (f"The file uses type {t}, which neither mainline llama.cpp nor ik_llama.cpp "
             f"defines: it was made for another fork. The model card should say which "
             f"build it needs.")

@@ -20,7 +20,7 @@ def plan(prof, installs, presets):
         inst = _install_named(installs, prof["engine"])
         if not inst or not inst.get("server_bin"):
             raise ValueError(f"engine build {prof['engine']} is no longer installed - "
-                             f"edit the profile or reinstall it from Build / Update")
+                             f"edit the profile or reinstall it from Engines")
         if not inst.get("active"):
             switch_bin = inst["server_bin"]
     settings = None

@@ -40,7 +40,8 @@ DEFAULTS = {
     # ik_llama_server_bin simply leaves the engine disabled.
     "ik_llama_server_bin": "",                # path to ik_llama's llama-server(.exe)
     "ik_llama_models_ini": "",                # its own models.ini ("" -> sibling of models_ini)
-    "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
+    "beellama_server_bin": "",                # path to beellama's llama-server(.exe)
+    "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama | beellama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "pi_bin":        "",                       # pi coding agent: .js entry, package dir or binary ("" = PATH)
     "presets":     {},                       # named knob sets: {name: {knob: value}}

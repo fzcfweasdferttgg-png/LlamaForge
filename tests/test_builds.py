@@ -65,7 +65,7 @@ class BuildsTest(unittest.TestCase):
         sbin, err = builds.resolve("b6000-cuda", self.cfg, self.installs)
         self.assertIsNone(sbin)
         self.assertIn("b6000-cuda", err)
-        self.assertIn("Build / Update", err)
+        self.assertIn("Engines", err)
         sbin, err = builds.resolve("broken", self.cfg, self.installs)
         self.assertIsNone(sbin)
         sbin, err = builds.resolve(builds.IK, dict(self.cfg, ik_llama_server_bin=""), self.installs)

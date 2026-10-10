@@ -73,6 +73,8 @@ _SCHEMA = None          # cached knob schema (active engine)
 _SCHEMA_KEY = None      # (server_bin, mtime) the cache was built from
 _IK_SCHEMA = None       # cached schema for ik_llama binary
 _IK_SCHEMA_KEY = None
+_BEE_SCHEMA = None      # cached schema for beellama binary
+_BEE_SCHEMA_KEY = None
 
 # Saving router-affecting config and restarting the process is one transaction.
 # ThreadingHTTPServer may run network and engine mutations concurrently; without
@@ -208,10 +210,12 @@ def _cached_schema(bin_path, cache_holder):
 def schema():
     """Knob schema for the active engine, cached per (server_bin, mtime)."""
     global _SCHEMA, _SCHEMA_KEY
-    c = cfg()
-    if c.get("active_engine") == "ikllama":
+    engine = cfg().get("active_engine", "llamacpp")
+    if engine == "ikllama":
         return ik_schema()
-    bin_ = c["server_bin"]
+    if engine == "beellama":
+        return beellama_schema()
+    bin_ = cfg()["server_bin"]
     _SCHEMA, _SCHEMA_KEY = _cached_schema(bin_, (_SCHEMA, _SCHEMA_KEY))
     return _SCHEMA
 
@@ -224,6 +228,16 @@ def ik_schema():
         return {"error": "ik_llama_server_bin not configured"}
     _IK_SCHEMA, _IK_SCHEMA_KEY = _cached_schema(bin_, (_IK_SCHEMA, _IK_SCHEMA_KEY))
     return _IK_SCHEMA
+
+
+def beellama_schema():
+    """Knob schema specifically for beellama's binary."""
+    global _BEE_SCHEMA, _BEE_SCHEMA_KEY
+    bin_ = cfg().get("beellama_server_bin", "")
+    if not bin_:
+        return {"error": "beellama_server_bin not configured"}
+    _BEE_SCHEMA, _BEE_SCHEMA_KEY = _cached_schema(bin_, (_BEE_SCHEMA, _BEE_SCHEMA_KEY))
+    return _BEE_SCHEMA
 
 
 def installed_repos(results, ini_sections):
@@ -1121,7 +1135,10 @@ def _slots_on(c=None):
 # ---- per-model builds (builds.py) and their processes (slotproc.py) ---------
 
 def _installs(c=None):
-    return prebuilt.list_installs(ENGINES_DIR, _active_server_bin(c))
+    out = []
+    for engine in prebuilt.ENGINE_DIRS:
+        out.extend(prebuilt.list_installs(engines_dir(engine), _active_server_bin(c)))
+    return out
 
 
 def pinned_bin(mid):
@@ -1484,7 +1501,7 @@ def post_profiles_launch(req):
     if prof is None:
         raise ApiError(404, f"unknown profile: {name}")
     try:
-        p = profiles.plan(prof, prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")),
+        p = profiles.plan(prof, _installs(),
                           config.get_presets())
     except ValueError as e:
         return 200, {"ok": False, "step": "plan", "error": str(e)}
@@ -1522,7 +1539,7 @@ def post_profiles_export(req):
     section = {**sections.get("*", {}), **section}
     try:
         recipe = recipes.export(name, prof, section, config.get_presets(),
-                                prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")),
+                                _installs(),
                                 _known_knobs())
     except ValueError as e:
         raise ApiError(400, str(e))
@@ -1551,7 +1568,7 @@ def _recipe_knobs():
     known = _known_knobs()
     if known is None:
         raise ApiError(409, "recipes need the llama-server knob list - "
-                            "set up a llama.cpp build first (Build / Update)")
+                            "set up a llama.cpp build first (Engines)")
     return known
 
 
@@ -1596,7 +1613,7 @@ def post_profiles_import(req):
     if r["settings"]:
         preset = recipes.unique_name(r["name"], config.get_presets())
         config.save_preset(preset, r["settings"])
-    engine = recipes.match_engine(r["engine"], prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
+    engine = recipes.match_engine(r["engine"], _installs())
     name = recipes.unique_name(r["name"], config.get_profiles())
     config.save_profile(name, {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine,
                                "source": "recipe"})
@@ -1857,8 +1874,11 @@ def post_config(req):
 def _active_server_bin(c=None):
     """Return the server binary path for the currently active engine."""
     c = c or cfg()
-    if c.get("active_engine") == "ikllama":
+    engine = c.get("active_engine")
+    if engine == "ikllama":
         return c.get("ik_llama_server_bin", "")
+    if engine == "beellama":
+        return c.get("beellama_server_bin", "")
     return c.get("server_bin", "")
 
 
@@ -1925,22 +1945,6 @@ def reconcile_router_auth():
                                      allow_keyless_lan=c.get("router_allow_keyless_lan", False))
     print("  router restarted with API-key auth" if ok
           else f"  WARNING: router auth restart failed ({err})")
-    return True
-
-def _record_server_bin(key, path):
-    """Point `key` at the binary a finished build produced. Returns True if
-    config.json changed.
-
-    Only fills a gap or repairs a path that isn't there: bootstrap's pre-build
-    guess (`bin/llama-server`) never exists on MSVC, so it gets corrected, while
-    a path the user set deliberately - and that resolves - is left alone. This
-    runs on a build thread, so it goes through config.update()'s lock rather
-    than load/mutate/save.
-    """
-    current = (cfg().get(key) or "").strip()
-    if current and os.path.exists(current):
-        return False
-    config.update({key: path})
     return True
 
 
@@ -2052,19 +2056,24 @@ def post_agent_apply(req):
     return 200, out
 
 
-# ============================================================ prebuilt engine
-# Official ggml-org binaries: the no-compiler path (see prebuilt.py).
+# ============================================================ prebuilt engines
+# Official binaries for the three engines: the no-compiler path (see prebuilt.py).
 
-ENGINES_DIR = os.path.join(ROOT, "engines", "llama.cpp")
+ENGINE_BIN_KEYS = {"llamacpp": "server_bin", "ikllama": "ik_llama_server_bin",
+                   "beellama": "beellama_server_bin"}
 
 
-def _activate_prebuilt(sbin):
-    """Point llama.cpp at a prebuilt binary and (re)start the router on it.
+def engines_dir(engine):
+    return os.path.join(ROOT, "engines", prebuilt.ENGINE_DIRS[engine])
 
-    Unlike _record_server_bin this overwrites: installing or picking a build
-    is an explicit user choice. Runs on the installer thread, hence update()."""
+
+def _activate_prebuilt(engine, sbin):
+    """Point an engine at a prebuilt binary and (re)start the router on it.
+
+    Overwrites: installing or picking a build is an explicit user choice.
+    Runs on the installer thread, hence update()."""
     with _ROUTER_LIFECYCLE_LOCK:
-        c = config.update({"server_bin": sbin, "active_engine": "llamacpp"})
+        c = config.update({ENGINE_BIN_KEYS[engine]: sbin, "active_engine": engine})
         try:
             ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                          c.get("router_host", "127.0.0.1"),
@@ -2075,42 +2084,65 @@ def _activate_prebuilt(sbin):
             ok, err = False, str(e)
         return ok, err
 
-PREBUILT = prebuilt.Installer(ROOT, LOGDIR, on_installed=_activate_prebuilt)
+INSTALLERS = {e: prebuilt.Installer(
+    ROOT, LOGDIR, engine=e,
+    on_installed=lambda s, e=e: _activate_prebuilt(e, s))
+    for e in prebuilt.ENGINE_DIRS}
+
+
 def _protected_installs():
     """Install dirs pruning must keep: the ones a launch profile or a model pins."""
-    installs = prebuilt.list_installs(ENGINES_DIR)
-    return sorted(set(profiles.pinned_dirs(config.get_profiles(), installs))
-                  | set(builds.protected_dirs(cfg(), installs)))
+    out = set()
+    for engine in prebuilt.ENGINE_DIRS:
+        installs = prebuilt.list_installs(engines_dir(engine))
+        out |= set(profiles.pinned_dirs(config.get_profiles(), installs))
+        out |= set(builds.protected_dirs(cfg(), installs))
+    return sorted(out)
 
 
-PREBUILT.protected = _protected_installs
-_PREBUILT_CACHE = {}            # channel -> (expires_at, result)
+for _inst in INSTALLERS.values():
+    _inst.protected = _protected_installs
+_PREBUILT_CACHE = {}            # (engine, channel, tag) -> (expires_at, result)
 _PREBUILT_LOCK = threading.Lock()
 PREBUILT_TTL, PREBUILT_FAIL_TTL = 900, 60
 
 
-def _prebuilt_latest(channel, force=False):
+def _installer_for(engine):
+    inst = INSTALLERS.get(engine)
+    if inst is None:
+        raise ApiError(400, f"unknown engine: {engine}")
+    return inst
+
+
+def _prebuilt_latest(engine, channel, tag=None, force=False):
     now = time.time()
+    key = (engine, channel, tag or "")
     with _PREBUILT_LOCK:
-        hit = _PREBUILT_CACHE.get(channel)
+        hit = _PREBUILT_CACHE.get(key)
         if hit and hit[0] > now and not force:
             return hit[1]
     plat, gpus, driver = prebuilt._detect()
     try:
-        rel = prebuilt.resolve(channel, plat=plat, gpus=gpus, driver=driver)
-        pick = prebuilt.choose(rel["assets"], plat, gpus, driver)
+        if engine == "llamacpp":
+            rel = prebuilt.resolve(channel, plat=plat, gpus=gpus, driver=driver)
+            pick = prebuilt.choose(rel["assets"], plat, gpus, driver)
+            releases = []
+        else:
+            rel = prebuilt.resolve_release(engine, tag=tag)
+            pick = prebuilt.choose_fork(engine, rel["assets"], plat, gpus, driver)
+            releases = prebuilt.list_releases(engine)
         size = sum(int((a or {}).get("size") or 0) for a in (pick["bin"], pick["cudart"]))
         out = {"ok": True, "tag": rel["tag"], "label": rel["label"],
                "published": rel["published"], "variant": pick["variant"],
                "reason": pick["reason"], "alternatives": pick["alternatives"],
-               "download_bytes": size}
+               "download_bytes": size, "releases": releases}
         ttl = PREBUILT_TTL
     except Exception as e:
-        out, ttl = {"ok": False, "error": str(e)}, PREBUILT_FAIL_TTL
+        out, ttl = {"ok": False, "error": str(e), "releases": []}, PREBUILT_FAIL_TTL
     out.update(platform="-".join(plat), driver_cuda=".".join(map(str, driver)) if driver else "",
                gpus=[g.get("name", "") for g in gpus])
     with _PREBUILT_LOCK:
-        _PREBUILT_CACHE[channel] = (now + ttl, out)
+        _PREBUILT_CACHE[key] = (now + ttl, out)
     return out
 
 
@@ -2120,14 +2152,18 @@ def _build_num(tag):
 
 
 def get_engine_prebuilt(req):
+    engine = req.q("engine") or "llamacpp"
+    _installer_for(engine)
     channel = req.q("channel") or cfg().get("prebuilt_channel", "nightly")
-    if channel not in prebuilt.CHANNELS:
+    if engine == "llamacpp" and channel not in prebuilt.CHANNELS:
         raise ApiError(400, f"unknown channel: {channel}")
-    active = cfg().get("server_bin", "")
-    installs = prebuilt.list_installs(ENGINES_DIR, active)
-    latest = _prebuilt_latest(channel, force=req.flag("force"))
+    tag = req.q("tag") or None
+    active = cfg().get(ENGINE_BIN_KEYS[engine], "")
+    installs = prebuilt.list_installs(engines_dir(engine), active)
+    latest = _prebuilt_latest(engine, channel, tag=tag, force=req.flag("force"))
     current = next((i for i in installs if i["active"]), None)
     return 200, {
+        "engine": engine,
         "channel": channel,
         "latest": latest,
         "installs": installs,
@@ -2140,36 +2176,46 @@ def get_engine_prebuilt(req):
 
 
 def get_engine_prebuilt_status(req):
-    s = PREBUILT.progress()
-    s["log"] = PREBUILT.tail(120)
+    engine = req.q("engine") or "llamacpp"
+    inst = _installer_for(engine)
+    s = inst.progress()
+    s["log"] = inst.tail(120)
+    s["engine"] = engine
     return 200, s
 
 
 def post_engine_prebuilt_install(req):
+    engine = req.body.get("engine") or "llamacpp"
+    inst = _installer_for(engine)
     channel = req.body.get("channel") or "nightly"
-    if channel not in prebuilt.CHANNELS:
-        raise ApiError(400, f"unknown channel: {channel}")
+    if engine == "llamacpp":
+        if channel not in prebuilt.CHANNELS:
+            raise ApiError(400, f"unknown channel: {channel}")
+        config.update({"prebuilt_channel": channel})
+    tag = req.body.get("tag") or None
     variant = req.body.get("variant") or None
-    config.update({"prebuilt_channel": channel})
-    started = PREBUILT.start(channel, variant)
+    started = inst.start(channel, variant, tag=tag)
     with _PREBUILT_LOCK:
         _PREBUILT_CACHE.clear()
     return 200, {"started": started}
 
 
 def post_engine_prebuilt_cancel(req):
-    return 200, {"cancelled": PREBUILT.cancel()}
+    engine = req.body.get("engine") or "llamacpp"
+    return 200, {"cancelled": _installer_for(engine).cancel()}
 
 
 def post_engine_prebuilt_use(req):
     """Switch to an already-installed build (update rollback). Only directories
     list_installs() reports are accepted - never an arbitrary path."""
+    engine = req.body.get("engine") or "llamacpp"
+    _installer_for(engine)
     want = os.path.normcase(os.path.abspath(req.body.get("dir") or ""))
-    inst = next((i for i in prebuilt.list_installs(ENGINES_DIR)
+    inst = next((i for i in prebuilt.list_installs(engines_dir(engine))
                  if os.path.normcase(os.path.abspath(i["dir"])) == want), None)
     if not inst or not inst.get("server_bin"):
         raise ApiError(404, "no such installed build")
-    ok, err = _activate_prebuilt(inst["server_bin"])
+    ok, err = _activate_prebuilt(engine, inst["server_bin"])
     return 200, {"ok": ok, "error": err, "server_bin": inst["server_bin"]}
 
 

@@ -604,7 +604,7 @@ function buildBar(m) {
   if (pinned && !cur) items.push(opt(pinned, `${pinned} (not installed)`));
   let note = "";
   if (pinned && !cur)
-    note = `<div class="slotnote warn"><b>${t("Build gone:")}</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Build / Update.</div>`;
+    note = `<div class="slotnote warn"><b>${t("Build gone:")}</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Engines.</div>`;
   else if (cur && cur.router)
     note = `<div class="slotnote dim">Pinned: it stays on ${esc(cur.label)} when the router moves to another build.</div>`;
   else if (cur)

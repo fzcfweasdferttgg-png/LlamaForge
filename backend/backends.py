@@ -114,10 +114,23 @@ class IkLlamaBackend(LlamaCppBackend):
         return self._d.ik_schema()
 
 
+class BeeLlamaBackend(LlamaCppBackend):
+    """GGUF models served by beellama (Anbeeld's llama.cpp fork, extra quant
+    layouts). Same router API again; its own binary and knob schema."""
+    name = "beellama"
+
+    def available(self):
+        sbin = self._d.cfg().get("beellama_server_bin", "")
+        return bool(sbin and os.path.exists(sbin))
+
+    def schema(self):
+        return self._d.beellama_schema()
+
+
 # Engines that drive llama.cpp's router. Only one can own the router at a time,
-# so `state()` reports the active one and skips its sibling rather than listing
+# so `state()` reports the active one and skips its siblings rather than listing
 # the same models twice.
-LLAMA_FAMILY = ("llamacpp", "ikllama")
+LLAMA_FAMILY = ("llamacpp", "ikllama", "beellama")
 
 
 class Registry:
@@ -126,7 +139,8 @@ class Registry:
 
     def __init__(self, deps):
         self._d = deps
-        self._backends = [LlamaCppBackend(deps), IkLlamaBackend(deps)]
+        self._backends = [LlamaCppBackend(deps), IkLlamaBackend(deps),
+                          BeeLlamaBackend(deps)]
 
     def active_engine(self):
         """Which llama-family engine owns the router right now.
