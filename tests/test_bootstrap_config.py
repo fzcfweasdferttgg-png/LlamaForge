@@ -17,10 +17,13 @@ class BootstrapConfigTest(unittest.TestCase):
         self.src = os.path.join(self.tmp, "existing llama.cpp")
         os.makedirs(self.src)
 
-    def test_custom_source_derives_build_directory(self):
+    def test_custom_source_drops_the_build_keys(self):
         cfg = bootstrap_config.build(self.tmp, self.src)
-        self.assertEqual(cfg["llama_src"], os.path.abspath(self.src))
-        self.assertEqual(cfg["build_dir"], os.path.join(os.path.abspath(self.src), "build"))
+        self.assertNotIn("llama_src", cfg)
+        self.assertNotIn("build_dir", cfg)
+        self.assertNotIn("cmake_flags", cfg)
+        self.assertNotIn("git_remote", cfg)
+        self.assertIn("server_bin", cfg)
 
     def test_detects_existing_release_binary(self):
         want = _touch(os.path.join(self.src, "build", "bin", "Release",

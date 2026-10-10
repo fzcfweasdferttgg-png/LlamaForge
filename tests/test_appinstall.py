@@ -107,12 +107,11 @@ class AppInstallTest(unittest.TestCase):
 
     def test_first_install_config_drops_placeholder_paths(self):
         self.release({"backend/server.py": "v1", "config.example.json": json.dumps(
-            {"server_bin": "C:/path/to/llama-server.exe", "llama_src": "C:/path",
-             "build_dir": "C:/path/build", "router_port": 8080})})
+            {"server_bin": "C:/path/to/llama-server.exe", "router_port": 8080})})
         appinstall.install(self.src, self.dest)
         self.assertTrue(appinstall.ensure_config(self.dest))
         cfg = json.load(open(os.path.join(self.dest, "config.json")))
-        self.assertEqual((cfg["server_bin"], cfg["llama_src"], cfg["build_dir"]), ("", "", ""))
+        self.assertEqual(cfg["server_bin"], "")
         self.assertEqual(cfg["router_port"], 8080)
         write(self.dest, "config.json", "mine")
         self.assertFalse(appinstall.ensure_config(self.dest))

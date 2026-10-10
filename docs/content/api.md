@@ -56,12 +56,9 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/setup` | Prerequisite tool status (git/cmake/ninja/compiler/CUDA) plus hardware recommendation. |
-| POST | `/api/setup/install` | Install a missing prerequisite tool (Windows/macOS only). |
+| GET | `/api/setup` | Hardware recommendation (CPU/GPU detection). |
+| POST | `/api/setup/install` | Install a helper tool by name (e.g. Node.js for pi; Windows/macOS only). |
 | GET | `/api/gpus` | GPU telemetry via a shared 10-second cache (`nvidia-smi`, or the kernel's DRM sysfs when it is absent). |
-| GET | `/api/build/info` | Current commit, available updates, and recommended/saved CMake flags (per `target`: `llamacpp` or `ikllama`). |
-| GET | `/api/build/log` | Tail of the build log plus builder state (`phase` includes `done_warnings` for a partial success). |
-| POST | `/api/build/start` | Start (re)building the target engine with the given (or saved/recommended) CMake flags. |
 | POST | `/api/engine/switch` | Point the router at `llamacpp` or `ikllama` (sets `active_engine`); refused if the target binary has no router mode. |
 | GET | `/api/engine/prebuilt` | Installed official llama.cpp builds, which one is active, and the latest release on a channel (`?channel=`, `?force=1` to skip the cache). |
 | GET | `/api/engine/prebuilt/status` | Progress and log tail of a prebuilt download/install. |

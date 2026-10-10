@@ -23,8 +23,6 @@ _LOCK = threading.RLock()
 LOAD_ERROR = None
 
 DEFAULTS = {
-    "llama_src":   "",                       # git checkout of llama.cpp
-    "build_dir":   "",                       # cmake build dir (usually <src>/build)
     "server_bin":  "",                       # path to llama-server(.exe)
     "models_ini":  os.path.join(ROOT, "models.ini"),
     "model_dirs":  [],                       # directories to scan for GGUFs
@@ -37,17 +35,11 @@ DEFAULTS = {
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
     "router_allow_keyless_lan": False,       # opt-in: LAN router without an API key (fail-closed by default)
-    "cmake_flags": {},                       # persisted build flags (from hardware detect)
-    "git_remote":  "https://github.com/ggml-org/llama.cpp",
-    # ik_llama mirrors the llama.cpp path trio and, like it, ships empty: these
-    # belong to bootstrap and this machine, not to the defaults every install
-    # inherits. An unset ik_llama_server_bin simply leaves the engine disabled.
-    "ik_llama_src":    "",                    # git checkout of ik_llama.cpp
-    "ik_llama_build_dir": "",                 # cmake build dir (usually <src>/build)
+    # ik_llama ships empty like llama.cpp's path: this belongs to bootstrap and
+    # this machine, not to the defaults every install inherits. An unset
+    # ik_llama_server_bin simply leaves the engine disabled.
     "ik_llama_server_bin": "",                # path to ik_llama's llama-server(.exe)
     "ik_llama_models_ini": "",                # its own models.ini ("" -> sibling of models_ini)
-    "ik_llama_git_remote": "https://github.com/ikawrakow/ik_llama.cpp",
-    "ik_llama_cmake_flags": {},               # separate build flags for ik_llama
     "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "pi_bin":        "",                       # pi coding agent: .js entry, package dir or binary ("" = PATH)

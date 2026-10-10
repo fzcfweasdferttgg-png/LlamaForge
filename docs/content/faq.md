@@ -16,7 +16,7 @@ Windows with an NVIDIA GPU is the most-tested path. Linux and macOS (Apple Silic
 
 ## What GPU do I need?
 
-None strictly. The official llama.cpp builds cover NVIDIA (CUDA), AMD and Intel (Vulkan), Apple Silicon (Metal) and CPU-only, and **Install llama.cpp** picks the right one. More VRAM means bigger models: Discover rates every quant against your VRAM before you download it. Building from source additionally needs Git, CMake, Ninja and a C++ compiler, which the **Setup** tab can install where a package manager allows.
+None strictly. The official llama.cpp builds cover NVIDIA (CUDA), AMD and Intel (Vulkan), Apple Silicon (Metal) and CPU-only, and **Install llama.cpp** picks the right one. More VRAM means bigger models: Discover rates every quant against your VRAM before you download it.
 
 ## Does LlamaForge come with any models?
 

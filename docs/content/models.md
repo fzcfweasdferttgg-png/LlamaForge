@@ -10,9 +10,9 @@ Tune every `llama-server` flag on a per-model basis, save named presets, and com
 
 ## What it does
 
-Each row in the Models list is a section of `models.ini` (or an auto-discovered model not yet added to it). Expanding a row opens a live knob editor built from the running `llama-server` binary's own `--help` output, so the available flags always match the binary you actually built — not a hardcoded list that can drift out of date across llama.cpp versions.
+Each row in the Models list is a section of `models.ini` (or an auto-discovered model not yet added to it). Expanding a row opens a live knob editor built from the running `llama-server` binary's own `--help` output, so the available flags always match the binary you actually run — not a hardcoded list that can drift out of date across llama.cpp versions.
 
-`backend/argspec.py` (`build_schema()`) runs `<server_bin> --help`, parses the column-aligned help text into typed, grouped knobs (bool, int, float, enum, path, string), and caches the result per `(server_bin path, binary mtime)` — the cache self-invalidates automatically if you repoint `server_bin` at a different binary or rebuild it (`backend/routes.py` `schema()`). A handful of flags the router itself owns (`host`, `port`, `model`, `hf-repo`, and similar) are filtered out of the editor as `RESERVED` — they aren't safe to set per model.
+`backend/argspec.py` (`build_schema()`) runs `<server_bin> --help`, parses the column-aligned help text into typed, grouped knobs (bool, int, float, enum, path, string), and caches the result per `(server_bin path, binary mtime)` — the cache self-invalidates automatically if you repoint `server_bin` at a different binary or replace it (`backend/routes.py` `schema()`). A handful of flags the router itself owns (`host`, `port`, `model`, `hf-repo`, and similar) are filtered out of the editor as `RESERVED` — they aren't safe to set per model.
 
 The editor has two density levels, controlled by `ui_mode` in `config.json`:
 
@@ -46,7 +46,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
 
 | Concept | Source | Behavior |
 |---|---|---|
-| Live flag schema | `backend/argspec.py` `build_schema()` | Parses `<server_bin> --help`; cached by `(server_bin, mtime)`; refreshes automatically after a rebuild or binary change. |
+| Live flag schema | `backend/argspec.py` `build_schema()` | Parses `<server_bin> --help`; cached by `(server_bin, mtime)`; refreshes automatically after a binary change. |
 | Reserved flags | `backend/argspec.py` `RESERVED` | Router-owned flags (`host`, `port`, `model`, `hf-repo`, etc.) are excluded from the per-model editor. |
 | Hot reload | `POST /api/save` (`backend/routes.py`) | Writes knobs via `config.set_keys()`, unloads the model if running, then calls the router's `/models?reload=1` so `models.ini` is re-read live. |
 | Presets | `POST /api/presets/save` / `/apply` / `/delete` / `/bind` | Named knob sets stored in `config.json`'s `presets` key; applying one follows the same save + reload path as a manual edit. **Bind** records the pairing in `preset_bindings` and materializes the preset into the model; re-saving a bound preset re-syncs every model using it. |

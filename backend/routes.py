@@ -26,21 +26,11 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import gateway, mcp_server, piinstall, logfiles
-from builder import BuildManager
 
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
-# Each engine records the binary its own build produced (see _record_server_bin).
-# Resolved at call time, so the helper can live further down with its siblings.
-BUILDER_LLAMA   = BuildManager(LOGDIR, "build",
-                               on_built=lambda p: _record_server_bin("server_bin", p))
-BUILDER_IKLLAMA = BuildManager(LOGDIR, "build-ikllama",
-                               on_built=lambda p: _record_server_bin("ik_llama_server_bin", p))
-
-def _builder_for(target):
-    return BUILDER_IKLLAMA if target == "ikllama" else BUILDER_LLAMA
 DOWNLOADS = hub.DownloadManager()
 APP_UPDATE = selfupdate.UpdateJob(ROOT)
 
@@ -722,38 +712,7 @@ def get_gpus(req):
 
 
 def get_setup(req):
-    return 200, {"prereqs": prereqs.status(), "hardware": hardware.recommend()}
-
-
-def get_build_info(req):
-    c = cfg()
-    target = req.q("target") or "llamacpp"
-    builder = _builder_for(target)
-    if target == "ikllama":
-        src = c.get("ik_llama_src", "")
-        remote = c.get("ik_llama_git_remote", "https://github.com/ikawrakow/ik_llama.cpp")
-        saved_flags = c.get("ik_llama_cmake_flags", {})
-    else:
-        src = c["llama_src"]
-        remote = c.get("git_remote", "https://github.com/ggml-org/llama.cpp")
-        saved_flags = c.get("cmake_flags", {})
-    return 200, {
-        "target": target,
-        "current": builder.current_commit(src),
-        "updates": builder.check_updates(src, force=req.flag("force")),
-        "recommended_flags": hardware.recommend()["cmake_flags"],
-        "saved_flags": saved_flags,
-        "remote": remote,
-    }
-
-
-def get_build_log(req):
-    target = req.q("target") or "llamacpp"
-    builder = _builder_for(target)
-    s = dict(builder.state)
-    s["log"] = builder.tail(300)
-    s["target"] = target
-    return 200, s
+    return 200, {"hardware": hardware.recommend()}
 
 
 def get_hub_progress(req):
@@ -848,7 +807,8 @@ def get_model_metadata(req):
     pins = c.get("model_builds") if isinstance(c.get("model_builds"), dict) else {}
     opts = builds.options(c, _installs(c))
     ok = compat.for_model(mpath) if mpath else dict(compat.UNKNOWN)
-    # an ik older than the file crashes on it instead of refusing: ask its checkout
+    # an ik older than the file crashes on it instead of refusing; the checkout
+    # probe degrades to "no advice" now that installs are prebuilt binaries
     ids = ok.get("ids") or []
     stale = compat.missing(ids, compat.build_types(c.get("ik_llama_src"))) if ids else []
     ok["advice"] = compat.advice(ok["class"], ok["types"], c.get("active_engine", "llamacpp"),
@@ -1646,30 +1606,6 @@ def post_profiles_import(req):
                  "dropped": r["dropped"]}
 
 
-def post_build_start(req):
-    c = cfg()
-    target = req.body.get("target", "llamacpp")
-    builder = _builder_for(target)
-    if target == "ikllama":
-        src = c.get("ik_llama_src", "")
-        bdir = c.get("ik_llama_build_dir", "")
-        flags = req.body.get("flags") or c.get("ik_llama_cmake_flags") or hardware.recommend()["cmake_flags"]
-        config.update({"ik_llama_cmake_flags": flags})
-    else:
-        src = c["llama_src"]
-        bdir = c["build_dir"]
-        flags = req.body.get("flags") or c.get("cmake_flags") or hardware.recommend()["cmake_flags"]
-        config.update({"cmake_flags": flags})
-    # Answer an unset/bad path here rather than starting a build thread that can
-    # only fail: the user gets the reason in the UI instead of a raw cmake error
-    # in the build log ("No build directory specified for -B").
-    bad = BuildManager.validate_paths(src, bdir)
-    if bad:
-        return 200, {"started": False, "target": target, "error": bad}
-    ok = builder.start(src, bdir, flags, pull=req.body.get("pull", True))
-    return 200, {"started": ok, "target": target}
-
-
 def post_setup_install(req):
     ok, log = prereqs.install(req.body.get("tool", ""))
     return 200, {"ok": ok, "log": log}
@@ -1832,11 +1768,10 @@ def post_stats_reset(req):
 # panel is reachable by any page in the user's browser: an unfiltered merge let
 # a request set `server_bin`, which argspec then executes as `<server_bin>
 # --help` on the next /api/schema. Paths that name a program or a directory the
-# backend reads (server_bin, llama_src, build_dir, models_ini, wiki_dir,
-# docs_dir) are deliberately absent - those belong to bootstrap and config.json,
-# not to the browser. Keys with their own route (presets, cmake_flags,
-# router_host/router_api_key) are absent for the same reason: those routes carry
-# extra behaviour this one must not bypass.
+# backend reads (server_bin, models_ini, docs_dir) are deliberately absent -
+# those belong to bootstrap and config.json, not to the browser. Keys with their
+# own route (presets, router_host/router_api_key) are absent for the same
+# reason: those routes carry extra behaviour this one must not bypass.
 def _v_bool(v):  return bool(v) if isinstance(v, bool) else None
 def _v_str(v):   return v if isinstance(v, str) else None
 def _v_port(v):  return v if isinstance(v, int) and 1 <= v <= 65535 else None
@@ -2245,8 +2180,6 @@ GET_ROUTES = {
     "/api/schema":            get_schema,
     "/api/gpus":              get_gpus,
     "/api/setup":             get_setup,
-    "/api/build/info":        get_build_info,
-    "/api/build/log":         get_build_log,
     "/api/engine/prebuilt":   get_engine_prebuilt,
     "/api/engine/prebuilt/status": get_engine_prebuilt_status,
     "/api/hub/progress":      get_hub_progress,
@@ -2297,7 +2230,6 @@ POST_ROUTES = {
     "/api/profiles/launch":     post_profiles_launch,
     "/api/profiles/export":     post_profiles_export,
     "/api/profiles/import":     post_profiles_import,
-    "/api/build/start":         post_build_start,
     "/api/setup/install":       post_setup_install,
     "/api/pi/install":          post_pi_install,
     "/api/pi/remove":           post_pi_remove,

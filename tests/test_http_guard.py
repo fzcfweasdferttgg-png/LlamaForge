@@ -1,8 +1,8 @@
 """The trust boundary around the dashboard.
 
 The panel binds 127.0.0.1, which keeps it off the network but leaves it
-reachable by every page the user browses - and its routes rebuild llama.cpp,
-install packages and rewrite configuration. These tests drive a real
+reachable by every page the user browses - and its routes install packages
+and rewrite configuration. These tests drive a real
 ThreadingHTTPServer the way a hostile page would.
 """
 import conftest_paths  # noqa: F401

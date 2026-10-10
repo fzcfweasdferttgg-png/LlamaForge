@@ -15,8 +15,6 @@ Several things that used to derail a first run are now handled automatically, in
 - **No `config.json`** — the launchers copy `config.example.json` to `config.json` and tell you to set your paths in Setup, instead of crashing on a missing file.
 - **No `models.ini`** — `config.ensure_models_ini()` creates a minimal one with a `[*]` section (the router refuses to start without it). A relative `models_ini` is anchored to the repo root so the detached router can't read an empty registry from the wrong directory.
 - **Router port already in use** — if something else holds `router_port` (port `8080` collides with XAMPP/Apache and other dev servers), the launcher names the process holding it and skips starting the router, rather than leaving the dashboard showing every model "offline" with no explanation. The backend's `router_ctl.start()` refuses a bound port the same way.
-- **A just-installed build tool still shows MISSING** — the Setup **Install** flow re-reads `PATH` from the registry (`osplat.refresh_path()`) so a freshly installed `ninja`/`cmake` is detected without restarting; only if that genuinely isn't enough does it ask for a restart.
-- **`server_bin` after a build** — a finished build records where `llama-server` actually landed (`bin/Release` under MSVC, `bin` elsewhere), correcting the pre-build guess so you don't have to hand-edit `config.json`.
 
 ## Lite vs Advanced mode
 
@@ -31,7 +29,7 @@ Finishing the wizard and skipping it both set `ui_mode` to `"lite"` (skipping is
 
 `initWizard()` in `web/js/wizard.js` shows the wizard automatically whenever the server reports `onboarding.onboarded` as false. It walks five steps, defined in `WIZ.steps` in `web/js/wizard.js`:
 
-1. **Engine** — "How do you want to get it?" Choose *Download the official build for this PC* (the default: about a minute, no compiler), *I already have llama-server built*, or *Build from source* (the Build tab; needs CMake and a compiler). The download choice shows the same engine card as the Build / Update tab, and its install keeps running in the background if you move on.
+1. **Engine** — "How do you want to get it?" Choose *Download the official build for this PC* (the default: about a minute, no compiler) or *I already have llama-server built*. The download choice shows the same engine card as the Build / Update tab, and its install keeps running in the background if you move on.
 2. **Hardware** — a read-only summary of detected GPUs and their VRAM (or "No GPU detected — CPU mode" if none).
 3. **Model** — pick an already-registered model from a dropdown. If none are registered, the step offers **Get your first model**: starter models sized to your GPU, one click to download and add one (with a **best fit** tag on the recommended one), plus a link to browse Hugging Face in Discover.
 4. **Tune** — choose a goal (Balanced, Max speed, Max context, or Coding) and click **Auto-tune** to call `/api/autotune/recommend` for that model and intent; the resulting knobs and their rationale are shown in a table. An optional **Refine with a quick test (~1 min)** button calls `/api/autotune/refine` to try a few high-impact variants (e.g. alternate `ubatch-size`/`batch-size`) with one short generation each and keep the fastest. It is a quick check, not llama-bench: results move with whatever else the machine is doing.

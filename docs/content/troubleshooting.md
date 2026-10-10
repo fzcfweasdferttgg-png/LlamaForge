@@ -31,25 +31,12 @@ If nothing matches but the instance exited with a non-zero status, that status i
 > [!TIP]
 > The Router Log panel at the bottom of the Models tab has the full output. `diagnose()` reads the last 800 lines of the log: the model's own process log when it runs as a process slot, otherwise the router log.
 
-## Setup tab: missing prerequisites
-
-The **Setup** tab (`backend/prereqs.py`) checks for `git`, `cmake`, `ninja`, and `python` (via `<tool> --version`), a C++ compiler, and CUDA, and reports whether each can be auto-installed on your platform.
-
-| Issue | Cause | Fix |
-|---|---|---|
-| A tool shows as missing (git/cmake/ninja/python) | Not found on `PATH` (`shutil.which`) | On Windows/macOS, click install from the Setup tab (winget/choco, or Homebrew). On Linux, the dashboard never runs `sudo` — it shows the exact `apt`/`dnf`/`pacman` command to run yourself. |
-| C++ compiler not found | Windows: no MSVC install with the "Desktop development with C++" workload found via `vswhere.exe` (or a `cl.exe` scan under `Program Files`). Linux/macOS: neither `clang++` nor `g++` on `PATH`. | Windows: install Build Tools for Visual Studio with the C++ workload. macOS: `xcode-select --install`. Linux: install `g++` or `clang++` via your package manager. |
-| CUDA not found | No `CUDA_PATH` set and `nvcc` not on `PATH`. Not applicable on macOS (Metal is used instead — the row is hidden). | Only needed for NVIDIA GPU builds; install from https://developer.nvidia.com/cuda-downloads, or build CPU-only. |
-| Install button does nothing / fails on Windows | Neither `winget` nor `choco` is available, or the install command exited non-zero. | Install the tool manually from the URL shown for that tool in the Setup tab. |
-| Install fails on macOS | Homebrew isn't installed. | Install Homebrew (https://brew.sh) first, or install the tool manually. |
-
 ## Bootstrap script issues
 
 `bootstrap.ps1` (Windows) and `bootstrap.sh` (Linux/macOS) get a fresh checkout to the point where the dashboard can take over.
 
 - **"Python not found" (Windows) / "python3 not found" (Linux/macOS)** — Python 3.10+ is required to run the backend. `bootstrap.ps1` offers to install Python 3.12 via winget; without winget it points you to https://www.python.org/downloads/windows/. `bootstrap.sh` prints `brew install python@3.12` on macOS or a `sudo apt-get install -y python3`-style hint on Linux, then exits — it does not install Python for you.
-- **"Git not found"** — Git is recommended for fetching/updating llama.cpp. `bootstrap.ps1` offers to install it via winget; `bootstrap.sh` prints the platform-appropriate install command. Bootstrap continues either way; you can clone llama.cpp manually later.
-- **"llama.cpp source not found at `<path>`"** — `config.json`'s `llama_src` doesn't point at a git checkout. Answer `y` to clone it (needs Git), or point `llama_src` in `config.json` at an existing checkout and re-run.
+- **"Git not found"** — Git is recommended for cloning a llama.cpp checkout at bootstrap. `bootstrap.ps1` offers to install it via winget; `bootstrap.sh` prints the platform-appropriate install command. Bootstrap continues either way.
 - **Re-run bootstrap after installing Python** — `bootstrap.ps1` exits after installing Python and asks you to open a new terminal so `PATH` picks it up, then run bootstrap again.
 
 ## First run

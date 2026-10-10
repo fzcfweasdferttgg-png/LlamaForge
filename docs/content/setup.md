@@ -10,25 +10,13 @@ Check build prerequisites, install what is missing with your permission, scan yo
 
 ## What it does
 
-The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), multi-model and speed estimates follow below.
-
-**Prerequisite detection.** `backend/prereqs.py` checks for four command-line tools — `git`, `cmake`, `ninja`, and `python` (via `shutil.which`, running `--version` to confirm and capture the installed version) — plus the platform C++ compiler and the CUDA toolkit. On Windows, the compiler check (`find_msvc()`) shells out to `vswhere.exe` to locate an MSVC install with the C++ desktop workload, falling back to a glob for `cl.exe` under `Program Files\Microsoft Visual Studio`. On macOS/Linux it looks for `clang++` or `g++` on `PATH`. CUDA detection reads `nvcc --version` (or `$CUDA_PATH`) and is skipped entirely on macOS, where Metal is used instead.
-
-**Installing missing tools.** Which package manager runs depends on the OS, verified directly in `prereqs.py`:
-
-- **Windows:** `install()` tries `winget install --id <pkg> -e --accept-source-agreements --accept-package-agreements` first; if `winget` isn't on `PATH` or the install fails, it falls back to `choco install <pkg> -y`.
-- **macOS:** `install()` requires Homebrew and runs `brew install <pkg>` — no `sudo` needed.
-- **Linux:** the dashboard never runs `sudo`. `install()` returns `ok=False` with the exact command to paste into a terminal (`sudo apt-get install -y <pkg>`, `sudo dnf install -y <pkg>`, or `sudo pacman -S --noconfirm <pkg>`, picked by `osplat.linux_pkg_manager()` probing `apt-get` → `dnf` → `pacman` in that order).
-
-Each tool in `prereqs.TOOLS` carries its own `winget`/`choco`/`brew`/`pkg` identifiers and a fallback download URL, used whichever path applies. `_can_auto_install()` gates the **Install** button: on Windows it needs `winget` or `choco` present; on macOS it needs `brew`; on Linux the button never appears — only the hint.
-
-After a successful install, the running process's `PATH` is refreshed from the registry (`osplat.refresh_path()`, Windows-only) and the tool is re-probed, so a freshly installed `ninja` or `cmake` is detected immediately. Only if it still isn't visible does the result ask you to restart LlamaForge — the old behavior (always MISSING until a restart) is gone.
+The Setup tab is a column of cards: drive scan, registry prune and speed estimates (each backed by its own module), plus the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent) and multi-model.
 
 **Folder or drive scan for GGUFs.** `backend/scanner.py`'s `scan()` (via `POST /api/scan`) walks the folders entered in Setup, one path per line. Saving the list persists it as `model_dirs`; clearing it restores the platform defaults. Those defaults are every fixed drive letter on Windows (`GetLogicalDrives` + `GetDriveTypeW == DRIVE_FIXED`, so removable/network drives are excluded), `$HOME` plus `/Volumes` on macOS, and `$HOME` plus any of `/mnt`, `/media`, `/srv`, `/data` on Linux. The scanner finds `.gguf` files at least 50 MB while skipping recycle bins, `.git`, and `.trash` folders. Multi-shard GGUF sets collapse to their first shard, `mmproj*` files attach to a sibling model of a known vision architecture instead of appearing standalone, `mtp-*` speculative draft sidecars attach as a `spec-draft-model` (see [models.ini Format](models-ini.md)), and files with `embed` in the name are flagged as embedding endpoints. Confirmed results are written into `models.ini` via `POST /api/scan/apply`.
 
 **Registry prune.** `POST /api/scan/prune` ("Check for deleted models") takes a list of model IDs, re-checks each one's `model` path in `models.ini` against disk, and — only for entries whose file no longer exists — unloads it from the router if currently loaded, then removes its section from `models.ini` with `config.remove_section()`. An entry whose file has reappeared since the check is left alone. This edits `models.ini` only; it never touches files on disk.
 
-The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the Build tab), lets you pick a model under **Startup** to auto-load on launch (`auto_load_model` in `config.json`).
+The tab also surfaces `hardware.recommend()`'s detected CPU/GPU, and lets you pick a model under **Startup** to auto-load on launch (`auto_load_model` in `config.json`).
 
 **Speed Estimates.** An optional card (marked advanced) with **VRAM GB/s**, **RAM GB/s** and **Disk GB/s** fields. They override the memory-bandwidth figures behind the "Will it run?" panel and Discover's speed badges (`vram_bandwidths` in `config.json`); blank means the detected preset or default.
 
@@ -92,10 +80,6 @@ for Codex and pi uses the loopback panel endpoint, so it is local-machine-only. 
 
 | Concept | Source | Behavior |
 |---|---|---|
-| Prereq detection | `prereqs.status()` | `git`, `cmake`, `ninja`, `python` via `shutil.which` + `--version`; C++ compiler and CUDA toolkit detected separately. |
-| Windows install | `prereqs.install()` | `winget install --id <id> -e ...`, falling back to `choco install <id> -y` if winget is absent or fails. |
-| macOS install | `prereqs.install()` | `brew install <pkg>` — requires Homebrew, no sudo. |
-| Linux install | `prereqs.install()` | Never runs sudo; returns the exact `apt-get`/`dnf`/`pacman` command to run yourself. |
 | Drive scan roots | `scanner.list_drives()` | Windows: all fixed drive letters. macOS: `$HOME` + `/Volumes`. Linux: `$HOME` + any of `/mnt`, `/media`, `/srv`, `/data` that exist. |
 | Selected scan roots | `config.json: model_dirs` | One or more directories persisted from Setup. An explicit empty list selects the platform defaults. |
 | GGUF discovery | `scanner.find_ggufs()` | `.gguf` files ≥ 50 MB; skips recycle bin/`.git`/`.trash`; collapses multi-shard sets; attaches `mmproj` and `mtp-*` siblings; flags `embed` files. |

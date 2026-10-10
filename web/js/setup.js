@@ -1,4 +1,4 @@
-// Setup tab: prerequisites, detected hardware, drive scanning, startup options,
+// Setup tab: detected hardware, drive scanning, startup options,
 // LAN access and the agent-connect panel.
 import { $, $$, esc, setHTML, api, toast, askYes } from "./core.js";
 import { t } from "./i18n.js";
@@ -541,26 +541,14 @@ export async function loadSetup() {
   const [s, net] = await Promise.all([api("/api/setup"), api("/api/network"),
     S.STATE ? null : api("/api/state").then(st => { if (st && !st.error) S.STATE = st; }, () => {})]);
   if (!setupViewActive(generation)) return;
-  const p = s.prereqs, hw = s.hardware;
-  const toolRow = (name, t) => `<div class="kv"><span class="k">${esc(name)}</span>
-    <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):t("MISSING")}
-    ${!t.present&&t.installable?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">${t("Install")}</button>`:""}
-    ${!t.present&&!t.installable&&t.hint?`<div class="note" style="margin-top:4px">${esc(t.hint)}</div>`:""}</span></div>`;
+  const hw = s.hardware;
   const gpuLines = (hw.gpus||[]).map(g => `<div class="kv"><span class="k">GPU ${esc(g.index)}</span><span class="v">${esc(g.name)} &middot; cc ${esc(g.compute_cap||"?")}</span></div>`).join("");
   const bw = cfgOf().vram_bandwidths || {};
   const scanDirs = cfgOf().model_dirs || [];
   setHTML(v, `
-    <div class="card"><h3>${t("Prerequisites")}</h3>
-      ${Object.entries(p.tools).map(([n,t])=>toolRow(n,t)).join("")}
-      <div class="kv"><span class="k">${esc(p.msvc.label||"C++ compiler")}</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":t("MISSING")+(p.msvc.url?" &mdash; "+esc(p.msvc.url):"")}</span></div>
-      ${p.cuda.applicable===false?"":`<div class="kv"><span class="k">${t("CUDA toolkit")}</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>`}
-      <div class="kv"><span class="k">installers</span><span class="v">${esc(Object.keys(p.installers||{}).filter(k=>p.installers[k]).join(" ")||"none")}</span></div>
-      <div class="note">Missing prerequisites can be installed with your permission where a package manager allows it (winget/choco/brew). On Linux the exact install command is shown instead &mdash; the dashboard never runs sudo.</div>
-    </div>
     <div class="card"><h3>${t("Detected Hardware")}</h3>
       <div class="kv"><span class="k">${t("CPU")}</span><span class="v">${esc(hw.cpu.name||"?")} (${esc(hw.cpu.cores||"?")}c/${esc(hw.cpu.threads||"?")}t)</span></div>
       ${gpuLines}
-      <div class="flags">${Object.entries(hw.cmake_flags).map(([k,val])=>`<span class="flagpill">${esc(k)}=${esc(val)}</span>`).join("")}</div>
       ${hw.notes.map(n=>`<div class="note">&bull; ${esc(n)}</div>`).join("")}
     </div>
     <div class="card"><h3>${t("Speed Estimates")} <span style="color:var(--dim);font-weight:normal;font-size:11px">(advanced &mdash; optional)</span></h3>
@@ -575,7 +563,7 @@ export async function loadSetup() {
     </div>
     <div class="card"><h3>${t("Scan Drives for Models")}</h3>
       <div class="fld"><label>Folders to scan (one per line; blank = all fixed drives)</label>
-        <textarea id="scan-roots" rows="3" style="width:100%;resize:vertical" placeholder="D:/Models&#10;/mnt/models">${esc(scanDirs.join("\n"))}</textarea></div>
+        <textarea id="scan-roots" rows="3" style="width:100%;resize:vertical" placeholder="D:/Models&#10;/mnt/models">${esc(scanDirs.join("\\n"))}</textarea></div>
       <div class="actions"><button class="ghost" id="btn-scan-save">${t("Save folders")}</button><span class="msg" id="scan-save-msg"></span></div>
       <div class="actions"><button id="btn-scan">${t("Scan for GGUF models")}</button><button class="ghost" id="btn-missing">${t("Check for deleted models")}</button><span class="msg" id="scan-msg"></span></div>
       <div id="scan-out"></div>
@@ -593,17 +581,12 @@ export async function loadSetup() {
     ${networkMarkup(net)}
     <div id="agent-connect" class="card"></div>`);
   wireNetwork(net, generation);
-  $$("[data-install]", v).forEach(b => b.onclick = async () => {
-    b.disabled = true; b.textContent = "installing...";
-    const r = await api("/api/setup/install", {tool: b.dataset.install});
-    toast(r.ok?t("Installed"):t("Install failed"), r.ok?"ok":"err"); loadSetup();
-  });
   $("#btn-scan").onclick = scanDrives;
   $("#btn-scan-save").onclick = async () => {
     const model_dirs = scanRoots();
     await api("/api/config", {model_dirs});
     const msg = $("#scan-save-msg"); msg.className = "msg ok";
-    msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : t("cleared — all drives");
+    msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : t("cleared \u2014 all drives");
   };
   $("#btn-missing").onclick = checkMissing;
   wireSlots(generation);

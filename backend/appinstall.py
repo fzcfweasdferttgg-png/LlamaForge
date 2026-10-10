@@ -20,7 +20,7 @@ USER_TOP = {"config.json", "models.ini", "models-ikllama.ini", "stats.json",
             "engines", "logs", "models", "wiki", "llama.cpp",
             "embers", "agents", "python", MANIFEST}
 # Paths in config.example.json that are placeholders, not real installs.
-_PLACEHOLDER_KEYS = ("llama_src", "build_dir", "server_bin")
+_PLACEHOLDER_KEYS = ("server_bin",)
 SKIP_DIRS = {"__pycache__", ".git"}
 
 

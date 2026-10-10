@@ -12,9 +12,7 @@ order: 1
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `llama_src` | string | `""` | Path to a git checkout of `llama.cpp`. |
-| `build_dir` | string | `""` | CMake build directory for `llama.cpp` (usually `<llama_src>/build`). |
-| `server_bin` | string | `""` | Path to the built `llama-server` (or `llama-server.exe`) binary. |
+| `server_bin` | string | `""` | Path to the `llama-server` (or `llama-server.exe`) binary. |
 | `models_ini` | string | `<repo root>/models.ini` | Path to the `models.ini` preset file passed to `llama-server --models-preset`. |
 | `model_dirs` | list | `[]` | Directories the Discover/scan feature searches for GGUF files. |
 | `router_port` | int | `8080` | Port `llama-server` (the router) listens on. |
@@ -26,15 +24,9 @@ order: 1
 | `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
 | `router_allow_keyless_lan` | bool | `false` | Opt-in: start a LAN router without an API key. Fail-closed by default; set it only on a network you trust. |
 | `router_local_key` | string | `""` | The key LlamaForge generates for itself when you set none, so the router always runs keyed. Minted at startup; never shown in the dashboard. |
-| `cmake_flags` | object | `{}` | Persisted CMake build flags, normally seeded from hardware detection. |
-| `git_remote` | string | `"https://github.com/ggml-org/llama.cpp"` | Remote used to clone/update the `llama.cpp` source. |
 | `active_engine` | string | `"llamacpp"` | Which llama-family binary the router uses: `"llamacpp"` or `"ikllama"`. |
-| `ik_llama_src` | string | `""` | Path to a git checkout of `ik_llama.cpp`. |
-| `ik_llama_build_dir` | string | `""` | CMake build directory for ik_llama. |
-| `ik_llama_server_bin` | string | `""` | Path to ik_llama's built `llama-server`; empty leaves the engine disabled. |
+| `ik_llama_server_bin` | string | `""` | Path to ik_llama's `llama-server` binary; empty leaves the engine disabled. |
 | `ik_llama_models_ini` | string | `""` | ik_llama's own registry; empty resolves to a `-ikllama` sibling of `models_ini`. |
-| `ik_llama_git_remote` | string | `"https://github.com/ikawrakow/ik_llama.cpp"` | Remote used to clone/update ik_llama. |
-| `ik_llama_cmake_flags` | object | `{}` | Persisted CMake build flags for the ik_llama build. |
 | `auto_load_model` | string | `""` | Model id to load automatically on launch. Empty string disables auto-load. |
 | `pi_bin` | string | `""` | The pi coding agent: a `.js` entry, a package directory or a binary. Empty resolves the copy LlamaForge installed, then `PATH`. See [Connecting Coding Agents](agents.md). |
 | `presets` | object | `{}` | Named knob sets: `{name: {knob: value}}`, managed from the dashboard. |

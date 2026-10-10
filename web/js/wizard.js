@@ -26,8 +26,7 @@ function wizEngine(body) {
     <p>LlamaForge drives llama.cpp. How do you want to get it?</p>
     <label><input type="radio" name="eng" value="prebuilt" checked> ${t("Download the official build for this PC")}
       <span class="note" style="display:inline;margin:0">(recommended, about a minute, no compiler)</span></label><br>
-    <label><input type="radio" name="eng" value="have"> ${t("I already have llama-server built")}</label><br>
-    <label><input type="radio" name="eng" value="source"> ${t("Build from source (Build tab, needs CMake + a compiler)")}</label>
+    <label><input type="radio" name="eng" value="have"> ${t("I already have llama-server built")}</label>
     <div id="wiz-engine-card" style="margin-top:10px"></div></div>`);
   const card = $("#wiz-engine-card");
   const sync = () => {

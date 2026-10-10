@@ -1,13 +1,9 @@
 {
-  "llama_src": "C:/path/to/llama.cpp",
-  "build_dir": "C:/path/to/llama.cpp/build",
-  "server_bin": "C:/path/to/llama.cpp/build/bin/Release/llama-server.exe",
+  "server_bin": "C:/path/to/llama-server(.exe)",
   "models_ini": "./models.ini",
   "model_dirs": [],
   "router_port": 8080,
   "panel_port": 8090,
   "router_host": "127.0.0.1",
-  "router_api_key": "",
-  "cmake_flags": {},
-  "git_remote": "https://github.com/ggml-org/llama.cpp"
+  "router_api_key": ""
 }

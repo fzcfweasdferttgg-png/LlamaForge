@@ -8,8 +8,7 @@ tests pin the checks that happen *before* we shell out.
 import conftest_paths  # noqa: F401
 import json, os, tempfile, types, unittest
 
-import builder, config, osplat, procs, router_ctl
-from builder import BuildManager
+import config, osplat, procs, router_ctl
 
 
 class _ConfigTempCase(unittest.TestCase):
@@ -146,43 +145,6 @@ class RouterPortConflictTest(unittest.TestCase):
         ok, err = router_ctl.start("", "m.ini", 8080, "127.0.0.1", "", self.tmp)
         self.assertFalse(ok)
         self.assertIn("server_bin", err)
-
-
-class BuildPathValidationTest(unittest.TestCase):
-    """With server_bin blank (the intended first-run state) Rebuild ran
-    `cmake -B  -S ` and surfaced CMake's own 'No build directory specified'."""
-
-    def test_empty_source_is_rejected(self):
-        err = BuildManager.validate_paths("", "/b", isdir=lambda p: True)
-        self.assertTrue(err)
-        self.assertIn("source", err.lower())
-
-    def test_empty_build_dir_is_rejected(self):
-        err = BuildManager.validate_paths("/s", "", isdir=lambda p: True)
-        self.assertTrue(err)
-        self.assertIn("build", err.lower())
-
-    def test_nonexistent_source_is_rejected(self):
-        err = BuildManager.validate_paths("/nope", "/b", isdir=lambda p: False)
-        self.assertTrue(err)
-        self.assertIn("/nope", err)
-
-    def test_valid_paths_pass(self):
-        self.assertEqual(BuildManager.validate_paths("/s", "/b", isdir=lambda p: True), "")
-
-    def test_build_dir_need_not_exist_yet(self):
-        """cmake creates -B itself; only the source tree must already be there."""
-        self.assertEqual(
-            BuildManager.validate_paths("/s", "/b", isdir=lambda p: p == "/s"), "")
-
-    def test_run_build_fails_fast_without_invoking_cmake(self):
-        bm = BuildManager(tempfile.mkdtemp())
-        calls = []
-        bm._stream = lambda cmd, cwd=None: calls.append(cmd) or 0
-        bm.run_build("", "", {}, pull=False)
-        self.assertEqual(calls, [], "invoked cmake despite unset paths")
-        self.assertEqual(bm.state["phase"], "failed")
-        self.assertIn("source", bm.tail().lower())
 
 
 class PathRefreshTest(unittest.TestCase):

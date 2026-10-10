@@ -21,8 +21,6 @@ def build(repo_root, llama_src=None, windows=None):
     llama_src = os.path.abspath(os.path.expanduser(llama_src))
     build_dir = os.path.join(llama_src, "build")
     return {
-        "llama_src": llama_src,
-        "build_dir": build_dir,
         "server_bin": _server_bin(build_dir, windows=windows),
         "models_ini": os.path.join(repo_root, "models.ini"),
         "model_dirs": [],
@@ -30,8 +28,6 @@ def build(repo_root, llama_src=None, windows=None):
         "panel_port": 8090,
         "router_host": "127.0.0.1",
         "router_api_key": "",
-        "cmake_flags": {},
-        "git_remote": "https://github.com/ggml-org/llama.cpp",
     }
 
 
