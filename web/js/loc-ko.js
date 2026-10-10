@@ -250,6 +250,7 @@ export default {
   "Primary + reserve": "기본 + 예비",
   "Profile deleted": "프로필 삭제됨",
   "Profiles": "프로필",
+  "dropped knobs this engine does not know: {keys}": "이 엔진이 모르는 노브는 버려졌습니다: {keys}",
   "Prompt": "프롬프트",
   "RAM GB/s": "RAM GB/s",
   "READY": "준비됨",

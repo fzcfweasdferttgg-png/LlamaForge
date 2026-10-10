@@ -14,6 +14,7 @@ This page summarizes the most recent additions to LlamaForge. Each entry links t
 - **Building from source and the vLLM backend are removed** in this build: the panel downloads and drives prebuilt engines only.
 - **Web UI localization.** The interface speaks English, Russian, Japanese, Korean and Simplified Chinese, picked in the topbar beside the engine badge.
 - **Trimmed.** Chat, Voice, Embers, the Context wiki, the Help viewer, the topbar clock and the credit banner are cut from this build.
+- **Profiles per engine.** Launch profiles are separated by engine family (llama.cpp, ik_llama.cpp, beellama.cpp) because the engines take different launch flags: the profile strip is grouped by engine, an unpinned profile refuses to launch on another engine, and preset keys its engine doesn't know are dropped and listed in the launch report.
 
 ## v0.16: several models at once, an MCP server
 

@@ -19,7 +19,8 @@ class ProfileStore(unittest.TestCase):
     def test_save_read_delete(self):
         config.save_profile("coder", {"model": "qwen", "preset": "coding", "engine": "b11300-cuda"})
         self.assertEqual(config.get_profiles()["coder"],
-                         {"model": "qwen", "backend": "llamacpp", "preset": "coding", "engine": "b11300-cuda"})
+                         {"model": "qwen", "backend": "llamacpp", "preset": "coding",
+                          "engine": "b11300-cuda", "family": ""})
         self.assertTrue(config.delete_profile("coder"))
         self.assertFalse(config.delete_profile("coder"))
         self.assertEqual(config.get_profiles(), {})
@@ -27,7 +28,14 @@ class ProfileStore(unittest.TestCase):
     def test_optional_fields_default_blank(self):
         config.save_profile("plain", {"model": "gemma"})
         self.assertEqual(config.get_profiles()["plain"],
-                         {"model": "gemma", "backend": "llamacpp", "preset": "", "engine": ""})
+                         {"model": "gemma", "backend": "llamacpp", "preset": "",
+                          "engine": "", "family": ""})
+
+    def test_family_is_stored_and_validated(self):
+        config.save_profile("bee", {"model": "m", "family": "beellama"})
+        self.assertEqual(config.get_profiles()["bee"]["family"], "beellama")
+        with self.assertRaises(ValueError):
+            config.save_profile("bad", {"model": "m", "family": "vllm"})
 
     def test_name_and_model_required(self):
         with self.assertRaises(ValueError):
@@ -69,13 +77,18 @@ class Plan(unittest.TestCase):
             json.dump({"tag": name.split("-")[0], "installed_at": at}, f)
         return d
 
-    def plan(self, **p):
+    def _tag(self, name, fam):
+        i = next(x for x in self.installs if os.path.basename(x["dir"]) == name)
+        i["engine"] = fam
+
+    def plan(self, known=None, **p):
         prof = dict({"model": "qwen", "backend": "llamacpp", "preset": "", "engine": ""}, **p)
-        return profiles.plan(prof, self.installs, self.presets)
+        return profiles.plan(prof, self.installs, self.presets, known=known)
 
     def test_plain_profile_just_loads(self):
-        self.assertEqual(self.plan(), {"model": "qwen", "backend": "llamacpp",
-                                       "switch_bin": None, "settings": None})
+        self.assertEqual(self.plan(), {"model": "qwen", "backend": "llamacpp", "family": "llamacpp",
+                                       "target_bin": None, "switch_bin": None,
+                                       "settings": None, "dropped": []})
 
     def test_pinned_older_build_switches(self):
         self.assertEqual(self.plan(engine="b11000-cuda")["switch_bin"], self._bin(self.old))
@@ -93,6 +106,21 @@ class Plan(unittest.TestCase):
     def test_missing_preset_is_an_error(self):
         with self.assertRaisesRegex(ValueError, "nope"):
             self.plan(preset="nope")
+
+    def test_family_follows_the_pinned_build(self):
+        self._tag("b11000-cuda", "ikllama")
+        p = self.plan(engine="b11000-cuda")
+        self.assertEqual(p["family"], "ikllama")
+        self.assertEqual(p["target_bin"], self._bin(self.old))
+
+    def test_family_is_the_stored_one_without_a_pin(self):
+        self.assertEqual(self.plan(family="beellama")["family"], "beellama")
+        self.assertEqual(self.plan()["family"], "llamacpp")
+
+    def test_unknown_knobs_are_dropped_and_reported(self):
+        p = self.plan(preset="coding", known={"temp": ("temp", "float")})
+        self.assertEqual(p["settings"], {"temp": "0.2"})
+        self.assertEqual(p["dropped"], ["top-k"])
 
     def test_pinned_dirs(self):
         profs = {"a": {"engine": "b11000-cuda"}, "b": {"engine": ""}}
@@ -114,8 +142,10 @@ class LaunchRoute(unittest.TestCase):
         import routes
         from unittest import mock
         self.routes, self.calls = routes, []
-        prof = {"model": "qwen", "backend": "llamacpp", "preset": "coding", "engine": "b1-cuda"}
-        steps = {"model": "qwen", "backend": "llamacpp",
+        prof = {"model": "qwen", "backend": "llamacpp", "family": "llamacpp",
+                "preset": "coding", "engine": "b1-cuda"}
+        steps = {"model": "qwen", "backend": "llamacpp", "family": "llamacpp",
+                 "target_bin": "/e/b1-cuda/llama-server", "dropped": [],
                  "switch_bin": "/e/b1-cuda/llama-server", "settings": {"temp": "0.2"}}
         backend = mock.Mock()
         backend.load.side_effect = lambda mid: (self.calls.append(("load", mid)), (True, ""))[1]
@@ -124,9 +154,13 @@ class LaunchRoute(unittest.TestCase):
             (routes.config, "get_presets", {"return_value": {}}),
             (routes.profiles, "plan", {"return_value": steps}),
             (routes.prebuilt, "list_installs", {"return_value": []}),
+            (routes, "cfg", {"return_value": {"active_engine": "llamacpp", "server_bin": "",
+                                              "ik_llama_server_bin": "", "beellama_server_bin": ""}}),
+            (routes, "_knobs_for", {"return_value": None}),
             (routes, "_activate_prebuilt",
-             {"side_effect": lambda b: (self.calls.append(("engine", b)), (True, ""))[1]}),
-            (routes, "_wait_router", {"side_effect": lambda: (self.calls.append(("wait",)), True)[1]}),
+             {"side_effect": lambda engine, b: (self.calls.append(("engine", engine, b)), (True, ""))[1]}),
+            (routes, "_wait_router",
+             {"side_effect": lambda: (self.calls.append(("wait",)), True)[1]}),
             (routes, "_apply_knobs_and_reload",
              {"side_effect": lambda m, k: self.calls.append(("knobs", m, k))}),
         ]:
@@ -138,8 +172,30 @@ class LaunchRoute(unittest.TestCase):
     def test_switch_then_knobs_then_load(self):
         status, out = self.routes.post_profiles_launch(self.routes.Req(body={"name": "p"}))
         self.assertTrue(out["ok"], out)
-        self.assertEqual(self.calls, [("engine", "/e/b1-cuda/llama-server"), ("wait",),
+        self.assertEqual(self.calls, [("engine", "llamacpp", "/e/b1-cuda/llama-server"), ("wait",),
                                       ("knobs", "qwen", {"temp": "0.2"}), ("load", "qwen")])
+        self.assertEqual(out["dropped"], [])
+
+    def test_foreign_family_without_a_pin_is_refused(self):
+        self.routes.config.get_profiles.return_value = {"p":
+            {"model": "qwen", "backend": "beellama", "family": "beellama",
+             "preset": "", "engine": ""}}
+        self.routes.profiles.plan.return_value = \
+            {"model": "qwen", "backend": "beellama", "family": "beellama",
+             "target_bin": None, "dropped": [], "switch_bin": None, "settings": None}
+        status, out = self.routes.post_profiles_launch(self.routes.Req(body={"name": "p"}))
+        self.assertEqual((out["ok"], out["step"]), (False, "engine"))
+        self.assertEqual(self.calls, [])
+
+    def test_dropped_knobs_are_reported(self):
+        self.routes.profiles.plan.return_value = \
+            {"model": "qwen", "backend": "llamacpp", "family": "llamacpp",
+             "target_bin": "/e/b1-cuda/llama-server", "switch_bin": "/e/b1-cuda/llama-server",
+             "settings": {"temp": "0.2"}, "dropped": ["no-mmap"]}
+        status, out = self.routes.post_profiles_launch(self.routes.Req(body={"name": "p"}))
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["dropped"], ["no-mmap"])
+        self.assertEqual(out["family"], "llamacpp")
 
     def test_unknown_profile_is_404(self):
         with self.assertRaises(self.routes.ApiError):

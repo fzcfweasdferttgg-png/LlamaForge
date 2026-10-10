@@ -6,6 +6,7 @@ nothing is hardcoded. On a fresh machine, bootstrap writes config.json.
 import copy, json, os, re, threading
 
 import atomicio, gguf, network_policy
+from profiles import FAMILIES
 
 ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG    = os.path.join(ROOT, "config.json")
@@ -484,6 +485,7 @@ def save_profile(name, prof):
     prof = prof or {}
     model = str(prof.get("model") or "").strip()
     engine = str(prof.get("engine") or "").strip()
+    family = str(prof.get("family") or "").strip()
     if not name:
         raise ValueError("profile name is required")
     if not model:
@@ -491,10 +493,12 @@ def save_profile(name, prof):
     if engine and (engine != os.path.basename(engine) or engine in (".", "..")
                    or "/" in engine or "\\" in engine):
         raise ValueError(f"not an engine build name: {engine!r}")
+    if family and family not in FAMILIES:
+        raise ValueError(f"unknown engine family: {family!r}")
     clean = {"model": model,
              "backend": str(prof.get("backend") or "llamacpp").strip(),
              "preset": str(prof.get("preset") or "").strip(),
-             "engine": engine}
+             "engine": engine, "family": family}
     with _LOCK:
         cfg = load()
         profiles = cfg.get("profiles")

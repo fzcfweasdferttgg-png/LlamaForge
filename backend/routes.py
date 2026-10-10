@@ -1137,7 +1137,9 @@ def _slots_on(c=None):
 def _installs(c=None):
     out = []
     for engine in prebuilt.ENGINE_DIRS:
-        out.extend(prebuilt.list_installs(engines_dir(engine), _active_server_bin(c)))
+        for i in prebuilt.list_installs(engines_dir(engine), _active_server_bin(c)):
+            i["engine"] = engine          # family tag: profiles stay per engine
+            out.append(i)
     return out
 
 
@@ -1471,8 +1473,12 @@ def post_gateway_stop(req):
 
 
 def post_profiles_save(req):
+    prof = req.body.get("profile") or {}
+    # family is derived (the pinned build's family wins), so a stored profile
+    # can never claim a family its build doesn't belong to
+    prof = dict(prof, family=profiles.family(prof, _installs()))
     try:
-        profs = config.save_profile(req.body.get("name", ""), req.body.get("profile"))
+        profs = config.save_profile(req.body.get("name", ""), prof)
     except ValueError as e:
         raise ApiError(400, str(e))
     return 200, {"ok": True, "profiles": profs}
@@ -1500,9 +1506,14 @@ def post_profiles_launch(req):
     prof = config.get_profiles().get(name)
     if prof is None:
         raise ApiError(404, f"unknown profile: {name}")
+    installs = _installs()
+    fam = profiles.family(prof, installs)
+    # filter the preset against the engine the profile will actually run on:
+    # its pinned build, else the active build of its family
+    sbin = profiles.target_bin(prof, installs) or cfg().get(ENGINE_BIN_KEYS[fam], "")
     try:
-        p = profiles.plan(prof, _installs(),
-                          config.get_presets())
+        p = profiles.plan(prof, installs, config.get_presets(),
+                          known=_knobs_for(sbin))
     except ValueError as e:
         return 200, {"ok": False, "step": "plan", "error": str(e)}
     if prof.get("source") == "recipe" and p["settings"] is not None:
@@ -1511,18 +1522,26 @@ def post_profiles_launch(req):
             p["settings"] = recipes.clean(p["settings"], _recipe_knobs())[0]
         except ApiError as e:
             return 200, {"ok": False, "step": "plan", "error": e.message}
+    active = cfg().get("active_engine") or "llamacpp"
+    if not prof.get("engine") and fam != active:
+        # an unpinned profile follows updates of its own family only; another
+        # family's launch flags are not its problem
+        return 200, {"ok": False, "step": "engine", "family": fam,
+                     "error": f"this profile targets {fam} builds but {active} is active - "
+                              f"pin a {fam} build to the profile or switch the engine on the Engines tab"}
     if p["switch_bin"]:
-        ok, err = _activate_prebuilt(p["switch_bin"])
+        ok, err = _activate_prebuilt(fam, p["switch_bin"])
         if not ok:
-            return 200, {"ok": False, "step": "engine", "error": err}
+            return 200, {"ok": False, "step": "engine", "family": fam, "error": err}
         if not _wait_router():
-            return 200, {"ok": False, "step": "engine",
+            return 200, {"ok": False, "step": "engine", "family": fam,
                          "error": "the router didn't come back on the pinned build - see the router log"}
     if p["settings"] is not None:
         _apply_knobs_and_reload(p["model"], p["settings"])
     ok, err = REGISTRY.for_model(p["model"], p["backend"]).load(p["model"])
     return 200, {"ok": ok, "step": "load", "error": err,
-                 "switched_engine": bool(p["switch_bin"]), "model": p["model"]}
+                 "switched_engine": bool(p["switch_bin"]), "model": p["model"],
+                 "family": fam, "dropped": p.get("dropped") or []}
 
 
 def post_profiles_export(req):
@@ -1558,6 +1577,19 @@ def _known_knobs():
     (router binary missing): then only canonical allowlisted names pass."""
     try:
         return recipes.knob_index(schema()) or None
+    except Exception:
+        return None
+
+
+def _knobs_for(sbin):
+    """knob_index of one binary's own --help - the launch-profile knob filter
+    checks against the engine the profile will actually run on. None when the
+    help can't be read (then nothing is filtered)."""
+    if not sbin:
+        return None
+    try:
+        items = argspec.parse_help(router_ctl.help_text(sbin))
+        return recipes.knob_index({"groups": [{"knobs": items}]}) or None
     except Exception:
         return None
 
@@ -1613,10 +1645,12 @@ def post_profiles_import(req):
     if r["settings"]:
         preset = recipes.unique_name(r["name"], config.get_presets())
         config.save_preset(preset, r["settings"])
-    engine = recipes.match_engine(r["engine"], _installs())
+    inst = _installs()
+    engine = recipes.match_engine(r["engine"], inst)
     name = recipes.unique_name(r["name"], config.get_profiles())
-    config.save_profile(name, {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine,
-                               "source": "recipe"})
+    prof = {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine,
+            "source": "recipe"}
+    config.save_profile(name, dict(prof, family=profiles.family(prof, inst)))
     wanted = r["engine"] and not engine
     return 200, {"ok": True, "name": name, "model": local, "preset": preset, "engine": engine,
                  "engine_missing": f"{r['engine']['tag']} {r['engine']['variant']}".strip() if wanted else "",

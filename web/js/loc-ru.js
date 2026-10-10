@@ -250,6 +250,7 @@ export default {
   "Primary + reserve": "Основная + резервная",
   "Profile deleted": "Профиль удалён",
   "Profiles": "Профили",
+  "dropped knobs this engine does not know: {keys}": "отброшены ключи, неизвестные этому движку: {keys}",
   "Prompt": "Промпт",
   "RAM GB/s": "RAM GB/s",
   "READY": "ГОТОВО",

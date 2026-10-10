@@ -18,19 +18,34 @@ function describe(p) {
     .filter(Boolean).join(" · ");
 }
 
+function familyOf(p) {
+  // legacy profiles carry no family: fall back to the backend they saved from
+  return p.family || p.backend || "llamacpp";
+}
+
+const FAM_LABEL = {llamacpp: "llama.cpp", ikllama: "ik_llama.cpp", beellama: "beellama.cpp"};
+
 function render() {
   const el = $("#profiles"); if (!el) return;
   const P = cfgOf().profiles || {};
   const sig = JSON.stringify(P);
   if (sig === shownSig) return;          // the 4 s poll shouldn't churn the DOM
   shownSig = sig;
-  const names = Object.keys(P).sort();
+  // profiles are separated by engine family: the engines take different flags
+  const active = cfgOf().active_engine || "llamacpp";
+  const order = [active, ...Object.keys(FAM_LABEL).filter(f => f !== active)];
+  const groups = order
+    .map(f => [f, Object.keys(P).filter(n => familyOf(P[n]) === f).sort()])
+    .filter(([, names]) => names.length);
+  const chip = n => `<span class="pchip" data-prof-launch="${esc(n)}" title="launch: ${esc(describe(P[n]))}">`
+    + `&#9654; ${esc(n)}`
+    + `<span class="px" data-prof-share="${esc(n)}" title="${t("share as a recipe")}">&#8599;</span>`
+    + `<span class="px" data-prof-del="${esc(n)}" title="${t("delete profile")}">&times;</span></span>`;
   setHTML(el, `<div class="presetbar profbar">
     <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">${t("Profiles")}</span>
-    ${names.map(n => `<span class="pchip" data-prof-launch="${esc(n)}" title="launch: ${esc(describe(P[n]))}">`
-      + `&#9654; ${esc(n)}`
-      + `<span class="px" data-prof-share="${esc(n)}" title="${t("share as a recipe")}">&#8599;</span>`
-      + `<span class="px" data-prof-del="${esc(n)}" title="${t("delete profile")}">&times;</span></span>`).join("")}
+    ${groups.map(([f, names]) => `<span class="famgroup" style="display:inline-flex;gap:4px;align-items:center">`
+      + `<b class="famtag" style="font-size:10px;letter-spacing:.05em;color:var(--dim);text-transform:uppercase">${esc(FAM_LABEL[f])}</b>`
+      + names.map(chip).join("") + `</span>`).join("")}
     <span class="pchip" data-prof-gallery title="tested setups shared by the community"><span class="g g-list" aria-hidden="true">&#9776;</span> ${t("browse recipes")}</span>
     <span class="pchip" data-prof-import title="${t("paste a recipe someone shared")}">+ import recipe</span>
   </div>`);
@@ -43,7 +58,12 @@ async function launch(name) {
   toast(p.engine ? `Launching ${name} (switching engine if needed)...` : `Launching ${name}...`, "ok");
   try {
     const r = await api("/api/profiles/launch", {name});
-    if (r.ok) toast(`${name}: ${r.model} is loading${r.switched_engine ? " on " + p.engine : ""}`, "ok");
+    if (r.ok) {
+      let msg = `${name}: ${r.model} is loading${r.switched_engine ? " on " + p.engine : ""}`;
+      if ((r.dropped || []).length)
+        msg += ` - ${t("dropped knobs this engine does not know: {keys}", {keys: r.dropped.join(", ")})}`;
+      toast(msg, "ok");
+    }
     else toast(`${name}: ${r.step === "engine" ? "engine switch failed - " : ""}${r.error || "launch failed"}`, "err");
   } finally {
     busy = false;
@@ -53,10 +73,11 @@ async function launch(name) {
 
 async function openSave({ id, backend }) {
   const c = cfgOf();
-  const engineKey = backend || c.active_engine || "llamacpp";
-  const bound = ((c.preset_bindings || {})[engineKey] || {})[id] || "";
+  // a profile belongs to the active engine family: its builds and its knobs
+  const family = c.active_engine || "llamacpp";
+  const bound = ((c.preset_bindings || {})[family] || {})[id] || "";
   let installs = [];
-  const r = await api("/api/engine/prebuilt");
+  const r = await api(`/api/engine/prebuilt?engine=${encodeURIComponent(family)}`);
   installs = (r && r.installs) || [];
   const base = id.split("/").pop().replace(/\.gguf$/i, "").slice(0, 40);
   const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
@@ -81,8 +102,8 @@ async function openSave({ id, backend }) {
   $("#prof-save").onclick = async () => {
     const name = nameEl.value.trim();
     if (!name) { toast(t("Name the profile"), "err"); return; }
-    const profile = { model: id, backend: backend || "llamacpp",
-      preset: ($("#prof-preset") || {}).value || "", engine: ($("#prof-engine") || {}).value || "" };
+    const profile = { model: id, backend: backend || "llamacpp", family,
+      preset: ($("#prof-preset") || {}).value || "", engine: $("#prof-engine") ? $("#prof-engine").value : "" };
     const r = await api("/api/profiles/save", {name, profile});
     if (r.ok) { toast(`Saved profile "${name}"`, "ok"); m.close(); emit("refresh", true); }
     else toast(r.error || t("save failed"), "err");

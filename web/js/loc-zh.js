@@ -250,6 +250,7 @@ export default {
   "Primary + reserve": "主 + 备用",
   "Profile deleted": "配置已删除",
   "Profiles": "配置",
+  "dropped knobs this engine does not know: {keys}": "已丢弃该引擎不认识的参数：{keys}",
   "Prompt": "提示词",
   "RAM GB/s": "内存 GB/s",
   "READY": "就绪",

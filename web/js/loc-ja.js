@@ -250,6 +250,7 @@ export default {
   "Primary + reserve": "プライマリ + リザーブ",
   "Profile deleted": "プロファイルを削除しました",
   "Profiles": "プロファイル",
+  "dropped knobs this engine does not know: {keys}": "このエンジンが知らないノブを破棄: {keys}",
   "Prompt": "プロンプト",
   "RAM GB/s": "RAM GB/s",
   "READY": "準備完了",
