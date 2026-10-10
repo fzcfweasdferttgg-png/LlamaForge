@@ -138,15 +138,14 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .side-spacer{flex:1}
 .side-settings{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--hair)}
 .side-settings .mode-toggle{margin-left:0}
-/* Column layout so the credit line can be pushed to the bottom instead of
-   floating under the last card on short tabs (Will-it-run was the worst case). */
+/* Column layout so the views stretch down the page instead of floating under
+   the last card on short tabs (Will-it-run was the worst case). */
 #content{min-width:0;padding:0 32px 26px;display:flex;flex-direction:column;min-height:100vh;position:relative;isolation:isolate}
 /* the only grid left: a faint band at the top, fading out under the wash */
 #content::before{content:"";position:absolute;inset:0 0 auto 0;height:340px;z-index:-1;pointer-events:none;
   background:var(--wash),linear-gradient(var(--grid) 1px,transparent 1px) 0 0/44px 44px,linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/44px 44px;
   -webkit-mask-image:linear-gradient(#000 30%,transparent);mask-image:linear-gradient(#000 30%,transparent)}
 #content .views{flex:1 0 auto;width:100%;max-width:1360px;margin:0 auto}
-#content .credit{margin-top:auto;padding-top:22px}
 .topbar{display:flex;align-items:center;gap:14px;
   padding:16px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:20px;position:sticky;top:0;z-index:5;
   background:var(--topbar-bg);-webkit-backdrop-filter:blur(10px) saturate(1.2);backdrop-filter:blur(10px) saturate(1.2)}
@@ -302,8 +301,6 @@ button:disabled{opacity:.4;cursor:not-allowed}
 @keyframes skel{50%{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.skel{animation:none}}
 .note{color:var(--dim);font-size:11px;margin-top:8px;line-height:1.6}
-.credit{color:var(--faint-2);font-size:10px;text-align:center;margin-top:40px;letter-spacing:.06em}
-.credit a{color:var(--dim)}
 /* quick-load button in the row header (#3) */
 .qbtn{font-family:var(--disp);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:10px;border:1px solid var(--hair);border-radius:var(--r-xs);background:var(--panel2);color:var(--ink);padding:5px 11px;cursor:pointer;white-space:nowrap}
 .qbtn:hover{border-color:var(--amber);color:var(--ink-strong)}
@@ -572,12 +569,6 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="view" id="view-build"><div class="skel">LOADING BUILD STATUS...</div></div>
   <div class="view" id="view-setup"><div class="skel">PROBING SYSTEM...</div></div>
   <div class="view" id="view-gateway"><div class="skel">LOADING GATEWAY...</div></div>
-  </div>
-  <div class="credit">
-    LlamaForge is an independent GUI wrapper. Inference by
-    <a href="https://github.com/ggml-org/llama.cpp" target="_blank">llama.cpp</a>
-    (MIT, (c) The ggml authors). Not affiliated with llama.cpp / ggml-org.
-    Useful? <a href="https://github.com/dadwritestech/LlamaForge" target="_blank" rel="noopener">&#9733; Star LlamaForge on GitHub</a>.
   </div>
 </main>
 <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>

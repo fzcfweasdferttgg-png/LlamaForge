@@ -182,7 +182,6 @@
 :root[data-skin="stowage"] #page-lede{display:block;color:var(--dim);font-size:15px;max-width:680px;line-height:1.45;margin-top:4px}
 :root[data-skin="stowage"] #engine-badge:empty{display:none}
 :root[data-skin="stowage"] #engine-badge{border-radius:0}
-:root[data-skin="stowage"] #content .credit{color:var(--faint);font-size:12px;letter-spacing:0;border-top:1px solid var(--hair);padding-top:14px}
 
 /* ---------- buttons, chips, tags ----------
    Element rules go through :where() so a component's own class rule still

@@ -157,7 +157,6 @@
 :root[data-skin="hearth"] #page-title::before{display:none}
 :root[data-skin="hearth"] #page-lede{display:block;color:var(--dim);font-size:15px;max-width:640px;line-height:1.5}
 :root[data-skin="hearth"] #engine-badge:empty{display:none}
-:root[data-skin="hearth"] #content .credit{color:var(--faint);font-size:11px;letter-spacing:0}
 
 /* ---------- buttons, chips, tags ----------
    Element-level rules go through :where() so they stay at element
