@@ -1,5 +1,7 @@
-// Primitives every view uses. Imports nothing, so it can never be part of a
-// cycle. Everything that builds markup lives downstream of esc().
+// Primitives every view uses. Imports only i18n (which itself imports
+// nothing), so it can never be part of a cycle. Everything that builds markup
+// lives downstream of esc().
+import { t } from "./i18n.js";
 export const $ = (s, e = document) => e.querySelector(s);
 export const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 
@@ -46,7 +48,7 @@ function askDialog(title, message, ok, danger, field) {
         <input name="answer" autocomplete="off" value="${esc(field.value || "")}"
           placeholder="${esc(field.placeholder || "")}"></label>` : ""}
       <div class="actions">
-        <button type="button" value="" data-ask-cancel>Cancel</button>
+        <button type="button" value="" data-ask-cancel>${t("Cancel")}</button>
         <button type="submit" value="ok" class="${danger ? "danger" : "primary"}">${esc(ok)}</button>
       </div>
     </form>`);
@@ -66,13 +68,13 @@ function askDialog(title, message, ok, danger, field) {
   });
 }
 
-/** await askYes("Remove it?", {title: "Remove profile", ok: "Remove", danger: true}) -> true/false */
-export function askYes(message, {title = "Are you sure?", ok = "OK", danger = false} = {}) {
+/** await askYes(t("Remove it?"), {title: t("Remove profile"), ok: t("Remove"), danger: true}) -> true/false */
+export function askYes(message, {title = t("Are you sure?"), ok = "OK", danger = false} = {}) {
   return askDialog(title, message, ok, danger, null);
 }
 
-/** await askText("Preset name", {placeholder: "coding"}) -> the trimmed text, or null */
-export function askText(label, {title = label, ok = "Save", value = "", placeholder = "", message = ""} = {}) {
+/** await askText(t("Preset name"), {placeholder: "coding"}) -> the trimmed text, or null */
+export function askText(label, {title = label, ok = t("Save"), value = "", placeholder = "", message = ""} = {}) {
   return askDialog(title, message, ok, false, {label, value, placeholder});
 }
 
@@ -98,12 +100,12 @@ export function fmtDur(s) {
 export function fmtAgo(ts) {
   if (!ts) return "never";
   const d = Date.now()/1000 - ts;
-  return d < 60 ? "just now" : d < 3600 ? Math.floor(d/60)+"m ago"
+  return d < 60 ? t("just now") : d < 3600 ? Math.floor(d/60)+"m ago"
        : d < 86400 ? Math.floor(d/3600)+"h ago" : Math.floor(d/86400)+"d ago";
 }
 export function agoText(secs) {
   secs = Math.max(0, Math.round(secs || 0));
-  return secs < 60 ? "just now" : secs < 3600 ? Math.floor(secs/60)+"m ago"
+  return secs < 60 ? t("just now") : secs < 3600 ? Math.floor(secs/60)+"m ago"
        : Math.floor(secs/3600)+"h ago";
 }
 

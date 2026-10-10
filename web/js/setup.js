@@ -1,6 +1,7 @@
 // Setup tab: prerequisites, detected hardware, drive scanning, startup options,
 // LAN access, the agent-connect panel, and vLLM/WSL installation.
 import { $, $$, esc, setHTML, api, toast, askYes } from "./core.js";
+import { t } from "./i18n.js";
 import { S, models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 import { applyPool } from "./slots.js";
@@ -53,9 +54,9 @@ function pollVllmSetup() {
     if (job.running) { if (msg) { msg.className = "msg work"; msg.textContent = "installing..."; } }
     else if (job.phase === "done") {
       if (msg) { msg.className = "msg ok"; msg.textContent = "installed"; }
-      clearInterval(vllmSetupPoll); toast("vLLM installed", "ok"); setTimeout(loadSetup, 1200);
+      clearInterval(vllmSetupPoll); toast(t("vLLM installed"), "ok"); setTimeout(loadSetup, 1200);
     } else if (job.phase === "failed") {
-      if (msg) { msg.className = "msg err"; msg.textContent = "install failed - see log"; }
+      if (msg) { msg.className = "msg err"; msg.textContent = t("install failed - see log"); }
       clearInterval(vllmSetupPoll);
     }
   };
@@ -70,61 +71,58 @@ function networkMarkup(net) {
   const checked = value => initialAction === value ? " checked" : "";
   const status = net.configured_security_status.replaceAll("_", " ");
   const remediation = net.remediation_required
-    ? `${net.message || "The stored network configuration must be repaired."}${
+    ? `${net.message || t("The stored network configuration must be repaired.")}${
         net.router_running
           ? " A listener occupies the configured port; its process identity and protection cannot be verified."
           : ""}`
     : "";
   const advisory = !net.remediation_required &&
     net.configured_security_status === "protected_legacy"
-    ? (net.message || "Rotate this legacy API key when convenient.") : "";
+    ? (net.message || t("Rotate this legacy API key when convenient.")) : "";
   return `<section class="card" id="network-access" aria-labelledby="network-title">
-    <h3 id="network-title">Network Access</h3>
+    <h3 id="network-title">${t("Network Access")}</h3>
     ${net.remediation_required ? `<div id="net-alert" class="net-alert" role="alert">
       ${esc(remediation)}
       <div class="actions">
-        <button type="button" id="net-remediate-generate">Secure with a generated key</button>
-        <button type="button" id="net-remediate-local">Return to local-only</button>
+        <button type="button" id="net-remediate-generate">${t("Secure with a generated key")}</button>
+        <button type="button" id="net-remediate-local">${t("Return to local-only")}</button>
       </div>
     </div>` : ""}
     ${advisory ? `<div id="net-advisory" class="note">${esc(advisory)}</div>` : ""}
     <div class="net-observation">
-      <p><b>Configured policy:</b> <span id="net-configured">${esc(status)}</span></p>
-      <p><b>Configured endpoint:</b> <span id="net-configured-endpoint">http://${
+      <p><b>${t("Configured policy:")}</b> <span id="net-configured">${esc(status)}</span></p>
+      <p><b>${t("Configured endpoint:")}</b> <span id="net-configured-endpoint">http://${
         esc(net.host)}:${esc(net.port)}/</span></p>
-      <p><b>Observed listener:</b> <span id="net-runtime">${
-        net.router_running ? "listening on the configured port" : "not listening"}</span></p>
-      <p class="note">A listening port does not prove process identity or authentication.
-        Convenience LAN URL: <b id="net-convenience-url">http://${
+      <p><b>${t("Observed listener:")}</b> <span id="net-runtime">${
+        net.router_running ? t("listening on the configured port") : t("not listening")}</span></p>
+      <p class="note">${t("A listening port does not prove process identity or authentication.\n        Convenience LAN URL:")} <b id="net-convenience-url">http://${
           esc(net.lan_ip || "<lan-ip>")}:${esc(net.port)}/</b></p>
     </div>
     <fieldset id="net-scope-group" aria-describedby="net-scope-help net-apply-error">
-      <legend>Access scope</legend>
+      <legend>${t("Access scope")}</legend>
       <label><input type="radio" name="net-scope" value="local"${
-        local ? " checked" : ""}> This computer only — recommended</label>
+        local ? " checked" : ""}> ${t("This computer only — recommended")}</label>
       <label><input type="radio" name="net-scope" value="lan"${
-        local ? "" : " checked"}> Devices on my local network</label>
-      <p class="note" id="net-scope-help">LAN access always requires a usable API key. Local access without one still runs keyed, with a key LlamaForge generates; <b>Client config</b> hands it to your apps.</p>
+        local ? "" : " checked"}> ${t("Devices on my local network")}</label>
+      <p class="note" id="net-scope-help">LAN access always requires a usable API key. Local access without one still runs keyed, with a key LlamaForge generates; <b>${t("Client config")}</b> hands it to your apps.</p>
     </fieldset>
     <fieldset id="net-auth-group" aria-describedby="net-auth-help net-apply-error">
-      <legend>Authentication</legend>
+      <legend>${t("Authentication")}</legend>
       <label><input type="radio" name="net-key-action" value="keep"${
-        checked("keep")} ${hasKey ? "" : "disabled"}> Keep the configured key</label>
+        checked("keep")} ${hasKey ? "" : "disabled"}> ${t("Keep the configured key")}</label>
       <label><input type="radio" name="net-key-action" value="generate"${
-        checked("generate")}> Generate a new strong key</label>
+        checked("generate")}> ${t("Generate a new strong key")}</label>
       <label><input type="radio" name="net-key-action" value="replace"${
-        checked("replace")}> Replace with a key I provide</label>
+        checked("replace")}> ${t("Replace with a key I provide")}</label>
       <label><input type="radio" name="net-key-action" value="clear"${
-        checked("clear")}> Remove the key (local-only)</label>
-      <p class="note" id="net-auth-help">Blank input never means keep or remove.
-        Rotating a key requires updating every router client after restart.</p>
+        checked("clear")}> ${t("Remove the key (local-only)")}</label>
+      <p class="note" id="net-auth-help">${t("Blank input never means keep or remove.\n        Rotating a key requires updating every router client after restart.")}</p>
       <div class="fld" id="net-replace-wrap" hidden>
-        <label for="net-replace-key">Replacement API key</label>
+        <label for="net-replace-key">${t("Replacement API key")}</label>
         <input id="net-replace-key" type="password" autocomplete="new-password"
                minlength="32" maxlength="256"
                aria-describedby="net-replace-help net-apply-error">
-        <div class="hint" id="net-replace-help">32–256 URL-safe characters:
-          letters, digits, dot, underscore, tilde, or hyphen.</div>
+        <div class="hint" id="net-replace-help">${t("32–256 URL-safe characters:\n          letters, digits, dot, underscore, tilde, or hyphen.")}</div>
       </div>
     </fieldset>
     <div class="actions">
@@ -134,13 +132,12 @@ function networkMarkup(net) {
     </div>
     <div id="net-apply-error" class="note" role="alert" hidden></div>
     <div id="net-generated" class="net-generated" hidden>
-      <div>Generated API key — copy it now</div>
-      <code id="net-generated-display" aria-label="Generated API key masked">••••••••••••••••</code>
-      <button type="button" id="net-reveal-generated" aria-pressed="false">Reveal for 30 seconds</button>
-      <button type="button" id="net-copy-generated">Copy</button>
-      <button type="button" id="net-dismiss-generated">Done</button>
-      <div class="note">Copy does not render plaintext. Reveal expires after 30 seconds.
-        Retry, Done, navigation, or Setup rerender clears this one-time value.</div>
+      <div>${t("Generated API key — copy it now")}</div>
+      <code id="net-generated-display" aria-label="${t("Generated API key masked")}">••••••••••••••••</code>
+      <button type="button" id="net-reveal-generated" aria-pressed="false">${t("Reveal for 30 seconds")}</button>
+      <button type="button" id="net-copy-generated">${t("Copy")}</button>
+      <button type="button" id="net-dismiss-generated">${t("Done")}</button>
+      <div class="note">${t("Copy does not render plaintext. Reveal expires after 30 seconds.\n        Retry, Done, navigation, or Setup rerender clears this one-time value.")}</div>
     </div>
   </section>`;
 }
@@ -155,7 +152,7 @@ function confirmNetworkChange(title, message, confirmLabel, generation) {
         <h3 id="net-confirm-title">${esc(title)}</h3>
         <p id="net-confirm-message">${esc(message)}</p>
         <div class="actions">
-          <button type="button" id="net-confirm-cancel">Cancel</button>
+          <button type="button" id="net-confirm-cancel">${t("Cancel")}</button>
           <button type="button" class="primary" id="net-confirm-accept">${
             esc(confirmLabel)}</button>
         </div>
@@ -228,8 +225,8 @@ async function pollNetworkRuntime(root, savedScope, generation) {
     if (!root.isConnected || !setupViewActive(generation)) return;
     latest = net;
     runtime.textContent = net.router_running
-      ? "listening on the configured port"
-      : "not listening";
+      ? t("listening on the configured port")
+      : t("not listening");
     if (net.router_running) {
       const protection = String(
         net.configured_security_status || "configured").replaceAll("_", " ");
@@ -247,7 +244,7 @@ async function pollNetworkRuntime(root, savedScope, generation) {
     status.textContent = "";
     error.hidden = false;
     error.textContent = `${networkFailureMessage(latest?.access_scope || savedScope)} ` +
-      "Check Router Log for the launch error, then retry Apply.";
+      t("Check Router Log for the launch error, then retry Apply.");
   }
 }
 
@@ -267,7 +264,7 @@ function wireNetwork(net, generation) {
 
   const hideGeneratedPanel = () => {
     generatedDisplay.textContent = "";
-    generatedDisplay.setAttribute("aria-label", "Generated API key cleared");
+    generatedDisplay.setAttribute("aria-label", t("Generated API key cleared"));
     generatedPanel.hidden = true;
     generatedDismiss.onclick = null;
   };
@@ -285,7 +282,7 @@ function wireNetwork(net, generation) {
       revealTimer = null;
       privateKey.value = "";
       generatedDisplay.textContent = "";
-      generatedDisplay.setAttribute("aria-label", "Generated API key cleared");
+      generatedDisplay.setAttribute("aria-label", t("Generated API key cleared"));
       generatedReveal.onclick = null;
       generatedCopy.onclick = null;
       generatedDismiss.onclick = null;
@@ -300,8 +297,8 @@ function wireNetwork(net, generation) {
       revealTimer = null;
       privateKey.value = "";
       generatedDisplay.textContent = "••••••••••••••••";
-      generatedDisplay.setAttribute("aria-label", "Generated API key expired");
-      generatedReveal.textContent = "Expired";
+      generatedDisplay.setAttribute("aria-label", t("Generated API key expired"));
+      generatedReveal.textContent = t("Expired");
       generatedReveal.setAttribute("aria-pressed", "false");
       generatedReveal.disabled = true;
       generatedCopy.disabled = true;
@@ -313,8 +310,8 @@ function wireNetwork(net, generation) {
     };
 
     generatedDisplay.textContent = "••••••••••••••••";
-    generatedDisplay.setAttribute("aria-label", "Generated API key masked");
-    generatedReveal.textContent = "Reveal for 30 seconds";
+    generatedDisplay.setAttribute("aria-label", t("Generated API key masked"));
+    generatedReveal.textContent = t("Reveal for 30 seconds");
     generatedReveal.setAttribute("aria-pressed", "false");
     generatedReveal.disabled = false;
     generatedCopy.disabled = false;
@@ -324,15 +321,15 @@ function wireNetwork(net, generation) {
       if (!privateKey.value) return;
       navigator.clipboard.writeText(privateKey.value).then(() => {
         status.className = "msg ok";
-        status.textContent = "Generated key copied.";
+        status.textContent = t("Generated key copied.");
       });
     };
     generatedReveal.onclick = () => {
       if (!privateKey.value || revealTimer !== null) return;
       generatedDisplay.textContent = privateKey.value;
       generatedDisplay.setAttribute(
-        "aria-label", "Generated API key revealed temporarily");
-      generatedReveal.textContent = "Revealed — expires in 30 seconds";
+        "aria-label", t("Generated API key revealed temporarily"));
+      generatedReveal.textContent = t("Revealed — expires in 30 seconds");
       generatedReveal.setAttribute("aria-pressed", "true");
       generatedReveal.disabled = true;
       revealTimer = setTimeout(expire, 30_000);
@@ -418,43 +415,43 @@ function wireNetwork(net, generation) {
     const keyAction = action();
     if (desiredScope === "lan" && keyAction === "keep" && !net.has_api_key) {
       const generate = $('[name="net-key-action"][value="generate"]', root);
-      showError("LAN access requires Generate or a valid replacement key.", generate);
+      showError(t("LAN access requires Generate or a valid replacement key."), generate);
       return;
     }
     if (desiredScope === "lan" && keyAction === "clear") {
       const generate = $('[name="net-key-action"][value="generate"]', root);
-      showError("A key cannot be removed while LAN access is selected.", generate);
+      showError(t("A key cannot be removed while LAN access is selected."), generate);
       return;
     }
     const body = {access_scope: desiredScope, key_action: keyAction};
     if (keyAction === "replace") {
       const replacement = replaceInput.value.trim();
       if (!STRONG_NETWORK_KEY.test(replacement)) {
-        showError("Enter a 32–256 character URL-safe replacement key.",
+        showError(t("Enter a 32–256 character URL-safe replacement key."),
                   replaceInput);
         return;
       }
       body.api_key = replacement;
       if (net.has_api_key && !await confirmNetworkChange(
-          "Rotate router API key",
-          "Existing clients will stop authenticating after restart until you update them.",
-          "Rotate key", generation)) return;
+          t("Rotate router API key"),
+          t("Existing clients will stop authenticating after restart until you update them."),
+          t("Rotate key"), generation)) return;
     }
     if (keyAction === "generate" && net.has_api_key &&
         !await confirmNetworkChange(
-          "Rotate router API key",
-          "Generating a new key immediately invalidates the current key after restart.",
-          "Generate and rotate", generation)) return;
+          t("Rotate router API key"),
+          t("Generating a new key immediately invalidates the current key after restart."),
+          t("Generate and rotate"), generation)) return;
     if (keyAction === "clear" && net.has_api_key && !await confirmNetworkChange(
-        "Remove router API key",
-        "Local clients will no longer need a key. LAN mode cannot run without one.",
-        "Remove key", generation)) return;
+        t("Remove router API key"),
+        t("Local clients will no longer need a key. LAN mode cannot run without one."),
+        t("Remove key"), generation)) return;
 
     if (!setupViewActive(generation)) return;
 
     apply.disabled = true;
     status.className = "msg work";
-    status.textContent = "Saving safe policy and restarting router...";
+    status.textContent = t("Saving safe policy and restarting router...");
     try {
       const r = await api("/api/network", body);
       let issued = r.generated_api_key ? String(r.generated_api_key) : "";
@@ -480,15 +477,15 @@ function wireNetwork(net, generation) {
         error.hidden = false;
         error.textContent = `${networkFailureMessage(
           r.access_scope, Boolean(r.router_running))} ${
-          r.error || "Open Router Log for details, then retry Apply."}`;
+          r.error || t("Open Router Log for details, then retry Apply.")}`;
         $("#net-runtime", root).textContent = r.router_running
-          ? "listener present / not verified" : "not running / not verified";
+          ? t("listener present / not verified") : t("not running / not verified");
         return;
       }
       await pollNetworkRuntime(root, r.access_scope, generation);
     } catch (requestError) {
       if (root.isConnected && setupViewActive(generation)) {
-        showError("The network change could not be completed.", apply);
+        showError(t("The network change could not be completed."), apply);
       }
     } finally {
       if (root.isConnected && setupViewActive(generation)) apply.disabled = false;
@@ -502,7 +499,7 @@ function wireNetwork(net, generation) {
 // config). Changing one of POOL_KEYS restarts the router, which unloads every
 // model, so the card sends only what changed and asks first when that bites.
 const POOL_KEYS = ["multi_model", "slot_cap", "slot_autoload"];
-const UP = new Set(["loaded", "sleeping", "loading"]);
+const UP = new Set(["loaded", "sleeping", t("loading")]);
 const slotState = () => (S.STATE && S.STATE.slots) || null;
 
 function slotsMarkup() {
@@ -512,15 +509,15 @@ function slotsMarkup() {
   const box = (id, on) => `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
   const num = (id, min, max, step, val, w) =>
     `<input id="${id}" type="number" min="${esc(min)}" max="${esc(max)}" step="${esc(step)}" value="${esc(val)}" style="width:${w}px">`;
-  return `<div class="card" id="slots-card"><h3>Multi-model <span style="color:var(--dim);font-weight:normal;font-size:11px">(llama.cpp)</span></h3>
-      ${sl.engine_ok ? "" : `<div class="slotnote warn"><b>Not with this engine:</b> ik_llama has no router mode, so several models at once needs llama.cpp. The settings are kept for when you switch back.</div>`}
-      ${sl.restart_needed ? `<div class="slotnote warn"><b>On, but not running:</b> the router up now holds one model at a time. <button class="qbtn" id="mm-apply" title="restart the router with the multi-model pool; loaded models are unloaded">Restart router</button></div>` : ""}
-      <div class="kv"><label class="k" for="mm-on">load several models at once</label><span class="v">${box("mm-on", st.multi_model)}</span></div>
-      <div class="kv"><label class="k" for="mm-cap">at most this many</label><span class="v">${num("mm-cap", lo, hi, 1, st.slot_cap, 70)}</span></div>
-      <div class="kv"><label class="k" for="mm-head">VRAM kept free per GPU (MiB)</label><span class="v">${num("mm-head", 0, 32768, 256, st.slot_headroom_mib, 90)}</span></div>
-      <div class="kv"><label class="k" for="mm-auto">let client requests load models</label><span class="v">${box("mm-auto", st.slot_autoload)}</span></div>
-      <div class="actions"><button id="mm-save">Save</button><span class="msg" id="mm-msg"></span></div>
-      <div class="note">A model loads only when the VRAM math says it fits beside the ones already up, with the headroom above left free on every GPU it touches. The <b>main</b> model (the one you work with) gets the fastest GPU that fits; <b>workers</b> go on the GPUs the main doesn't use. Sizes are predicted from the GGUF until a load measures them.</div>
+  return `<div class="card" id="slots-card"><h3>${t("Multi-model")} <span style="color:var(--dim);font-weight:normal;font-size:11px">(llama.cpp)</span></h3>
+      ${sl.engine_ok ? "" : `<div class="slotnote warn"><b>${t("Not with this engine:")}</b> ${t("ik_llama has no router mode, so several models at once needs llama.cpp. The settings are kept for when you switch back.")}</div>`}
+      ${sl.restart_needed ? `<div class="slotnote warn"><b>${t("On, but not running:")}</b> ${t("the router up now holds one model at a time.")} <button class="qbtn" id="mm-apply" title="restart the router with the multi-model pool; loaded models are unloaded">${t("Restart router")}</button></div>` : ""}
+      <div class="kv"><label class="k" for="mm-on">${t("load several models at once")}</label><span class="v">${box("mm-on", st.multi_model)}</span></div>
+      <div class="kv"><label class="k" for="mm-cap">${t("at most this many")}</label><span class="v">${num("mm-cap", lo, hi, 1, st.slot_cap, 70)}</span></div>
+      <div class="kv"><label class="k" for="mm-head">${t("VRAM kept free per GPU (MiB)")}</label><span class="v">${num("mm-head", 0, 32768, 256, st.slot_headroom_mib, 90)}</span></div>
+      <div class="kv"><label class="k" for="mm-auto">${t("let client requests load models")}</label><span class="v">${box("mm-auto", st.slot_autoload)}</span></div>
+      <div class="actions"><button id="mm-save">${t("Save")}</button><span class="msg" id="mm-msg"></span></div>
+      <div class="note">${t("A model loads only when the VRAM math says it fits beside the ones already up, with the headroom above left free on every GPU it touches. The")} <b>main</b> model (the one you work with) gets the fastest GPU that fits; <b>workers</b> ${t("go on the GPUs the main doesn't use. Sizes are predicted from the GGUF until a load measures them.")}</div>
       <div class="note">Turning it on or off, the count, and client loading restart the router, which unloads every model; the headroom applies from the next load. With client loading on, a request for an unloaded model loads it without the VRAM check (llama.cpp drops the least recently used model when the count is full).</div>
     </div>`;
 }
@@ -541,17 +538,17 @@ function wireSlots(generation) {
     if (!Number.isInteger(want.slot_cap) || want.slot_cap < lo || want.slot_cap > hi)
       return msg(`the count must be ${lo}-${hi}`, "err");
     if (!Number.isInteger(want.slot_headroom_mib) || want.slot_headroom_mib < 0 || want.slot_headroom_mib > 32768)
-      return msg("headroom must be 0-32768 MiB", "err");
+      return msg(t("headroom must be 0-32768 MiB"), "err");
     const changed = Object.fromEntries(Object.entries(want).filter(([k, v]) => v !== saved[k]));
-    if (!Object.keys(changed).length) return msg("nothing changed", "ok");
+    if (!Object.keys(changed).length) return msg(t("nothing changed"), "ok");
     const up = models().filter(m => UP.has(m.status)).length;
     if (POOL_KEYS.some(k => k in changed) && up &&
         !(await askYes(`Saving restarts the router, which unloads the ${up} loaded model${up > 1 ? "s" : ""}.`,
-          {title: "Restart the router", ok: "Save and restart", danger: true}))) return;
+          {title: t("Restart the router"), ok: t("Save and restart"), danger: true}))) return;
     msg("saving...", "work");
     const r = await api("/api/config", changed).catch(() => null);
     if (!setupViewActive(generation)) return;
-    if (!r || r.error) return msg((r && r.error) || "backend unreachable", "err");
+    if (!r || r.error) return msg((r && r.error) || t("backend unreachable"), "err");
     (r.applied || []).forEach(k => { saved[k] = changed[k]; });
     if (r.rejected) msg(`refused: ${r.rejected.join(", ")}`, "err");
     else if (r.router && r.router.error) msg(`saved, but the router didn't restart: ${r.router.error}`, "err");
@@ -563,52 +560,52 @@ function wireSlots(generation) {
 export async function loadSetup() {
   const generation = invalidateSetup();
   const v = $("#view-setup");
-  setHTML(v, `<div class="skel">PROBING SYSTEM...</div>`);
+  setHTML(v, `<div class="skel">${t("PROBING SYSTEM...")}</div>`);
   const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup"),
     S.STATE ? null : api("/api/state").then(st => { if (st && !st.error) S.STATE = st; }, () => {})]);
   if (!setupViewActive(generation)) return;
   const p = s.prereqs, hw = s.hardware;
   const toolRow = (name, t) => `<div class="kv"><span class="k">${esc(name)}</span>
-    <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
-    ${!t.present&&t.installable?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">Install</button>`:""}
+    <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):t("MISSING")}
+    ${!t.present&&t.installable?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">${t("Install")}</button>`:""}
     ${!t.present&&!t.installable&&t.hint?`<div class="note" style="margin-top:4px">${esc(t.hint)}</div>`:""}</span></div>`;
   const gpuLines = (hw.gpus||[]).map(g => `<div class="kv"><span class="k">GPU ${esc(g.index)}</span><span class="v">${esc(g.name)} &middot; cc ${esc(g.compute_cap||"?")}</span></div>`).join("");
   const bw = cfgOf().vram_bandwidths || {};
   const scanDirs = cfgOf().model_dirs || [];
   setHTML(v, `
-    <div class="card"><h3>Prerequisites</h3>
+    <div class="card"><h3>${t("Prerequisites")}</h3>
       ${Object.entries(p.tools).map(([n,t])=>toolRow(n,t)).join("")}
-      <div class="kv"><span class="k">${esc(p.msvc.label||"C++ compiler")}</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":"MISSING"+(p.msvc.url?" &mdash; "+esc(p.msvc.url):"")}</span></div>
-      ${p.cuda.applicable===false?"":`<div class="kv"><span class="k">CUDA toolkit</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>`}
+      <div class="kv"><span class="k">${esc(p.msvc.label||"C++ compiler")}</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":t("MISSING")+(p.msvc.url?" &mdash; "+esc(p.msvc.url):"")}</span></div>
+      ${p.cuda.applicable===false?"":`<div class="kv"><span class="k">${t("CUDA toolkit")}</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>`}
       <div class="kv"><span class="k">installers</span><span class="v">${esc(Object.keys(p.installers||{}).filter(k=>p.installers[k]).join(" ")||"none")}</span></div>
       <div class="note">Missing prerequisites can be installed with your permission where a package manager allows it (winget/choco/brew). On Linux the exact install command is shown instead &mdash; the dashboard never runs sudo.</div>
     </div>
-    <div class="card"><h3>Detected Hardware</h3>
-      <div class="kv"><span class="k">CPU</span><span class="v">${esc(hw.cpu.name||"?")} (${esc(hw.cpu.cores||"?")}c/${esc(hw.cpu.threads||"?")}t)</span></div>
+    <div class="card"><h3>${t("Detected Hardware")}</h3>
+      <div class="kv"><span class="k">${t("CPU")}</span><span class="v">${esc(hw.cpu.name||"?")} (${esc(hw.cpu.cores||"?")}c/${esc(hw.cpu.threads||"?")}t)</span></div>
       ${gpuLines}
       <div class="flags">${Object.entries(hw.cmake_flags).map(([k,val])=>`<span class="flagpill">${esc(k)}=${esc(val)}</span>`).join("")}</div>
       ${hw.notes.map(n=>`<div class="note">&bull; ${esc(n)}</div>`).join("")}
     </div>
-    <div class="card"><h3>Speed Estimates <span style="color:var(--dim);font-weight:normal;font-size:11px">(advanced &mdash; optional)</span></h3>
+    <div class="card"><h3>${t("Speed Estimates")} <span style="color:var(--dim);font-weight:normal;font-size:11px">(advanced &mdash; optional)</span></h3>
       <div class="note">The "Will it run?" panel and Discover speed badges estimate tok/s from memory bandwidth. Detected GPU presets are used by default; override here only if you've measured your machine. Blank = use the preset/default.</div>
       <div class="formrow" style="gap:8px;margin:10px 0 0">
-        <div class="fld"><label>VRAM GB/s</label><input id="bw-vram" type="number" min="0" step="any" placeholder="preset" value="${esc(String(bw.vram_bw ?? ""))}" style="width:110px"></div>
-        <div class="fld"><label>RAM GB/s</label><input id="bw-ram" type="number" min="0" step="any" placeholder="50" value="${esc(String(bw.ram_bw ?? ""))}" style="width:110px"></div>
-        <div class="fld"><label>Disk GB/s</label><input id="bw-disk" type="number" min="0" step="any" placeholder="5.7" value="${esc(String(bw.disk_bw ?? ""))}" style="width:110px"></div>
-        <button id="bw-save">Save</button>
+        <div class="fld"><label>${t("VRAM GB/s")}</label><input id="bw-vram" type="number" min="0" step="any" placeholder="preset" value="${esc(String(bw.vram_bw ?? ""))}" style="width:110px"></div>
+        <div class="fld"><label>${t("RAM GB/s")}</label><input id="bw-ram" type="number" min="0" step="any" placeholder="50" value="${esc(String(bw.ram_bw ?? ""))}" style="width:110px"></div>
+        <div class="fld"><label>${t("Disk GB/s")}</label><input id="bw-disk" type="number" min="0" step="any" placeholder="5.7" value="${esc(String(bw.disk_bw ?? ""))}" style="width:110px"></div>
+        <button id="bw-save">${t("Save")}</button>
         <span class="msg" id="bw-msg"></span>
       </div>
     </div>
-    <div class="card"><h3>Scan Drives for Models</h3>
+    <div class="card"><h3>${t("Scan Drives for Models")}</h3>
       <div class="fld"><label>Folders to scan (one per line; blank = all fixed drives)</label>
         <textarea id="scan-roots" rows="3" style="width:100%;resize:vertical" placeholder="D:/Models&#10;/mnt/models">${esc(scanDirs.join("\n"))}</textarea></div>
-      <div class="actions"><button class="ghost" id="btn-scan-save">Save folders</button><span class="msg" id="scan-save-msg"></span></div>
-      <div class="actions"><button id="btn-scan">Scan for GGUF models</button><button class="ghost" id="btn-missing">Check for deleted models</button><span class="msg" id="scan-msg"></span></div>
+      <div class="actions"><button class="ghost" id="btn-scan-save">${t("Save folders")}</button><span class="msg" id="scan-save-msg"></span></div>
+      <div class="actions"><button id="btn-scan">${t("Scan for GGUF models")}</button><button class="ghost" id="btn-missing">${t("Check for deleted models")}</button><span class="msg" id="scan-msg"></span></div>
       <div id="scan-out"></div>
       <div id="missing-out"></div>
     </div>
-    <div class="card"><h3>Startup</h3>
-      <div class="kv"><label class="k" for="auto-load">auto-load a model on launch</label>
+    <div class="card"><h3>${t("Startup")}</h3>
+      <div class="kv"><label class="k" for="auto-load">${t("auto-load a model on launch")}</label>
         <span class="v"><select id="auto-load" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
           <option value="">none</option>
           ${models().map(m=>`<option value="${esc(m.id)}" ${cfgOf().auto_load_model===m.id?"selected":""}>${esc(m.id)}</option>`).join("")}
@@ -618,16 +615,16 @@ export async function loadSetup() {
     ${slotsMarkup()}
     ${networkMarkup(net)}
     <div id="agent-connect" class="card"></div>`
-    + (vs.supported === false ? "" : `<div class="card"><h3>vLLM Backend (WSL2)</h3>
-      <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
+    + (vs.supported === false ? "" : `<div class="card"><h3>${t("vLLM Backend (WSL2)")}</h3>
+      <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":t("NOT INSTALLED")}</span></div>
       ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
         <select id="vllm-distro" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
         ${(vs.distros||[]).map(d=>`<option value="${esc(d.name)}" ${d.name===vs.chosen?"selected":""}>${esc(d.name)} (${esc(d.state)})</option>`).join("")}
         </select></span></div>
-      <div class="kv"><span class="k">GPU passthrough</span><span class="v ${vs.gpu.present?'ok':'bad'}">${vs.gpu.present?esc((vs.gpu.info||"").split("\n")[0]||"detected"):"NOT DETECTED (check NVIDIA driver)"}</span></div>
-      <div class="kv"><span class="k">vLLM</span><span class="v ${vs.vllm.present?'ok':'bad'}">${vs.vllm.present?"v"+esc(vs.vllm.version):"not installed"}</span></div>`
-      :`<div class="note">WSL2 is required to run vLLM. Install it (admin PowerShell): <b>wsl --install -d Ubuntu</b>, reboot, then reload this tab.</div>`}
-      ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">Install vLLM (uv, no sudo)</button><span class="msg" id="vllm-inst-msg"></span></div>
+      <div class="kv"><span class="k">${t("GPU passthrough")}</span><span class="v ${vs.gpu.present?'ok':'bad'}">${vs.gpu.present?esc((vs.gpu.info||"").split("\n")[0]||"detected"):"NOT DETECTED (check NVIDIA driver)"}</span></div>
+      <div class="kv"><span class="k">${t("vLLM")}</span><span class="v ${vs.vllm.present?'ok':'bad'}">${vs.vllm.present?"v"+esc(vs.vllm.version):t("not installed")}</span></div>`
+      :`<div class="note">${t("WSL2 is required to run vLLM. Install it (admin PowerShell):")} <b>wsl --install -d Ubuntu</b>, reboot, then reload this tab.</div>`}
+      ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">${t("Install vLLM (uv, no sudo)")}</button><span class="msg" id="vllm-inst-msg"></span></div>
       <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
       <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
     </div>`));
@@ -635,21 +632,21 @@ export async function loadSetup() {
   $$("[data-install]", v).forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = "installing...";
     const r = await api("/api/setup/install", {tool: b.dataset.install});
-    toast(r.ok?"Installed":"Install failed", r.ok?"ok":"err"); loadSetup();
+    toast(r.ok?t("Installed"):t("Install failed"), r.ok?"ok":"err"); loadSetup();
   });
   $("#btn-scan").onclick = scanDrives;
   $("#btn-scan-save").onclick = async () => {
     const model_dirs = scanRoots();
     await api("/api/config", {model_dirs});
     const msg = $("#scan-save-msg"); msg.className = "msg ok";
-    msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : "cleared — all drives";
+    msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : t("cleared — all drives");
   };
   $("#btn-missing").onclick = checkMissing;
   wireSlots(generation);
   const autoSel = $("#auto-load");
   if (autoSel) autoSel.onchange = async () => {
     await api("/api/config", {auto_load_model: autoSel.value});
-    toast(autoSel.value?`Auto-load: ${autoSel.value}`:"Auto-load disabled", "ok");
+    toast(autoSel.value?`Auto-load: ${autoSel.value}`:t("Auto-load disabled"), "ok");
   };
   const bwSave = $("#bw-save");
   if (bwSave) bwSave.onclick = async () => {
@@ -660,16 +657,16 @@ export async function loadSetup() {
     if (ram !== undefined && !Number.isNaN(ram)) ov.ram_bw = ram;
     if (disk !== undefined && !Number.isNaN(disk)) ov.disk_bw = disk;
     await api("/api/config", {vram_bandwidths: ov});
-    const m = $("#bw-msg"); m.className = "msg ok"; m.textContent = Object.keys(ov).length ? "saved" : "cleared (using defaults)";
+    const m = $("#bw-msg"); m.className = "msg ok"; m.textContent = Object.keys(ov).length ? "saved" : t("cleared (using defaults)");
   };
   const distroSel = $("#vllm-distro");
   if (distroSel) distroSel.onchange = () => api("/api/config", {wsl_distro: distroSel.value}).then(() => loadSetup());
   const instBtn = $("#btn-vllm-install");
   if (instBtn) instBtn.onclick = async () => {
-    const msg = $("#vllm-inst-msg"); msg.className = "msg work"; msg.textContent = "starting install...";
+    const msg = $("#vllm-inst-msg"); msg.className = "msg work"; msg.textContent = t("starting install...");
     const r = await api("/api/vllm/setup/install", {distro: distroSel?distroSel.value:undefined});
-    if (r.started) { toast("vLLM install started", "ok"); pollVllmSetup(); }
-    else msg.textContent = "already running";
+    if (r.started) { toast(t("vLLM install started"), "ok"); pollVllmSetup(); }
+    else msg.textContent = t("already running");
   };
   if (vs.setup_job && vs.setup_job.running) pollVllmSetup();
   renderAgentConnect(generation);
@@ -689,7 +686,7 @@ function agentModelOptions(selected = "") {
       esc(m.id)}</option>`).join("");
 }
 
-function clearAgentPreview(message = "Choose settings, then show the configuration.") {
+function clearAgentPreview(message = t("Choose settings, then show the configuration.")) {
   clearAgentSecret();
   clearAgentSecret = () => {};
   const out = $("#ac-out");
@@ -712,22 +709,22 @@ function agentRequest() {
 function renderAgentConnect(generation) {
   const host = $("#agent-connect");
   if (!host) return;
-  setHTML(host, `<h3>Connect an agent</h3>
-    <div class="note">Generate or apply configuration only when requested.</div>
+  setHTML(host, `<h3>${t("Connect an agent")}</h3>
+    <div class="note">${t("Generate or apply configuration only when requested.")}</div>
     <div class="agent-controls">
-      <label>Agent
+      <label>${t("Agent")}
         <select id="ac-agent">
-          <option value="claude-code">Claude Code</option>
-          <option value="codex">Codex</option>
+          <option value="claude-code">${t("Claude Code")}</option>
+          <option value="codex">${t("Codex")}</option>
           <option value="pi">pi.dev</option>
         </select>
       </label>
-      <label>Model <select id="ac-model">${agentModelOptions()}</select></label>
-      <label id="ac-small-wrap">Small model
+      <label>${t("Model")} <select id="ac-model">${agentModelOptions()}</select></label>
+      <label id="ac-small-wrap">${t("Small model")}
         <select id="ac-small">${agentModelOptions()}</select>
       </label>
-      <button id="ac-show" type="button">Show configuration</button>
-      <button id="ac-apply" type="button" class="primary">Apply</button>
+      <button id="ac-show" type="button">${t("Show configuration")}</button>
+      <button id="ac-apply" type="button" class="primary">${t("Apply")}</button>
     </div>
     <div id="ac-out" class="agent-out"></div>
     <div id="pi-install"></div>
@@ -752,7 +749,7 @@ async function showAgentConfig(generation) {
   if (!setupViewActive(generation)) return;
   const body = agentRequest();
   if (!body) {
-    clearAgentPreview("No llama-family model is available.");
+    clearAgentPreview(t("No llama-family model is available."));
     $("#ac-model").focus();
     return;
   }
@@ -767,14 +764,14 @@ async function showAgentConfig(generation) {
   clearAgentSecret();
   clearAgentSecret = () => {};
   setHTML(out,
-    `<div class="note" role="status">Generating configuration...</div>`);
+    `<div class="note" role="status">${t("Generating configuration...")}</div>`);
   let r;
   try {
     r = await api("/api/agent/config", body);
   } catch (requestError) {
     if (stillCurrent()) {
       setHTML(out,
-        `<div class="note" role="alert">Agent configuration is unavailable.</div>`);
+        `<div class="note" role="alert">${t("Agent configuration is unavailable.")}</div>`);
     }
     return;
   }
@@ -790,11 +787,11 @@ async function showAgentConfig(generation) {
   let privateValue = String(r.content || "");
   r.content = "";
   setHTML(out,
-    `<div class="note">Target: <b>${esc(r.target_path)}</b> · endpoint
+    `<div class="note">Target: <b>${esc(r.target_path)}</b> ${t("· endpoint")}
       <b>${esc(r.endpoint)}</b><br>${esc(r.instructions)}</div>
       <div class="slabel">${esc(r.target_path)}</div>
       <div class="snip"><button type="button" class="qbtn scopy"
-        data-agent-copy-index="0" aria-label="Copy agent configuration">Copy</button>${
+        data-agent-copy-index="0" aria-label="${t("Copy agent configuration")}">${t("Copy")}</button>${
         esc(privateValue)}</div>`);
   const buttons = $$("[data-agent-copy-index]", out);
   for (const button of buttons) {
@@ -802,7 +799,7 @@ async function showAgentConfig(generation) {
     button.onclick = () => {
       if (!privateValue) return;
       navigator.clipboard.writeText(privateValue).then(
-        () => toast("Copied to clipboard", "ok"));
+        () => toast(t("Copied to clipboard"), "ok"));
     };
   }
   let unregister = () => {};
@@ -821,7 +818,7 @@ async function applyAgentConfig(generation) {
   if (!setupViewActive(generation)) return;
   const body = agentRequest();
   if (!body) {
-    clearAgentPreview("No llama-family model is available.");
+    clearAgentPreview(t("No llama-family model is available."));
     $("#ac-model").focus();
     return;
   }
@@ -838,7 +835,7 @@ async function applyAgentConfig(generation) {
     r = await api("/api/agent/apply", body);
   } catch (requestError) {
     if (stillCurrent()) setHTML(out,
-      `<div class="note" role="alert">Agent configuration could not be applied.</div>`);
+      `<div class="note" role="alert">${t("Agent configuration could not be applied.")}</div>`);
     return;
   }
   if (!stillCurrent()) return;
@@ -847,14 +844,14 @@ async function applyAgentConfig(generation) {
       `<div class="note" role="alert">${esc(r.error)}</div>`);
     return;
   }
-  clearAgentPreview(`${r.action}: ${r.path}${r.backup ? " (backup created)" : ""}`);
+  clearAgentPreview(`${r.action}: ${r.path}${r.backup ? t(" (backup created)") : ""}`);
 }
 
 /* ---------- pi (installed on request into <root>/agents/pi) ---------- */
 const PI_SOURCES = {
   managed: "LlamaForge's copy",
-  path: "the pi on your PATH",
-  pi_bin: "the pi_bin set in config.json",
+  path: t("the pi on your PATH"),
+  pi_bin: t("the pi_bin set in config.json"),
 };
 
 async function renderPiInstall(generation, said = "") {
@@ -866,30 +863,30 @@ async function renderPiInstall(generation, said = "") {
   const need = `Node.js ${esc(s.min_node)} or newer`;
   let state, buttons = "";
   if (s.busy) {
-    state = "Working... npm can take a few minutes.";
+    state = t("Working... npm can take a few minutes.");
   } else if (s.managed) {
     state = `Installed: pi <b>${esc(s.managed)}</b> in LlamaForge's agents folder` +
       (s.active === "managed" ? "." : `, but ${esc(PI_SOURCES[s.active] || "another pi")} takes precedence.`);
-    buttons = `<button type="button" data-pi="install">Update</button>
-      <button type="button" data-pi="remove">Remove</button>`;
+    buttons = `<button type="button" data-pi="install">${t("Update")}</button>
+      <button type="button" data-pi="remove">${t("Remove")}</button>`;
   } else if (!node.ok) {
     state = node.path
       ? `pi needs ${need}; this machine has ${esc(node.version || "an unknown version")}.`
       : `pi needs ${need}, which isn't installed.`;
     buttons = s.node_installable
-      ? `<button type="button" class="primary" data-pi-node>Install Node.js</button>`
+      ? `<button type="button" class="primary" data-pi-node>${t("Install Node.js")}</button>`
       : s.hint ? `Run in a terminal: <code>${esc(s.hint)}</code> (distro packages can be too old; see
           <a href="${esc(s.node_url)}" target="_blank" rel="noopener">nodejs.org</a>)`
-        : `<a href="${esc(s.node_url)}" target="_blank" rel="noopener">Get Node.js</a>`;
+        : `<a href="${esc(s.node_url)}" target="_blank" rel="noopener">${t("Get Node.js")}</a>`;
   } else {
     state = s.active
       ? `Using ${esc(PI_SOURCES[s.active] || "an existing pi")}. You can also let LlamaForge keep its own copy.`
-      : "Not installed.";
-    buttons = `<button type="button" class="primary" data-pi="install">Install pi</button>`;
+      : t("Not installed.");
+    buttons = `<button type="button" class="primary" data-pi="install">${t("Install pi")}</button>`;
   }
   const last = s.last || {};
   const failed = !s.busy && last.ok === false && last.log;
-  setHTML(host, `<h3>pi coding agent</h3>
+  setHTML(host, `<h3>${t("pi coding agent")}</h3>
     <div class="note"><a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener">pi</a>
       is an open-source coding agent by Mario Zechner (MIT). LlamaForge doesn't bundle it: Install
       runs your Node.js to fetch the published npm package into LlamaForge's own folder (nothing
@@ -901,7 +898,7 @@ async function renderPiInstall(generation, said = "") {
     b.onclick = async () => {
       const action = b.dataset.pi;
       if (action === "remove" && !(await askYes("This deletes the copy in LlamaForge's own folder; a pi you installed yourself is left alone.",
-        {title: "Remove pi", ok: "Remove", danger: true}))) return;
+        {title: t("Remove pi"), ok: t("Remove"), danger: true}))) return;
       const r = await api(`/api/pi/${action}`, {});
       if (r.error) { toast(r.error, "err"); return; }
       watchPi(generation, action);
@@ -909,9 +906,9 @@ async function renderPiInstall(generation, said = "") {
   }
   const nb = $("[data-pi-node]", host);
   if (nb) nb.onclick = async () => {
-    nb.disabled = true; nb.textContent = "installing Node.js...";
+    nb.disabled = true; nb.textContent = t("installing Node.js...");
     const r = await api("/api/setup/install", {tool: "node"});
-    toast(r.ok ? "Node.js installed" : "Node.js install failed", r.ok ? "ok" : "err");
+    toast(r.ok ? t("Node.js installed") : t("Node.js install failed"), r.ok ? "ok" : "err");
     renderPiInstall(generation, r.ok ? "" : "Node.js install failed; see the Setup log or install it from nodejs.org.");
   };
   if (s.busy) setTimeout(() => watchPi(generation), 2000);
@@ -925,7 +922,7 @@ async function watchPi(generation, action = "") {
     try { s = await api("/api/pi/status"); } catch (e) { return; }
     if (!s.busy) {
       const last = s.last || {};
-      if (action) toast(last.ok ? (action === "remove" ? "pi removed" : `pi ${s.managed} installed`)
+      if (action) toast(last.ok ? (action === "remove" ? t("pi removed") : `pi ${s.managed} installed`)
                                 : `pi ${action} failed`, last.ok ? "ok" : "err");
       renderPiInstall(generation);
       renderMcpConnect(generation);
@@ -949,18 +946,16 @@ async function renderMcpConnect(generation) {
     // .snip keeps whitespace: nothing between the tag, the button and the text
     `<div class="slabel">${esc(label)}</div><div class="snip"><button type="button"
       class="qbtn scopy" data-mcp-copy="${i}"
-      aria-label="Copy ${esc(label)}">Copy</button>${esc(text)}</div>`;
-  setHTML(host, `<h3>MCP server</h3>
-    <div class="note">Let Claude Code, Codex or any MCP client drive LlamaForge:
-      status, load and unload, fit checks, Hugging Face downloads, one-shot prompts,
-      and <b>pi_run</b>, which hands a whole task to
+      aria-label="Copy ${esc(label)}">${t("Copy")}</button>${esc(text)}</div>`;
+  setHTML(host, `<h3>${t("MCP server")}</h3>
+    <div class="note">${t("Let Claude Code, Codex or any MCP client drive LlamaForge:\n      status, load and unload, fit checks, Hugging Face downloads, one-shot prompts,\n      and")} <b>pi_run</b>, which hands a whole task to
       <a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener">pi</a>
       (Mario Zechner's open-source coding agent) running on a loaded local model.
       The client starts the server itself; it talks only to this panel on 127.0.0.1.
-      ${r.pi ? "pi is installed." : "pi is not installed yet: install it above."}</div>` +
-    snip("Claude Code (run once)", r.claude, 0) +
-    snip("Codex (~/.codex/config.toml)", r.codex_toml, 1) +
-    snip("Other clients (mcpServers JSON)", r.json, 2) +
+      ${r.pi ? t("pi is installed.") : t("pi is not installed yet: install it above.")}</div>` +
+    snip(t("Claude Code (run once)"), r.claude, 0) +
+    snip(t("Codex (~/.codex/config.toml)"), r.codex_toml, 1) +
+    snip(t("Other clients (mcpServers JSON)"), r.json, 2) +
     (r.http_qwen ?
       snip("HTTP - any MCP client (opt-in mcp_host)", r.http_qwen, 3) +
       snip("HTTP (mcpServers JSON)", r.http_json, 4) : "") +
@@ -968,7 +963,7 @@ async function renderMcpConnect(generation) {
   for (const b of $$("[data-mcp-copy]", host)) {
     const text = values[Number(b.dataset.mcpCopy)] || "";
     b.onclick = () => navigator.clipboard.writeText(text).then(
-      () => toast("Copied to clipboard", "ok"));
+      () => toast(t("Copied to clipboard"), "ok"));
   }
 }
 
@@ -982,7 +977,7 @@ async function scanDrives() {
   const msg = $("#scan-msg");
   const roots = scanRoots();
   msg.className = "msg work";
-  msg.textContent = roots.length ? `scanning ${roots.length} folder(s)...` : "scanning all fixed drives (may take a moment)...";
+  msg.textContent = roots.length ? `scanning ${roots.length} folder(s)...` : t("scanning all fixed drives (may take a moment)...");
   const r = await api("/api/scan", {roots});
   const known = new Set(models().map(m => m.id));
   const fresh = r.entries.filter(e => !known.has(e.id));
@@ -993,21 +988,21 @@ async function scanDrives() {
       <span class="ctxpill">${esc(e.gib)} GiB</span></div></div>`).join("")||'<div class="note">nothing new</div>'}</div>
     ${fresh.length?`<div class="actions"><button class="primary" id="btn-apply">Add ${fresh.length} models to config</button><span class="msg" id="apply-msg"></span></div>`:""}`);
   if (fresh.length) $("#btn-apply").onclick = async () => {
-    const am = $("#apply-msg"); am.className = "msg work"; am.textContent = "writing config...";
+    const am = $("#apply-msg"); am.className = "msg work"; am.textContent = t("writing config...");
     const rr = await api("/api/scan/apply", {entries: fresh});
     am.className = "msg ok"; am.textContent = `added ${rr.added}`;
-    toast("Models added", "ok"); emit("refresh", true);
+    toast(t("Models added"), "ok"); emit("refresh", true);
   };
 }
 
 async function checkMissing() {
   const out = $("#missing-out");
-  setHTML(out, `<div class="note">checking configured models against disk...</div>`);
+  setHTML(out, `<div class="note">${t("checking configured models against disk...")}</div>`);
   let r;
   try { r = await api("/api/scan/missing"); }
-  catch (e) { setHTML(out, `<div class="note" style="color:var(--red)">backend unreachable</div>`); return; }
+  catch (e) { setHTML(out, `<div class="note" style="color:var(--red)">${t("backend unreachable")}</div>`); return; }
   const miss = (r && r.missing) || [];
-  if (!miss.length) { setHTML(out, `<div class="note">All configured models still exist on disk.</div>`); return; }
+  if (!miss.length) { setHTML(out, `<div class="note">${t("All configured models still exist on disk.")}</div>`); return; }
   setHTML(out, `<div class="note">${esc(miss.length)} configured model(s) whose file is gone:</div>
     <div class="list" style="margin-top:10px">${miss.map(m=>`<div class="row"><div class="rhead" style="cursor:default;grid-template-columns:1fr auto">
       <span class="mid">${esc(m.id)}${m.loaded?'<span class="tag">loaded</span>':''}</span>

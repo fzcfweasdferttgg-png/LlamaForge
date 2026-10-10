@@ -1,9 +1,10 @@
 // Launch profiles: a strip above the model list. One click switches to the
 // profile's pinned engine build (if any), applies its preset, loads its model.
-// Saved from a model's editor ("Save as profile"), which emits "profile-save".
+// Saved from a model's editor (t("Save as profile")), which emits "profile-save".
 // Profiles share as recipes (readable JSON, backend/recipes.py) and import back;
-// "browse recipes" lists the community gallery (repo recipes/ folder, backend/gallery.py).
+// t("browse recipes") lists the community gallery (repo recipes/ folder, backend/gallery.py).
 import { $, esc, setHTML, api, toast, askYes } from "./core.js";
+import { t } from "./i18n.js";
 import { config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { showModal } from "./models.js";
@@ -25,13 +26,13 @@ function render() {
   shownSig = sig;
   const names = Object.keys(P).sort();
   setHTML(el, `<div class="presetbar profbar">
-    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Profiles</span>
+    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">${t("Profiles")}</span>
     ${names.map(n => `<span class="pchip" data-prof-launch="${esc(n)}" title="launch: ${esc(describe(P[n]))}">`
       + `&#9654; ${esc(n)}`
-      + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="share as a recipe">&#8599;</span>`)
-      + `<span class="px" data-prof-del="${esc(n)}" title="delete profile">&times;</span></span>`).join("")}
-    <span class="pchip" data-prof-gallery title="tested setups shared by the community"><span class="g g-list" aria-hidden="true">&#9776;</span> browse recipes</span>
-    <span class="pchip" data-prof-import title="paste a recipe someone shared">+ import recipe</span>
+      + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="${t("share as a recipe")}">&#8599;</span>`)
+      + `<span class="px" data-prof-del="${esc(n)}" title="${t("delete profile")}">&times;</span></span>`).join("")}
+    <span class="pchip" data-prof-gallery title="tested setups shared by the community"><span class="g g-list" aria-hidden="true">&#9776;</span> ${t("browse recipes")}</span>
+    <span class="pchip" data-prof-import title="${t("paste a recipe someone shared")}">+ import recipe</span>
   </div>`);
 }
 
@@ -61,47 +62,47 @@ async function openSave({ id, backend }) {
   }
   const base = id.split("/").pop().replace(/\.gguf$/i, "").slice(0, 40);
   const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
-  const presetSel = llama ? `<div class="fld" style="margin-top:12px"><label>Preset</label><select id="prof-preset">
+  const presetSel = llama ? `<div class="fld" style="margin-top:12px"><label>${t("Preset")}</label><select id="prof-preset">
       ${opt("", "none (the model's saved settings)", !bound)}
       ${Object.keys(c.presets || {}).map(n => opt(n, n, n === bound)).join("")}
     </select></div>` : "";
-  const engineSel = llama && installs.length ? `<div class="fld" style="margin-top:12px"><label>Engine</label><select id="prof-engine">
+  const engineSel = llama && installs.length ? `<div class="fld" style="margin-top:12px"><label>${t("Engine")}</label><select id="prof-engine">
       ${opt("", "whichever build is active (follows updates)", true)}
       ${installs.map(i => {
         const dir = i.dir.split(/[\\/]/).pop();
         return opt(dir, `pin ${i.tag || dir} ${i.variant || ""}${i.active ? " (active now)" : ""}`, false);
       }).join("")}
     </select></div>` : "";
-  const m = showModal("Save as profile", `
-    <div class="note" style="margin-top:0">One click from the Models tab will load <b>${esc(id)}</b> with these choices.</div>
-    <div class="fld" style="margin-top:12px"><label>Name</label><input id="prof-name" value="${esc(base)}" maxlength="40"></div>
+  const m = showModal(t("Save as profile"), `
+    <div class="note" style="margin-top:0">${t("One click from the Models tab will load")} <b>${esc(id)}</b> ${t("with these choices.")}</div>
+    <div class="fld" style="margin-top:12px"><label>${t("Name")}</label><input id="prof-name" value="${esc(base)}" maxlength="40"></div>
     ${presetSel}${engineSel}
-    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-save">Save profile</button></div>`);
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-save">${t("Save profile")}</button></div>`);
   const nameEl = $("#prof-name");
   nameEl.focus(); nameEl.select();
   $("#prof-save").onclick = async () => {
     const name = nameEl.value.trim();
-    if (!name) { toast("Name the profile", "err"); return; }
+    if (!name) { toast(t("Name the profile"), "err"); return; }
     const profile = { model: id, backend: backend || "llamacpp",
       preset: ($("#prof-preset") || {}).value || "", engine: ($("#prof-engine") || {}).value || "" };
     const r = await api("/api/profiles/save", {name, profile});
     if (r.ok) { toast(`Saved profile "${name}"`, "ok"); m.close(); emit("refresh", true); }
-    else toast(r.error || "save failed", "err");
+    else toast(r.error || t("save failed"), "err");
   };
 }
 
 async function openShare(name) {
   const r = await api("/api/profiles/export", {name});
-  if (!r.ok) { toast(r.error || "export failed", "err"); return; }
+  if (!r.ok) { toast(r.error || t("export failed"), "err"); return; }
   const text = JSON.stringify(r.recipe, null, 2);
   const m = r.recipe.model, e = r.recipe.engine;
   showModal(`Share "${name}"`, `
-    <div class="note" style="margin-top:0">Paste this anywhere (a Reddit comment, a gist, a chat). Anyone with LlamaForge can
+    <div class="note" style="margin-top:0">${t("Paste this anywhere (a Reddit comment, a gist, a chat). Anyone with LlamaForge can")}
       <b>+ import recipe</b> it${m.hf_repo ? " and download the same file from <b>" + esc(m.hf_repo) + "</b>" : ""}.
       Only tuning knobs are included: no paths, keys or hosts.${e ? " Made on llama.cpp <b>" + esc(e.tag) + "</b>." : ""}</div>
     <textarea id="prof-recipe" readonly spellcheck="false" style="width:100%;height:260px;margin-top:12px;font-family:var(--mono,monospace);font-size:11px">${esc(text)}</textarea>
-    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-copy">Copy recipe</button></div>`);
-  $("#prof-copy").onclick = () => navigator.clipboard.writeText(text).then(() => toast("Recipe copied", "ok"));
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-copy">${t("Copy recipe")}</button></div>`);
+  $("#prof-copy").onclick = () => navigator.clipboard.writeText(text).then(() => toast(t("Recipe copied"), "ok"));
 }
 
 function stopPoll() { if (importPoll) { clearInterval(importPoll); importPoll = null; } }
@@ -116,19 +117,19 @@ async function openGallery(force = false) {
   const card = (e, i) => `<div class="rcard">
       <div style="display:flex;gap:8px;align-items:baseline">
         <b style="flex:1">${esc(e.title)}</b>
-        ${e.have ? `<span class="rhave" title="this model file is already registered here">on this machine</span>` : ""}
-        <button data-gal-import="${i}">Import</button>
+        ${e.have ? `<span class="rhave" title="${t("this model file is already registered here")}">${t("on this machine")}</span>` : ""}
+        <button data-gal-import="${i}">${t("Import")}</button>
       </div>
       <div class="rmeta">${esc(e.model.file || "")}${e.model.hf_repo ? " · " + esc(e.model.hf_repo) : ""}</div>
-      <div class="rmeta">Tested on ${esc(e.hardware || "unspecified hardware")}${e.author ? " · by " + esc(e.author) : ""}</div>
+      <div class="rmeta">Tested on ${esc(e.hardware || t("unspecified hardware"))}${e.author ? " · by " + esc(e.author) : ""}</div>
       ${e.notes ? `<div class="rnotes">${esc(e.notes)}</div>` : ""}
       <div class="rknobs">${knobs(e.settings)}</div>
     </div>`;
-  const m = showModal("Community recipes", `
+  const m = showModal(t("Community recipes"), `
     <div class="note" style="margin-top:0">Setups people have run on their own hardware. Import one to get the same model
       (downloaded from Hugging Face if missing) and the same settings as a profile. Only tuning knobs are imported.
       ${r && r.source === "bundled" ? " <b>Offline:</b> showing the copy that shipped with this version." : ""}</div>
-    <div class="rlist">${list.length ? list.map(card).join("") : `<div class="note">No recipes found.</div>`}</div>
+    <div class="rlist">${list.length ? list.map(card).join("") : `<div class="note">${t("No recipes found.")}</div>`}</div>
     <div class="note rfoot" style="display:flex;gap:12px">
       <a href="${SHARE_URL}" target="_blank" rel="noopener">Share yours &#8599;</a>
       <a href="#" id="gal-refresh">refresh</a></div>`);
@@ -140,12 +141,11 @@ async function openGallery(force = false) {
 
 function openImport(prefill = "") {
   stopPoll();
-  const m = showModal("Import a recipe", `
-    <div class="note" style="margin-top:0">Paste a LlamaForge recipe. It becomes a preset and a profile. Unsafe knobs
-      (paths, hosts, keys) are dropped.</div>
+  const m = showModal(t("Import a recipe"), `
+    <div class="note" style="margin-top:0">${t("Paste a LlamaForge recipe. It becomes a preset and a profile. Unsafe knobs\n      (paths, hosts, keys) are dropped.")}</div>
     <textarea id="prof-paste" spellcheck="false" placeholder='{"llamaforge_recipe": 1, ...}' style="width:100%;height:220px;margin-top:12px;font-family:var(--mono,monospace);font-size:11px"></textarea>
     <div id="prof-imp-msg" class="note"></div>
-    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-import">Import</button></div>`);
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="primary" id="prof-import">${t("Import")}</button></div>`);
   const msg = $("#prof-imp-msg"), btn = $("#prof-import");
   const say = html => setHTML(msg, html);
   $("#prof-paste").focus();
@@ -169,7 +169,7 @@ function openImport(prefill = "") {
       if (!p) return;
       if (p.phase === "done" && p.finished_path) {
         stopPoll();
-        say("Downloaded. Registering the model...");
+        say(t("Downloaded. Registering the model..."));
         await api("/api/hub/add", {path: p.finished_path});
         run(false);
       } else if (["failed", "cancelled", "paused"].includes(p.phase)) {
@@ -186,24 +186,24 @@ function openImport(prefill = "") {
   const run = async download => {
     let recipe;
     try { recipe = JSON.parse($("#prof-paste").value); }
-    catch { say("That isn't valid JSON - copy the whole recipe, braces included."); return; }
+    catch { say(t("That isn't valid JSON - copy the whole recipe, braces included.")); return; }
     btn.disabled = true;
     const r = await api("/api/profiles/import", {recipe, download});
     if (r.ok) { btn.disabled = false; done(r); return; }
     if (r.missing) {
-      if (download && r.downloading) { say("Starting download..."); watch(); return; }
+      if (download && r.downloading) { say(t("Starting download...")); watch(); return; }
       btn.disabled = false;
-      if (download) { say(esc(r.error || "download failed")); return; }
+      if (download) { say(esc(r.error || t("download failed"))); return; }
       const mm = r.missing;
       say(`<b>${esc(mm.file)}</b> isn't on this machine.` + (mm.hf_repo
         ? ` <button id="prof-dl" style="margin-left:8px">Download from ${esc(mm.hf_repo)} &amp; import</button>`
-        : " The recipe doesn't say where it came from: download it yourself, then import again."));
+        : t(" The recipe doesn't say where it came from: download it yourself, then import again.")));
       const dl = $("#prof-dl");
       if (dl) dl.onclick = () => run(true);
       return;
     }
     btn.disabled = false;
-    say(esc(r.error || "import failed"));
+    say(esc(r.error || t("import failed")));
   };
   btn.onclick = () => run(false);
   if (prefill) run(false);
@@ -217,9 +217,9 @@ export function initProfiles() {
     if (del) {
       e.stopPropagation();
       const n = del.dataset.profDel;
-      if (!(await askYes("The model and its settings stay.", {title: `Delete profile "${n}"`, ok: "Delete", danger: true}))) return;
+      if (!(await askYes(t("The model and its settings stay."), {title: `Delete profile "${n}"`, ok: t("Delete"), danger: true}))) return;
       await api("/api/profiles/delete", {name: n});
-      toast("Profile deleted", "ok"); emit("refresh", true);
+      toast(t("Profile deleted"), "ok"); emit("refresh", true);
       return;
     }
     const share = e.target.closest("#profiles [data-prof-share]");

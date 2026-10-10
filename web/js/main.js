@@ -6,6 +6,7 @@
 // addEventListener (toolbar controls by id, dynamic rows by delegation), so the
 // HTML and view templates carry no inline on* attributes to keep in sync.
 import { $, api, esc, setHTML } from "./core.js";
+import { initLang, initLangPicker, translateStatic } from "./i18n.js";
 import { S } from "./state.js";
 import * as ui from "./ui.js";
 import * as models from "./models.js";
@@ -76,6 +77,17 @@ function renderEngineBadge() {
 renderEngineBadge();
 setInterval(renderEngineBadge, 1000);
 
+// Language: the browser's pick (localStorage) over the panel default (config
+// web_lang). translateStatic covers the static chrome; a switch re-renders the
+// current tab through its own loader.
+function rerender() {
+  translateStatic();
+  const tab = ui.activeTab();
+  if (tab === "models") models.refresh();
+  else if (tab) ui.switchTab(tab);
+  ui.updatePageTitle();
+}
+
 (async () => {
   S.SCHEMA = await api("/api/schema");
   await models.refresh();
@@ -85,8 +97,12 @@ setInterval(renderEngineBadge, 1000);
     if (!localStorage.getItem("theme") && cfg.theme) ui.applyTheme(cfg.theme);
     if (localStorage.getItem("cvd") === null && cfg.cvd) ui.applyCvd(true);
     if (!localStorage.getItem("skin") && cfg.skin) ui.applySkin(cfg.skin);
+    document.documentElement.dataset.webLang = cfg.web_lang || "";
     ui.applyMode(((S.STATE||{}).onboarding||{}).ui_mode || "lite");
   } catch (e) {}
+  await initLang(rerender);
+  initLangPicker();
+  rerender();
 })();
 
 /* ---------- polls (idle unless their tab is showing) ---------- */

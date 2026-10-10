@@ -8,6 +8,7 @@
 // for how the editor separates what the server owns from what the user is
 // typing. Nothing here may re-render a knob input the user might be editing.
 import { $, $$, esc, setHTML, api, toast, meter, motionOK, askYes, askText } from "./core.js";
+import { t } from "./i18n.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
@@ -71,10 +72,10 @@ function drawGpus() {
 document.addEventListener("lf-skin", drawGpus);
 
 function gpuTiles(g) {
-  if (!g.length || g[0].error) return `<div class="gpu"><div class="stats">GPU telemetry unavailable</div></div>`;
+  if (!g.length || g[0].error) return `<div class="gpu"><div class="stats">${t("GPU telemetry unavailable")}</div></div>`;
   return g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
     <div class="meter">${meter(x.used,x.total)}</div>
-    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join("");
+    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>${t("FREE")} <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>${t("UTIL")} <b>${esc(x.util)}%</b></span><span>${t("TEMP")} <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join("");
 }
 
 /* ---------- knob fields ---------- */
@@ -103,7 +104,7 @@ function modelMeta(m) {
   const mp = m.settings && m.settings.model;
   if (!mp && !m.file_gib) return "";
   return `<div class="note" style="margin-bottom:10px">
-    ${mp?`<span class="tag ep" data-copy="${esc(mp)}" title="click to copy the file path">copy path</span> ${esc(mp)}`:""}
+    ${mp?`<span class="tag ep" data-copy="${esc(mp)}" title="${t("click to copy the file path")}">${t("copy path")}</span> ${esc(mp)}`:""}
     ${m.file_gib?`<span style="color:var(--cyan)"> &middot; ${esc(m.file_gib)} GiB on disk</span>`:""}</div>`;
 }
 
@@ -131,23 +132,23 @@ function editorLive(m) {
 function editorButtons(m) {
   if (m.backend === "vllm") {
     return `<button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
-      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
-      <button class="ghost" data-act="client">Client config</button>
-      <button class="ghost" data-act="profile" title="save a one-click launch for this model">Save as profile</button>
-      <button class="danger" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
+      ${m.status==="loaded"||m.status===t("loading")?`<button class="ghost" data-act="vunload">${m.status===t("loading")?t("Cancel / Stop"):t("Stop")}</button>`:`<button data-act="vload">${t("Load")}</button>`}
+      <button class="ghost" data-act="client">${t("Client config")}</button>
+      <button class="ghost" data-act="profile" title="${t("save a one-click launch for this model")}">${t("Save as profile")}</button>
+      <button class="danger" data-act="vdelete" title="${t("remove model + delete its files from WSL")}">${t("Delete")}</button>`;
   }
-  return `<button class="primary" data-act="save">Save + Reload</button>
-      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
-      ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
-      <button class="ghost" data-act="client">Client config</button>
-      <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
-      <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
+  return `<button class="primary" data-act="save">${t("Save + Reload")}</button>
+      ${m.status==="loaded"||m.status===t("loading")?`<button class="ghost" data-act="unload">${m.status===t("loading")?t("Cancel / Unload"):t("Unload")}</button>`:`<button data-act="load"${slots.slotsOn()?` title="${t("load as the main model: it gets the fastest GPU that fits")}"`:""}>${t("Load")}</button>`}
+      ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">${t("Load as worker")}</button>`:""}
+      <button class="ghost" data-act="client">${t("Client config")}</button>
+      <button class="ghost" data-act="profile" title="${t("save a one-click launch: model + preset + engine build")}">${t("Save as profile")}</button>
+      <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">${t("Unregister")}</button>`;
 }
 function editorNote(m) {
   if (m.backend === "vllm")
     return `<div class="note">vLLM runs one model at a time inside WSL. Saving knobs on a loaded model restarts it (vLLM has no hot reload). Startup can take 1&ndash;5 minutes; watch the vLLM Log panel below.</div>`;
-  return m.status === "loading"
-    ? `<div class="note">Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).</div>` : "";
+  return m.status === t("loading")
+    ? `<div class="note">${t("Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).")}</div>` : "";
 }
 // A plain message (no knob grid) when the editor can't be built.
 function editorBlocked(m) {
@@ -159,15 +160,15 @@ function editorBlocked(m) {
           S.VLLM_SCHEMA = s; vllmSchemaPending = false; invalidateKnobs(); renderModels();
         });
       }
-      return `<div class="note">Loading vLLM knob schema...</div>`;
+      return `<div class="note">${t("Loading vLLM knob schema...")}</div>`;
     }
     if (S.VLLM_SCHEMA.error) return `<div class="note" style="color:var(--red)">vLLM knobs unavailable: ${esc(S.VLLM_SCHEMA.error)} &mdash; install vLLM from the Setup tab.</div>`;
     return null;
   }
   if (!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
-  if (!S.SCHEMA) return `<div class="note">Loading knob schema...</div>`;
-  if (S.SCHEMA.error) return `<div class="note" style="color:var(--red)">Could not read knobs from <code>llama-server --help</code>: ${esc(S.SCHEMA.error)}<br>Check <code>server_bin</code> in config.json - the schema is retried automatically once it's fixed.</div>`;
-  if (!S.SCHEMA.groups || !S.SCHEMA.groups.length) return `<div class="note">llama-server --help returned no tunable arguments.</div>`;
+  if (!S.SCHEMA) return `<div class="note">${t("Loading knob schema...")}</div>`;
+  if (S.SCHEMA.error) return `<div class="note" style="color:var(--red)">${t("Could not read knobs from")} <code>llama-server --help</code>: ${esc(S.SCHEMA.error)}<br>${t("Check")} <code>server_bin</code> ${t("in config.json - the schema is retried automatically once it's fixed.")}</div>`;
+  if (!S.SCHEMA.groups || !S.SCHEMA.groups.length) return `<div class="note">${t("llama-server --help returned no tunable arguments.")}</div>`;
   return null;
 }
 function editor(m) {
@@ -175,13 +176,13 @@ function editor(m) {
   if (blocked !== null) return blocked;
   const schema = m.backend === "vllm" ? S.VLLM_SCHEMA : S.SCHEMA;
   const placeholder = m.backend === "vllm"
-    ? "filter knobs (e.g. tensor, memory, quant)..."
-    : "filter knobs (e.g. cache, rope, temp)...";
+    ? t("filter knobs (e.g. tensor, memory, quant)...")
+    : t("filter knobs (e.g. cache, rope, temp)...");
   return `<div class="ed-slot">${slots.block(m, renderModels)}</div>
     <div class="ed-live">${editorLive(m)}</div>
     <div class="toolbar ed-tools">
       <input class="search" data-knobfilter placeholder="${esc(placeholder)}">
-      <span class="chip ${onlySet?"on":""}" data-onlyset>Only set</span>
+      <span class="chip ${onlySet?"on":""}" data-onlyset>${t("Only set")}</span>
     </div>
     <div class="ed-knobs">${knobGroups(m,schema)}</div>
     <div class="actions">
@@ -210,7 +211,7 @@ function invalidateKnobs() { knobEpoch++; }
 
 /* ---------- the list ---------- */
 function loadingSecs(m) {
-  if (m.status !== "loading") { delete loadingSince[m.id]; return 0; }
+  if (m.status !== t("loading")) { delete loadingSince[m.id]; return 0; }
   if (!loadingSince[m.id]) loadingSince[m.id] = Date.now();
   return Math.round((Date.now() - loadingSince[m.id]) / 1000);
 }
@@ -219,7 +220,7 @@ function shownModels() {
     .filter(m => (!mquery || m.id.toLowerCase().includes(mquery)) && (!favOnly || favs.has(m.id)))
     .sort((a, b) => (favs.has(b.id)?1:0) - (favs.has(a.id)?1:0));
 }
-const BACKEND_LABEL = { vllm: "vLLM", ikllama: "ik_llama", llamacpp: "llama.cpp" };
+const BACKEND_LABEL = { vllm: t("vLLM"), ikllama: "ik_llama", llamacpp: "llama.cpp" };
 
 // The engine tag only carries information when more than one engine is serving
 // models. On a llama.cpp-only install it was 15 identical LLAMA.CPP tags - pure
@@ -234,11 +235,11 @@ function rowHead(m, showBackend) {
   const be = m.backend || "llamacpp";
   const beTag = showBackend
     ? `<span class="tag be-${esc(be)}">${esc(BACKEND_LABEL[be] || be)}</span>` : "";
-  return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
-        <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
+  return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="${t("pick to compare")}">`:""}
+        <span class="led ${loaded?"loaded":""} ${m.status===t("loading")?t("loading"):""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
-        <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="${t("click to copy endpoint")}">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="ctxpill"><span class="k">${t("CTX")}</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="qbtns">${quickBtn(m)}</span>
         <span class="chev">&#9654;</span>`;
@@ -278,7 +279,7 @@ export function renderModels() {
   const showBackend = backendTagNeeded();
   const list = $("#list");
   if (!list) return;
-  if (!ms.length) { setHTML(list, `<div class="skel empty">NO MODELS MATCH</div>`); return; }
+  if (!ms.length) { setHTML(list, `<div class="skel empty">${t("NO MODELS MATCH")}</div>`); return; }
   if (list.firstElementChild && list.firstElementChild.classList.contains("skel")) setHTML(list, "");
 
   const existing = new Map($$(".row", list).map(r => [
@@ -358,9 +359,9 @@ function syncEditor(row, m) {
 function quickBtn(m) {
   const q = loadQ.findIndex(j => j.id === m.id);
   if (q >= 0) return `<span class="qbadge">QUEUED #${q+1}</span>`;
-  if (m.status === "loading") return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">Cancel</button>`;
-  if (m.status === "loaded") return `<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
-  return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">Load</button>`;
+  if (m.status === t("loading")) return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">${t("Cancel")}</button>`;
+  if (m.status === "loaded") return `<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">${t("Unload")}</button>`;
+  return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">${t("Load")}</button>`;
 }
 function beOf(id) {
   const m = modelRows().find(x => x.id === id);
@@ -390,7 +391,7 @@ async function processQ() {
   await refresh(true);
   processQ();
 }
-// Discover's "Load" after a download: refresh first so a just-registered
+// Discover's t("Load") after a download: refresh first so a just-registered
 // model is known, then load it.
 on("load-registered", async id => {
   await refresh(true);
@@ -403,13 +404,13 @@ async function quickAction(act, id) {
   if (act === "load") { enqueueLoad(id); return; }
   if (act === "unload") {
     await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
-    toast("Unloaded", "ok"); await refresh(true); return;
+    toast(t("Unloaded"), "ok"); await refresh(true); return;
   }
   if (act === "stop") {
     const qi = loadQ.findIndex(j => j.id === id);     // still queued -> just drop it
     if (qi > 0) { loadQ.splice(qi, 1); renderModels(); return; }
     await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
-    toast("Cancelled", "ok"); await refresh(true);
+    toast(t("Cancelled"), "ok"); await refresh(true);
   }
 }
 async function unloadAll() {
@@ -433,7 +434,7 @@ function updateCmpRun() {
 }
 function openCompare() {
   const ms = [...cmpSet].map(id => modelRows().find(x => x.id === id)).filter(Boolean);
-  if (ms.length < 2) { toast("Pick at least 2 models", "err"); return; }
+  if (ms.length < 2) { toast(t("Pick at least 2 models"), "err"); return; }
   const keys = [...new Set(ms.flatMap(m => Object.keys(m.settings||{})))].sort();
   const head = `<tr><th>knob</th>${ms.map(m => `<th>${esc(m.id)}</th>`).join("")}</tr>`;
   const rows = keys.map(k => {
@@ -441,9 +442,9 @@ function openCompare() {
     const diff = new Set(vals.map(v => v==null?"":String(v))).size > 1;
     return `<tr><td class="kname">${esc(k)}</td>${vals.map(v => `<td class="${diff?"diff":""}">${v==null?`<span style="color:var(--dim)">inherit</span>`:`<span class="mono">${esc(v)}</span>`}</td>`).join("")}</tr>`;
   }).join("");
-  showModal("Compare settings", keys.length ? `<table class="cmptbl">${head}${rows}</table>
+  showModal(t("Compare settings"), keys.length ? `<table class="cmptbl">${head}${rows}</table>
     <div class="note">Highlighted cells differ across the selected models. "inherit" = not set for that model (falls back to the global [*] default).</div>`
-    : `<div class="note">The selected models have no per-model knobs set - they all inherit the global defaults.</div>`);
+    : `<div class="note">${t("The selected models have no per-model knobs set - they all inherit the global defaults.")}</div>`);
 }
 
 /* ---------- modal ---------- */
@@ -457,7 +458,7 @@ export function showModal(title, inner, privateCopies = [], returnTo = document.
   const root = $("#modal-root");
   setHTML(root, `<dialog class="modal-dialog" aria-labelledby="modal-title">
     <div class="modal">
-      <button type="button" class="mclose" data-mclose aria-label="Close dialog">&times;</button>
+      <button type="button" class="mclose" data-mclose aria-label="${t("Close dialog")}">&times;</button>
       <h3 id="modal-title">${esc(title)}</h3>${inner}
     </div>
   </dialog>`);
@@ -482,7 +483,7 @@ export function showModal(title, inner, privateCopies = [], returnTo = document.
     button.onclick = e => {
       e.stopPropagation();
       navigator.clipboard.writeText(value).then(
-        () => toast("Copied to clipboard", "ok"));
+        () => toast(t("Copied to clipboard"), "ok"));
     };
   });
   dialog.showModal();
@@ -500,22 +501,22 @@ async function openClientConfig(id, backend) {
     row => row.id === id && (row.backend || "llamacpp") === backend);
   if (!m) return;
   const pending = showModal(
-    "Client config - " + id,
-    `<div class="note" role="status">Generating configuration...</div>`);
+    t("Client config - ") + id,
+    `<div class="note" role="status">${t("Generating configuration...")}</div>`);
   let r;
   try {
     r = await api("/api/client/config", {model: m.id, backend});
   } catch (error) {
     if (pending.isOpen()) {
-      showModal("Client config - " + id,
-        `<div class="note" role="alert">Client configuration is unavailable.</div>`,
+      showModal(t("Client config - ") + id,
+        `<div class="note" role="alert">${t("Client configuration is unavailable.")}</div>`,
         [], pending.returnTo);
     }
     return;
   }
   if (!pending.isOpen()) return;
   if (r.error) {
-    showModal("Client config - " + id,
+    showModal(t("Client config - ") + id,
       `<div class="note" role="alert">${esc(r.error)}</div>`,
       [], pending.returnTo);
     return;
@@ -525,17 +526,17 @@ async function openClientConfig(id, backend) {
     `<div class="slabel">${esc(label)}</div><div class="snip">
       <button type="button" class="qbtn scopy"
               data-private-copy-index="${index}"
-              aria-label="Copy ${esc(label)}">Copy</button>${esc(text)}</div>`;
-  showModal("Client config - " + id,
+              aria-label="Copy ${esc(label)}">${t("Copy")}</button>${esc(text)}</div>`;
+  showModal(t("Client config - ") + id,
     `<div class="note">Endpoint: <b>${esc(r.endpoint)}</b>. ${
-      r.auth_required ? "The configured router credential is included." :
-                        "No API key is required for this target."}${
+      r.auth_required ? t("The configured router credential is included.") :
+                        t("No API key is required for this target.")}${
       r.model_loaded ? "" :
-        ` <b style="color:var(--amber)">Load the model before sending requests.</b>`
+        ` <b style="color:var(--amber)">${t("Load the model before sending requests.")}</b>`
     }</div>` +
     snip("curl", r.curl, 0) +
-    snip("OpenAI client (environment)", r.environment, 1) +
-    snip("Test JSON payload", r.payload, 2),
+    snip(t("OpenAI client (environment)"), r.environment, 1) +
+    snip(t("Test JSON payload"), r.payload, 2),
     values, pending.returnTo);
 }
 
@@ -545,20 +546,20 @@ function presetBar(m) {
   const bound = ((c.preset_bindings || {})[m.backend || c.active_engine || "llamacpp"] || {})[m.id] || "";
   const chips = Object.keys(P).map(n => {
     const isBound = n === bound;
-    return `<span class="pchip${isBound ? " bound" : ""}" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="apply preset to this model">`
+    return `<span class="pchip${isBound ? " bound" : ""}" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="${t("apply preset to this model")}">`
       + `<span class="pbind" data-preset-bind="${esc(n)}" data-preset-bind-model="${esc(m.id)}" title="${isBound ? "bound as default - click to unbind" : "bind as this model's default"}">${isBound ? "◉" : "○"}</span>`
-      + `${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="delete preset">&times;</span></span>`;
+      + `${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="${t("delete preset")}">&times;</span></span>`;
   }).join("");
   return `<div class="presetbar">
-    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Presets</span>
+    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">${t("Presets")}</span>
     ${chips||'<span class="note" style="margin:0">none saved yet</span>'}
-    <button class="qbtn" data-preset-save="${esc(m.id)}" title="save this model's set knobs as a named preset">Save current +</button>
+    <button class="qbtn" data-preset-save="${esc(m.id)}" title="${t("save this model's set knobs as a named preset")}">${t("Save current +")}</button>
   </div>`;
 }
 async function applyPreset(model, name) {
   const r = await api("/api/presets/apply", {model, name});
   if (r.ok) { toast(`Applied "${name}"`, "ok"); delete diagCache[model]; invalidateKnobs(); await refresh(true); }
-  else toast(r.error || "apply failed", "err");
+  else toast(r.error || t("apply failed"), "err");
 }
 async function bindPreset(model, name) {
   // toggle: clicking the dot of an already-bound preset unbinds it
@@ -569,32 +570,32 @@ async function bindPreset(model, name) {
   if (r.ok) {
     toast(next ? `Bound "${name}" as default` : `Unbound "${name}"`, "ok");
     delete diagCache[model]; invalidateKnobs(); await refresh(true);
-  } else toast(r.error || "bind failed", "err");
+  } else toast(r.error || t("bind failed"), "err");
 }
 async function savePresetFrom(model) {
   const row = $(`.row[data-id="${CSS.escape(model)}"]`); if (!row) return;
   const settings = {};
   $$("[data-k]", row).forEach(el => { const v = el.value.trim(); if (v !== "") settings[el.dataset.k] = v; });
-  if (!Object.keys(settings).length) { toast("No knobs set to save", "err"); return; }
-  const name = await askText("Preset name", {title: "Save as preset", placeholder: "coding, creative, fast"});
+  if (!Object.keys(settings).length) { toast(t("No knobs set to save"), "err"); return; }
+  const name = await askText(t("Preset name"), {title: t("Save as preset"), placeholder: t("coding, creative, fast")});
   if (!name) return;
   const r = await api("/api/presets/save", {name: name.trim(), settings});
   if (r.ok) { toast(`Saved preset "${name.trim()}"`, "ok"); await refresh(true); }
-  else toast(r.error || "save failed", "err");
+  else toast(r.error || t("save failed"), "err");
 }
 
 /* ---------- GGUF metadata card ---------- */
 function metaBlock(m) {
   if (m.backend === "vllm" || !m.in_ini) return "";
   const meta = metaCache[m.id];
-  if (meta === undefined) { setTimeout(() => fetchMeta(m.id), 0); return `<div class="metacard"><div class="m"><span class="mv">reading GGUF header...</span></div></div>`; }
+  if (meta === undefined) { setTimeout(() => fetchMeta(m.id), 0); return `<div class="metacard"><div class="m"><span class="mv">${t("reading GGUF header...")}</span></div></div>`; }
   if (!meta || !Object.keys(meta).length) return compatNote(m.id);
   const row = (k, v) => v == null ? "" : `<div class="m"><div class="mk">${esc(k)}</div><div class="mv">${esc(v)}</div></div>`;
   const runsOn = RUNS_ON[(compatCache[m.id] || {}).class];
-  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}${row("runs on",runsOn)}</div>${compatNote(m.id)}`;
+  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row(t("trained ctx"),meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row(t("attn heads"),meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row(t("rope base"),meta.rope_freq_base)}${row(t("rope scaling"),meta.rope_scaling)}${row(t("runs on"),runsOn)}</div>${compatNote(m.id)}`;
 }
 // From the GGUF's tensor types; advice only, since a third fork can reuse an id.
-const RUNS_ON = {"any": "llama.cpp + ik_llama.cpp", "ik-only": "ik_llama.cpp, not mainline", "mainline-only": "llama.cpp, not ik_llama"};
+const RUNS_ON = {"any": t("llama.cpp + ik_llama.cpp"), "ik-only": t("ik_llama.cpp, not mainline"), "mainline-only": t("llama.cpp, not ik_llama")};
 function compatNote(id) {
   const c = compatCache[id];
   return c && c.advice ? `<div class="slotnote warn"><b>Quant:</b> ${esc(c.advice)}</div>` : "";
@@ -629,17 +630,17 @@ function buildBar(m) {
   const router = opts.find(o => o.router);
   const opt = (v, label) => `<option value="${esc(v)}"${v === pinned ? " selected" : ""}>${esc(label)}</option>`;
   const items = [opt("", `follow the router${router ? " (" + router.label + ")" : ""}`)]
-    .concat(opts.map(o => opt(o.ref, o.label + (o.router ? " · the router's build now" : ""))));
+    .concat(opts.map(o => opt(o.ref, o.label + (o.router ? t(" · the router's build now") : ""))));
   if (pinned && !cur) items.push(opt(pinned, `${pinned} (not installed)`));
   let note = "";
   if (pinned && !cur)
-    note = `<div class="slotnote warn"><b>Build gone:</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Build / Update.</div>`;
+    note = `<div class="slotnote warn"><b>${t("Build gone:")}</b> ${esc(pinned)} isn't installed any more, so this model won't load. Pick another build, or reinstall it from Build / Update.</div>`;
   else if (cur && cur.router)
     note = `<div class="slotnote dim">Pinned: it stays on ${esc(cur.label)} when the router moves to another build.</div>`;
   else if (cur)
     note = `<div class="slotnote dim">Runs in its own llama-server${m.process ? " on port " + esc(m.process.port) : ""}, not the router: clients reach it at its own endpoint.</div>`;
   return `<div class="tunebar">
-    <span class="tunebar-label" title="Which llama.cpp build runs this model. Follow the router, or keep it on one build whatever the router runs. A build other than the router's runs the model in its own process.">Build</span>
+    <span class="tunebar-label" title="${t("Which llama.cpp build runs this model. Follow the router, or keep it on one build whatever the router runs. A build other than the router's runs the model in its own process.")}">${t("Build")}</span>
     <select data-build-pick="${esc(m.id)}">${items.join("")}</select>
   </div>${note}${slots.droppedNote(m.id)}`;
 }
@@ -647,8 +648,8 @@ async function setBuild(sel) {
   const id = sel.dataset.buildPick, ref = sel.value;
   const row = sel.closest(".row"), msg = row && $("[data-msg]", row);
   const m = modelRows().find(x => x.id === id);
-  const up = m && (m.status === "loaded" || m.status === "loading" || m.status === "sleeping");
-  if (up && !(await askYes(`Switching the build unloads ${id}.`, {title: "Switch build", ok: "Switch and unload", danger: true}))) {
+  const up = m && (m.status === "loaded" || m.status === t("loading") || m.status === "sleeping");
+  if (up && !(await askYes(`Switching the build unloads ${id}.`, {title: t("Switch build"), ok: t("Switch and unload"), danger: true}))) {
     if (row) row._live = null;                         // put the select back
     renderModels(); return;
   }
@@ -658,10 +659,10 @@ async function setBuild(sel) {
     if (r && r.ok) {
       if (buildsCache[id]) buildsCache[id].pinned = r.build;
       delete diagCache[id]; slots.forget(id);
-      if (msg) { msg.className = "msg ok"; msg.textContent = r.was_running ? "build saved - unloaded to apply" : "build saved - used on the next load"; }
+      if (msg) { msg.className = "msg ok"; msg.textContent = r.was_running ? t("build saved - unloaded to apply") : t("build saved - used on the next load"); }
       toast(ref ? `${id} now runs on ${ref}` : `${id} follows the router's build`, "ok");
     } else {
-      toast((r && r.error) || "could not change the build", "err");
+      toast((r && r.error) || t("could not change the build"), "err");
       if (row) row._live = null;
     }
   } catch (e) { toast("could not change the build: " + e, "err"); if (row) row._live = null; }
@@ -671,14 +672,14 @@ async function setBuild(sel) {
 /* ---------- autotune bar ---------- */
 function autoTuneBar(m) {
   return `<div class="tunebar">
-    <span class="tunebar-label" title="Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench. Each candidate runs one real ~200-token completion, so results move with system load.">⚙ Refine</span>
+    <span class="tunebar-label" title="${t("Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench. Each candidate runs one real ~200-token completion, so results move with system load.")}">${t("⚙ Refine")}</span>
     <select data-tune-intent>
-      <option value="balanced">Balanced</option>
-      <option value="speed">Max speed</option>
-      <option value="context">Max context</option>
-      <option value="coding">Coding</option>
+      <option value="balanced">${t("Balanced")}</option>
+      <option value="speed">${t("Max speed")}</option>
+      <option value="context">${t("Max context")}</option>
+      <option value="coding">${t("Coding")}</option>
     </select>
-    <button class="qbtn" data-tune-refine="${esc(m.id)}">Run (~1 min)</button>
+    <button class="qbtn" data-tune-refine="${esc(m.id)}">${t("Run (~1 min)")}</button>
   </div>
   <div class="tunebar-results" data-tune-results hidden></div>`;
 }
@@ -737,16 +738,16 @@ async function handleTuneRefine(modelId) {
       toast(`Refined, but ${modelId} didn't load back`, "err");
     } else toast(`Refined — ${tok} tok/s`, "ok");
   } catch (e) { toast("Refine failed: " + e, "err"); }
-  btn.disabled = false; btn.textContent = "Run (~1 min)";
+  btn.disabled = false; btn.textContent = t("Run (~1 min)");
 }
 
 /* ---------- inline load-failure diagnosis ---------- */
 function diagBlock(m) {
   if (!m.failed) return "";
   const d = diagCache[m.id];
-  if (d === undefined) { setTimeout(() => fetchDiag(m.id), 0); return `<div class="faildiag"><div class="ferr">reading the router log...</div></div>`; }
-  if (!d) return `<div class="faildiag"><div class="ffix">Load failed, but no specific cause was found in the router log - see the Router Log panel below.</div></div>`;
-  return `<div class="faildiag"><div class="ferr">${esc(d.error)}</div><div class="ffix"><b>Suggested fix:</b> ${esc(d.suggestion)}</div></div>`;
+  if (d === undefined) { setTimeout(() => fetchDiag(m.id), 0); return `<div class="faildiag"><div class="ferr">${t("reading the router log...")}</div></div>`; }
+  if (!d) return `<div class="faildiag"><div class="ffix">${t("Load failed, but no specific cause was found in the router log - see the Router Log panel below.")}</div></div>`;
+  return `<div class="faildiag"><div class="ferr">${esc(d.error)}</div><div class="ffix"><b>${t("Suggested fix:")}</b> ${esc(d.suggestion)}</div></div>`;
 }
 async function fetchDiag(id) {
   try { const r = await api("/api/model/diag?model=" + encodeURIComponent(id)); diagCache[id] = r.diag || null; }
@@ -778,7 +779,7 @@ export async function refresh(silent) {
     const vlog = $("#vllm-log-details");
     if (vlog && s.vllm_supported === false) vlog.style.display = "none";
   } catch (e) {
-    if (!silent) setHTML($("#list"), `<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);
+    if (!silent) setHTML($("#list"), `<div class="skel" style="color:var(--red)">${t("BACKEND UNREACHABLE")}</div>`);
   }
 }
 on("refresh", silent => refresh(silent));
@@ -829,7 +830,7 @@ export function initModels() {
     const row = e.target.closest("#view-models .row.open");
     if (!row || e.target.dataset.k == null) return;
     const msg = $("[data-msg]", row);
-    if (msg) { msg.className = "msg work"; msg.textContent = "unsaved changes"; }
+    if (msg) { msg.className = "msg work"; msg.textContent = t("unsaved changes"); }
   });
 
   // keyboard map: 1-9 tabs (sidebar order), / search, j/k or arrows navigate, Enter expand,
@@ -857,7 +858,7 @@ export function initModels() {
     const m = modelRows().find(x => x.id === selId); if (!m) return;
     if (e.key === "Enter") { e.preventDefault(); setOpenId(openId===selId?null:selId); renderModels(); return; }
     if (e.key === "l" || e.key === "L") { if (m.status !== "loaded") quickAction("load", selId); return; }
-    if (e.key === "u" || e.key === "U") { if (m.status === "loaded" || m.status === "loading") quickAction("unload", selId); return; }
+    if (e.key === "u" || e.key === "U") { if (m.status === "loaded" || m.status === t("loading")) quickAction("unload", selId); return; }
     if (e.key === "s" || e.key === "S") {
       if (openId === selId) {
         const b = $(`.row[data-id="${CSS.escape(selId)}"] button[data-act="save"]`)
@@ -870,9 +871,9 @@ export function initModels() {
 
   document.addEventListener("click", async e => {
     const cpChip = e.target.closest("#view-models [data-copy]");
-    if (cpChip) { e.stopPropagation(); navigator.clipboard.writeText(cpChip.dataset.copy).then(() => toast("Path copied","ok")); return; }
+    if (cpChip) { e.stopPropagation(); navigator.clipboard.writeText(cpChip.dataset.copy).then(() => toast(t("Path copied"),"ok")); return; }
     const epChip = e.target.closest("#view-models [data-ep]");
-    if (epChip) { e.stopPropagation(); navigator.clipboard.writeText(epChip.dataset.ep).then(() => toast("Endpoint copied","ok")); return; }
+    if (epChip) { e.stopPropagation(); navigator.clipboard.writeText(epChip.dataset.ep).then(() => toast(t("Endpoint copied"),"ok")); return; }
     const favBtn = e.target.closest("#view-models [data-fav]");
     if (favBtn) { e.stopPropagation(); toggleFav(favBtn.dataset.fav); return; }
     const onlySetChip = e.target.closest("#view-models [data-onlyset]");
@@ -883,7 +884,7 @@ export function initModels() {
     if (cmpBox) {
       const id = cmpBox.dataset.cmp;
       if (cmpBox.checked) {
-        if (cmpSet.size >= 3 && !cmpSet.has(id)) { cmpBox.checked = false; toast("Compare up to 3 at once","err"); return; }
+        if (cmpSet.size >= 3 && !cmpSet.has(id)) { cmpBox.checked = false; toast(t("Compare up to 3 at once"),"err"); return; }
         cmpSet.add(id);
       } else cmpSet.delete(id);
       updateCmpRun(); return;
@@ -919,8 +920,8 @@ export function initModels() {
       if (pbind) { await bindPreset(pbind.dataset.presetBindModel, pbind.dataset.presetBind); return; }
       const pdel = e.target.closest("[data-preset-del]");
       if (pdel) {
-        if (!(await askYes("This can't be undone.", {title: `Delete preset "${pdel.dataset.presetDel}"`, ok: "Delete", danger: true}))) return;
-        await api("/api/presets/delete", {name: pdel.dataset.presetDel}); toast("Preset deleted","ok"); await refresh(true); return;
+        if (!(await askYes(t("This can't be undone."), {title: `Delete preset "${pdel.dataset.presetDel}"`, ok: t("Delete"), danger: true}))) return;
+        await api("/api/presets/delete", {name: pdel.dataset.presetDel}); toast(t("Preset deleted"),"ok"); await refresh(true); return;
       }
       await applyPreset(pApply.dataset.presetModel, pApply.dataset.presetApply); return;
     }
@@ -944,52 +945,52 @@ export function initModels() {
     try {
       if (act === "save") {
         const settings = {}; $$("[data-k]", row).forEach(el => settings[el.dataset.k] = el.value.trim());
-        msg.className = "msg work"; msg.textContent = "writing models.ini...";
+        msg.className = "msg work"; msg.textContent = t("writing models.ini...");
         const r = await api("/api/save", {model: id, settings});
         if (r.ok) {
           msg.className = "msg ok";
-          msg.textContent = r.was_running ? "saved - unloaded to apply" : "saved + reloaded";
-          toast("Saved & reloaded", "ok");
+          msg.textContent = r.was_running ? t("saved - unloaded to apply") : t("saved + reloaded");
+          toast(t("Saved & reloaded"), "ok");
           invalidateKnobs();   // server now matches the inputs; refresh "set" marks
           slots.forget(id);    // new knobs, new footprint: ask the planner again
         } else { msg.className = "msg err"; msg.textContent = r.error || "failed"; }
       } else if (act === "load") {
-        msg.className = "msg work"; msg.textContent = "loading (may take seconds)...";
+        msg.className = "msg work"; msg.textContent = t("loading (may take seconds)...");
         const r = await slots.load(id);
-        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
+        r.success ? toast(t("Loaded"),"ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
       } else if (act === "loadw") {
-        msg.className = "msg work"; msg.textContent = "loading beside the main model...";
+        msg.className = "msg work"; msg.textContent = t("loading beside the main model...");
         const r = await slots.load(id, "worker");
-        r.success ? toast("Loaded as a worker","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
+        r.success ? toast(t("Loaded as a worker"),"ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
       } else if (act === "unload") {
         msg.className = "msg work"; msg.textContent = "unloading...";
-        await api("/api/unload", {model: id}); toast("Unloaded", "ok");
+        await api("/api/unload", {model: id}); toast(t("Unloaded"), "ok");
       } else if (act === "client") {
         await clientOpening; return;
       } else if (act === "unregister") {
-        if (!(await askYes("Its GGUF file stays on disk.", {title: `Unregister ${id}`, ok: "Unregister", danger: true}))) { btn.disabled = false; return; }
-        msg.className = "msg work"; msg.textContent = "removing from models.ini...";
+        if (!(await askYes(t("Its GGUF file stays on disk."), {title: `Unregister ${id}`, ok: t("Unregister"), danger: true}))) { btn.disabled = false; return; }
+        msg.className = "msg work"; msg.textContent = t("removing from models.ini...");
         const r = await api("/api/models/unregister", {model: id, backend: beOf(id)});
-        if (r.ok) { toast("Unregistered — file kept on disk", "ok"); setOpenId(null); }
+        if (r.ok) { toast(t("Unregistered — file kept on disk"), "ok"); setOpenId(null); }
       } else if (act === "vsave") {
         const settings = {}; $$("[data-k]", row).forEach(el => settings[el.dataset.k] = el.value.trim());
-        msg.className = "msg work"; msg.textContent = "saving vLLM knobs...";
+        msg.className = "msg work"; msg.textContent = t("saving vLLM knobs...");
         const r = await api("/api/vllm/save", {model: id, settings});
-        msg.className = "msg ok"; msg.textContent = r.restarted ? "saved - restarting" : "saved";
-        toast(r.restarted ? "Saved & restarting" : "Saved", "ok");
+        msg.className = "msg ok"; msg.textContent = r.restarted ? t("saved - restarting") : "saved";
+        toast(r.restarted ? t("Saved & restarting") : t("Saved"), "ok");
         invalidateKnobs();
       } else if (act === "vload") {
-        msg.className = "msg work"; msg.textContent = "starting vLLM (1-5 min)...";
+        msg.className = "msg work"; msg.textContent = t("starting vLLM (1-5 min)...");
         const r = await api("/api/vllm/load", {model: id});
-        r.ok ? toast("vLLM starting","ok") : (msg.className="msg err", msg.textContent=r.error||"load failed");
+        r.ok ? toast(t("vLLM starting"),"ok") : (msg.className="msg err", msg.textContent=r.error||t("load failed"));
       } else if (act === "vunload") {
-        msg.className = "msg work"; msg.textContent = "stopping vLLM...";
-        await api("/api/vllm/unload", {model: id}); toast("vLLM stopped", "ok");
+        msg.className = "msg work"; msg.textContent = t("stopping vLLM...");
+        await api("/api/vllm/unload", {model: id}); toast(t("vLLM stopped"), "ok");
       } else if (act === "vdelete") {
-        if (!(await askYes("Its files are deleted from WSL. This cannot be undone.", {title: `Delete ${id}`, ok: "Delete", danger: true}))) return;
-        msg.className = "msg work"; msg.textContent = "deleting from WSL...";
+        if (!(await askYes(t("Its files are deleted from WSL. This cannot be undone."), {title: `Delete ${id}`, ok: t("Delete"), danger: true}))) return;
+        msg.className = "msg work"; msg.textContent = t("deleting from WSL...");
         const r = await api("/api/vllm/delete", {model: id});
-        r.ok ? toast("Deleted","ok") : (msg.className="msg err", msg.textContent=r.error||"delete failed");
+        r.ok ? toast(t("Deleted"),"ok") : (msg.className="msg err", msg.textContent=r.error||t("delete failed"));
         setOpenId(null);
       }
       await refresh(true);

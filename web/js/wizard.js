@@ -1,6 +1,7 @@
 // First-run wizard: engine -> hardware -> model -> tune -> load.
 // Talks to the model list only through the bus, so neither imports the other.
 import { $, esc, setHTML, api, toast, meter } from "./core.js";
+import { t } from "./i18n.js";
 import { S, models } from "./state.js";
 import { on, emit } from "./bus.js";
 import { switchTab, applyMode } from "./ui.js";
@@ -21,12 +22,12 @@ function wizRender() {
 }
 
 function wizEngine(body) {
-  setHTML(body, `<div class="wizard-step"><h2>llama.cpp engine</h2>
+  setHTML(body, `<div class="wizard-step"><h2>${t("llama.cpp engine")}</h2>
     <p>LlamaForge drives llama.cpp. How do you want to get it?</p>
-    <label><input type="radio" name="eng" value="prebuilt" checked> Download the official build for this PC
+    <label><input type="radio" name="eng" value="prebuilt" checked> ${t("Download the official build for this PC")}
       <span class="note" style="display:inline;margin:0">(recommended, about a minute, no compiler)</span></label><br>
-    <label><input type="radio" name="eng" value="have"> I already have llama-server built</label><br>
-    <label><input type="radio" name="eng" value="source"> Build from source (Build tab, needs CMake + a compiler)</label>
+    <label><input type="radio" name="eng" value="have"> ${t("I already have llama-server built")}</label><br>
+    <label><input type="radio" name="eng" value="source"> ${t("Build from source (Build tab, needs CMake + a compiler)")}</label>
     <div id="wiz-engine-card" style="margin-top:10px"></div></div>`);
   const card = $("#wiz-engine-card");
   const sync = () => {
@@ -44,9 +45,9 @@ function wizEngine(body) {
 function wizHardware(body) {
   const g = (S.STATE && S.STATE.gpus) || [];
   const rows = (g.length && !g[0].error)
-    ? g.map(x => `<li>${esc(x.name||"GPU")} — ${esc(x.total?(x.total/1024).toFixed(1):"?")} GB</li>`).join("")
+    ? g.map(x => `<li>${esc(x.name||t("GPU"))} — ${esc(x.total?(x.total/1024).toFixed(1):"?")} GB</li>`).join("")
     : "";
-  setHTML(body, `<div class="wizard-step"><h2>Your hardware</h2>
+  setHTML(body, `<div class="wizard-step"><h2>${t("Your hardware")}</h2>
     <ul>${rows||"<li>No GPU detected — CPU mode.</li>"}</ul></div>`);
 }
 
@@ -54,7 +55,7 @@ function wizModel(body) {
   const ms = models().filter(m => m.backend !== "vllm");
   if (!ms.length) { wizStarters(body); return; }
   const opts = ms.map(m => `<option value="${esc(m.id)}"${m.id === WIZ.model ? " selected" : ""}>${esc(m.id)}</option>`).join("");
-  setHTML(body, `<div class="wizard-step"><h2>Pick a model</h2>
+  setHTML(body, `<div class="wizard-step"><h2>${t("Pick a model")}</h2>
     <select id="wiz-model">${opts}</select></div>`);
   const sel = $("#wiz-model"); if (sel) WIZ.model = sel.value;
 }
@@ -64,24 +65,24 @@ function wizModel(body) {
 // run ended (review 01 #2). The backend registers the file when it finishes.
 let wizDlPoll = null;
 async function wizStarters(body) {
-  setHTML(body, `<div class="wizard-step"><h2>Get your first model</h2>
-    <p class="note" style="margin:0">Checking what fits your GPU...</p></div>`);
+  setHTML(body, `<div class="wizard-step"><h2>${t("Get your first model")}</h2>
+    <p class="note" style="margin:0">${t("Checking what fits your GPU...")}</p></div>`);
   let r;
   try { r = await api("/api/starters"); } catch (e) { r = {starters: []}; }
   if (WIZ.steps[WIZ.step] !== "model") return;      // user moved on meanwhile
   const gb = b => (b / 1e9).toFixed(1) + " GB";
-  const vram = r.vram_mib ? `${(r.vram_mib / 1024).toFixed(0)} GB of VRAM` : "no GPU (these run on the CPU, slowly)";
+  const vram = r.vram_mib ? `${(r.vram_mib / 1024).toFixed(0)} GB of VRAM` : t("no GPU (these run on the CPU, slowly)");
   const cards = (r.starters || []).map((m, i) => `
     <div class="starter${m.recommended ? " rec" : ""}">
       <div><div class="t">${esc(m.title)} ${m.recommended ? '<span class="tag" style="color:var(--amber);border-color:var(--amber)">best fit</span>' : ""}</div>
         <div class="b">${esc(m.blurb)} &middot; ${esc(gb(m.size))}</div></div>
-      <button ${m.recommended ? 'class="primary"' : ""} data-starter="${i}">Download</button>
+      <button ${m.recommended ? 'class="primary"' : ""} data-starter="${i}">${t("Download")}</button>
     </div>`).join("");
-  setHTML(body, `<div class="wizard-step"><h2>Get your first model</h2>
+  setHTML(body, `<div class="wizard-step"><h2>${t("Get your first model")}</h2>
     <p>Picked for ${esc(vram)}. One click downloads it and adds it to your models.</p>
     ${cards}
     <div id="wiz-dl" hidden><div class="meter" id="wiz-dl-meter"></div><div class="note" id="wiz-dl-msg"></div></div>
-    <p class="note">Want something else? <a href="#" id="wiz-discover">Browse Hugging Face in Discover</a>.</p></div>`);
+    <p class="note">${t("Want something else?")} <a href="#" id="wiz-discover">${t("Browse Hugging Face in Discover")}</a>.</p></div>`);
   const d = $("#wiz-discover");
   if (d) d.onclick = e => { e.preventDefault(); wizHide(); switchTab("discover"); };
   body.querySelectorAll("[data-starter]").forEach(b => b.onclick = () => wizDownload(r.starters[+b.dataset.starter]));
@@ -89,7 +90,7 @@ async function wizStarters(body) {
 
 async function wizDownload(m) {
   const res = await api("/api/hub/download", {repo: m.repo, path: m.path, shards: m.shards || 1, mmproj: m.mmproj || ""});
-  if (!res.started) { toast("A download is already running - see Discover", "err"); return; }
+  if (!res.started) { toast(t("A download is already running - see Discover"), "err"); return; }
   document.querySelectorAll("[data-starter]").forEach(b => b.disabled = true);
   $("#wiz-dl").hidden = false;
   clearInterval(wizDlPoll);
@@ -99,7 +100,7 @@ async function wizDownload(m) {
     const box = $("#wiz-dl-msg");
     if (!box) { clearInterval(wizDlPoll); return; }   // wizard closed; the download carries on
     setHTML($("#wiz-dl-meter"), meter(s.downloaded, Math.max(s.total, 1)));
-    box.textContent = s.phase === "registering" ? "Downloaded - adding it to your models..."
+    box.textContent = s.phase === "registering" ? t("Downloaded - adding it to your models...")
       : s.phase === "done" ? "" : s.phase === "failed" ? "Download failed: " + (s.error || "").slice(0, 100)
       : `${(s.downloaded / 1e9).toFixed(2)} / ${(s.total / 1e9).toFixed(2)} GB`;
     if (["done", "failed", "cancelled", "paused"].includes(s.phase)) clearInterval(wizDlPoll);
@@ -109,7 +110,7 @@ async function wizDownload(m) {
         box.textContent = `${s.added[0]} is ready. Press Next.`;
         emit("refresh", true);
       } else {
-        box.textContent = "Downloaded, but it could not be added: " + (s.register_error || "unknown error").slice(0, 100);
+        box.textContent = "Downloaded, but it could not be added: " + (s.register_error || t("unknown error")).slice(0, 100);
       }
     }
     if (s.phase === "failed" || s.phase === "cancelled")
@@ -118,15 +119,15 @@ async function wizDownload(m) {
 }
 
 function wizTune(body) {
-  setHTML(body, `<div class="wizard-step"><h2>Tune for your goal</h2>
+  setHTML(body, `<div class="wizard-step"><h2>${t("Tune for your goal")}</h2>
     <select id="wiz-intent">
-      <option value="balanced">Balanced</option>
-      <option value="speed">Max speed</option>
-      <option value="context">Max context</option>
-      <option value="coding">Coding</option>
+      <option value="balanced">${t("Balanced")}</option>
+      <option value="speed">${t("Max speed")}</option>
+      <option value="context">${t("Max context")}</option>
+      <option value="coding">${t("Coding")}</option>
     </select>
-    <button id="wiz-tune-run">Auto-tune</button>
-    <button id="wiz-tune-refine" hidden title="Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench.">Refine with a quick test (~1 min)</button>
+    <button id="wiz-tune-run">${t("Auto-tune")}</button>
+    <button id="wiz-tune-refine" hidden title="${t("Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench.")}">${t("Refine with a quick test (~1 min)")}</button>
     <div id="wiz-tune-out"></div></div>`);
   $("#wiz-tune-run").onclick = async () => {
     WIZ.intent = $("#wiz-intent").value;
@@ -147,8 +148,8 @@ function wizRenderRec(r) {
 }
 
 function wizLoad(body) {
-  setHTML(body, `<div class="wizard-step"><h2>Ready</h2>
-    <p>Apply these settings to <b>${esc(WIZ.model)}</b> and load it now.</p></div>`);
+  setHTML(body, `<div class="wizard-step"><h2>${t("Ready")}</h2>
+    <p>${t("Apply these settings to")} <b>${esc(WIZ.model)}</b> ${t("and load it now.")}</p></div>`);
 }
 
 async function wizNext() {
@@ -175,8 +176,8 @@ async function wizNext() {
       await api("/api/config", {onboarded: true, ui_mode: "lite"});
       applyMode("lite"); wizHide(); emit("refresh", true);
       toast(loadErr ? "Setup done — model failed to load; load it from the Models tab"
-                    : "Setup complete", loadErr ? "err" : "ok");
-    } catch (e) { toast("Setup failed", "err"); }
+                    : t("Setup complete"), loadErr ? "err" : "ok");
+    } catch (e) { toast(t("Setup failed"), "err"); }
     return;
   }
   WIZ.step = Math.min(WIZ.step + 1, WIZ.steps.length - 1);
@@ -186,7 +187,7 @@ async function wizNext() {
 export function initWizard() {
   $("#wiz-next").onclick = wizNext;
   $("#wiz-back").onclick = () => { WIZ.step = Math.max(0, WIZ.step-1); wizRender(); };
-  // Skipping is "not now", not "I'm an expert": stay in the simple Lite view.
+  // Skipping is t("not now"), not t("I'm an expert"): stay in the simple Lite view.
   $("#wiz-skip").onclick = async () => {
     await api("/api/config", {onboarded: true, ui_mode: "lite"});
     applyMode("lite"); wizHide();

@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const core = await readFile(new URL("../web/js/core.js", import.meta.url), "utf8");
+const i18n = await readFile(new URL("../web/js/i18n.js", import.meta.url), "utf8");
+const i18nUrl = `data:text/javascript;base64,${Buffer.from(i18n).toString("base64")}`;
+const core = (await readFile(new URL("../web/js/core.js", import.meta.url), "utf8"))
+  .replace('"./i18n.js"', `"${i18nUrl}"`);
 const coreUrl = `data:text/javascript;base64,${Buffer.from(core).toString("base64")}`;
 const source = (await readFile(new URL("../web/js/bays.js", import.meta.url), "utf8"))
-  .replace('"./core.js"', `"${coreUrl}"`);
+  .replace('"./core.js"', `"${coreUrl}"`)
+  .replace('"./i18n.js"', `"${i18nUrl}"`);
 const bays = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const GiB = 1024;

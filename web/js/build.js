@@ -3,6 +3,7 @@
 // Also surfaces the vLLM pip package version, since updating it is a build-ish
 // concern rather than a setup one.
 import { $, esc, setHTML, api, toast, agoText, fmtDur } from "./core.js";
+import { t } from "./i18n.js";
 import { mountEngineCard } from "./engine.js";
 
 let buildPoll = null;
@@ -27,8 +28,8 @@ export async function loadBuild(force) {
   const v = $("#view-build");
   if (force) {
     const s = $("#upstream-status");
-    if (s) { s.textContent = "checking github..."; s.className = "v work"; }
-  } else setHTML(v, `<div class="skel">QUERYING GIT + GITHUB...</div>`);
+    if (s) { s.textContent = t("checking github..."); s.className = "v work"; }
+  } else setHTML(v, `<div class="skel">${t("QUERYING GIT + GITHUB...")}</div>`);
   const q = (force ? "?force=1&" : "?") + `target=${_target}`;
   const b = await api("/api/build/info" + q);
   const st = await api("/api/state");
@@ -37,51 +38,51 @@ export async function loadBuild(force) {
   const cur = b.current||{}, up = b.updates||{};
   const flags = b.saved_flags && Object.keys(b.saved_flags).length ? b.saved_flags : b.recommended_flags||{};
   const behind = up.ok ? up.behind : 0;
-  const checked = up.cached ? `checked ${agoText(up.checked_secs_ago)}` : "checked just now";
+  const checked = up.cached ? `checked ${agoText(up.checked_secs_ago)}` : t("checked just now");
   const remoteUrl = b.remote || ENGINE_REPOS[_target] || "";
   const label = ENGINE_LABELS[_target] || _target;
   const isActive = _target === activeEngine;
 
   setHTML(v, `
     <div class="card buildtarget">
-      <span class="k">Build Target</span>
+      <span class="k">${t("Build Target")}</span>
       <span class="mode-toggle">
         <button class="${_target==='llamacpp'?'active':''}" id="btn-tgt-llamacpp">llama.cpp</button>
         <button class="${_target==='ikllama'?'active':''}" id="btn-tgt-ikllama">ik_llama</button>
       </span>
       <span class="buildtarget-active">
-        Active engine: <strong class="${isActive?'ok':'dim'}">${esc(ENGINE_LABELS[activeEngine]||activeEngine)}</strong>
+        ${t("Active engine:")} <strong class="${isActive?'ok':'dim'}">${esc(ENGINE_LABELS[activeEngine]||activeEngine)}</strong>
         ${!isActive?`<button class="ghost" id="btn-switch-engine">Switch to ${esc(label)}</button>`:''}
       </span>
     </div>
     ${_target === "llamacpp" ? `<div id="engine-prebuilt"></div>` : ""}
-    <div class="card"><h3>${_target === "llamacpp" ? "Or build from source" : "Current Build"} · ${esc(label)}</h3>
+    <div class="card"><h3>${_target === "llamacpp" ? t("Or build from source") : t("Current Build")} · ${esc(label)}</h3>
       <div class="kv"><span class="k">commit</span><span class="v">${esc(cur.hash||"?")} &middot; ${esc((cur.subject||"").slice(0,60))}</span></div>
       <div class="kv"><span class="k">branch</span><span class="v">${esc(cur.branch||"?")}</span></div>
       <div class="kv"><span class="k">date</span><span class="v">${esc(cur.date||"?")}</span></div>
     </div>
     <div class="card"><h3>Upstream (${esc(remoteUrl)})</h3>
-      <div class="kv"><span class="k">status</span><span class="v ${behind>0?'bad':'ok'}" id="upstream-status">${up.ok?(behind>0?behind+" commits behind":"up to date"):"check failed"}</span></div>
+      <div class="kv"><span class="k">status</span><span class="v ${behind>0?'bad':'ok'}" id="upstream-status">${up.ok?(behind>0?behind+" commits behind":t("up to date")):t("check failed")}</span></div>
       ${up.latest?`<div class="kv"><span class="k">latest</span><span class="v">${esc(up.latest.hash)} &middot; ${esc((up.latest.subject||"").slice(0,60))}</span></div>`:""}
       <div class="actions" style="margin-top:6px">
-        <button class="ghost" id="btn-refresh-upstream">Check GitHub now</button>
+        <button class="ghost" id="btn-refresh-upstream">${t("Check GitHub now")}</button>
         <span class="note" style="margin:0">${esc(checked)} &middot; auto-checks at most every 15 min</span>
       </div>
     </div>
     <div class="card"><h3>Build Flags · ${esc(label)}</h3>
       <div class="flags">${Object.entries(flags).map(([k,val])=>`<span class="flagpill">${esc(k)}=${esc(val)}</span>`).join("")}</div>
       <div class="actions">
-        <button class="primary" id="btn-build">${behind>0?"Pull latest &amp; Rebuild":"Rebuild current"}</button>
-        <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="opt-pull" ${behind>0?"checked":""}> git pull first</label>
+        <button class="primary" id="btn-build">${behind>0?"Pull latest &amp; Rebuild":t("Rebuild current")}</button>
+        <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="opt-pull" ${behind>0?"checked":""}> ${t("git pull first")}</label>
         <span class="msg" id="build-msg"></span>
       </div>
       <div class="note">Rebuilds ${esc(label)} with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
     <div class="card"><h3>Build Log · ${esc(label)}</h3><div class="log" id="build-log">idle</div></div>`
-    + (vver.error ? "" : `<div class="card"><h3>vLLM (pip package in WSL)</h3>
+    + (vver.error ? "" : `<div class="card"><h3>${t("vLLM (pip package in WSL)")}</h3>
       <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
-      <div class="kv"><span class="k">latest on PyPI</span><span class="v">${esc(vver.latest||"?")}</span></div>
-      ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
+      <div class="kv"><span class="k">${t("latest on PyPI")}</span><span class="v">${esc(vver.latest||"?")}</span></div>
+      ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?t("vLLM is up to date."):t("Install vLLM from the Setup tab first.")}</div>`}
       <div class="log" id="vllm-update-log" style="display:none">idle</div>
     </div>`));
 
@@ -101,7 +102,7 @@ export async function loadBuild(force) {
       toast(`Switched to ${label}`, "ok");
       setTimeout(loadBuild, 1500);
     } else {
-      toast(r.error || "switch failed", "err");
+      toast(r.error || t("switch failed"), "err");
       switchBtn.disabled = false;
       switchBtn.textContent = `Switch to ${label}`;
     }
@@ -113,10 +114,10 @@ export async function loadBuild(force) {
   pollBuild();
   const updBtn = $("#btn-vllm-update");
   if (updBtn) updBtn.onclick = async () => {
-    const msg = $("#vllm-upd-msg"); msg.className = "msg work"; msg.textContent = "starting update...";
+    const msg = $("#vllm-upd-msg"); msg.className = "msg work"; msg.textContent = t("starting update...");
     const r = await api("/api/vllm/update");
     if (r.started) {
-      toast("vLLM update started", "ok");
+      toast(t("vLLM update started"), "ok");
       $("#vllm-update-log").style.display = "";
       const iv = setInterval(async () => {
         const s = await api("/api/vllm/setup");
@@ -127,16 +128,16 @@ export async function loadBuild(force) {
           setTimeout(loadBuild, 1200);
         }
       }, 2000);
-    } else msg.textContent = "a job is already running";
+    } else msg.textContent = t("a job is already running");
   };
 }
 
 async function startBuild() {
   const pull = $("#opt-pull").checked, msg = $("#build-msg");
-  msg.className = "msg work"; msg.textContent = "starting build...";
+  msg.className = "msg work"; msg.textContent = t("starting build...");
   const r = await api("/api/build/start", {pull, target: _target});
   if (r.started) toast(`Build started (${ENGINE_LABELS[_target]})`, "ok");
-  else msg.textContent = "a build is already running";
+  else msg.textContent = t("a build is already running");
   pollBuild();
 }
 
@@ -150,15 +151,15 @@ async function pollBuild() {
     if (msg && s.running) { msg.className = "msg work"; msg.textContent = "building: " + s.phase; }
     else if (msg && s.phase === "done") {
       msg.className = "msg ok";
-      msg.textContent = "build OK" + (s.started&&s.finished?` in ${fmtDur(s.finished-s.started)}`:"");
+      msg.textContent = t("build OK") + (s.started&&s.finished?` in ${fmtDur(s.finished-s.started)}`:"");
       clearInterval(buildPoll);
     } else if (msg && s.phase === "done_warnings") {
       // llama-server built, but a non-essential later target (UI assets) failed.
       msg.className = "msg warn";
-      msg.textContent = "built with warnings - " + (s.warning || "see log");
+      msg.textContent = t("built with warnings - ") + (s.warning || t("see log"));
       clearInterval(buildPoll);
     } else if (msg && s.phase === "failed") {
-      msg.className = "msg err"; msg.textContent = "build failed - see log";
+      msg.className = "msg err"; msg.textContent = t("build failed - see log");
       clearInterval(buildPoll);
     }
   };

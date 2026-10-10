@@ -2,21 +2,27 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("../web/js/stats-facts.js", import.meta.url), "utf8");
+const i18n = await readFile(new URL("../web/js/i18n.js", import.meta.url), "utf8");
+const i18nUrl = `data:text/javascript;base64,${Buffer.from(i18n).toString("base64")}`;
+const source = (await readFile(new URL("../web/js/stats-facts.js", import.meta.url), "utf8"))
+  .replace('"./i18n.js"', `"${i18nUrl}"`);
 const facts = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 let moduleSerial = 0;
 
 async function loadStatsModule() {
-  const coreSource = await readFile(new URL("../web/js/core.js", import.meta.url), "utf8");
+  const coreSource = (await readFile(new URL("../web/js/core.js", import.meta.url), "utf8"))
+    .replace('"./i18n.js"', `"${i18nUrl}"`);
   const coreUrl = `data:text/javascript;base64,${Buffer.from(coreSource).toString("base64")}`;
   const factsUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
   const baysSource = (await readFile(new URL("../web/js/bays.js", import.meta.url), "utf8"))
-    .replace('"./core.js"', `"${coreUrl}"`);
+    .replace('"./core.js"', `"${coreUrl}"`)
+    .replace('"./i18n.js"', `"${i18nUrl}"`);
   const baysUrl = `data:text/javascript;base64,${Buffer.from(baysSource).toString("base64")}`;
   const statsSource = (await readFile(new URL("../web/js/stats.js", import.meta.url), "utf8"))
     .replace('"./core.js"', `"${coreUrl}"`)
     .replace('"./stats-facts.js"', `"${factsUrl}"`)
-    .replace('"./bays.js"', `"${baysUrl}"`);
+    .replace('"./bays.js"', `"${baysUrl}"`)
+    .replace('"./i18n.js"', `"${i18nUrl}"`);
   return import(`data:text/javascript;base64,${Buffer.from(statsSource).toString("base64")}#${++moduleSerial}`);
 }
 

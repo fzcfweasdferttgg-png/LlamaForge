@@ -1,6 +1,7 @@
 // Human-scale comparisons for generated tokens. Every number is deliberately
 // approximate: token-to-word ratios vary by language/model, book counts vary by
 // edition, and route distances vary by road choice.
+import { t } from "./i18n.js";
 const WORDS_PER_TOKEN = 0.75;
 const ORAL_WORDS_PER_MINUTE = 183;
 
@@ -73,10 +74,10 @@ const ROUTES = [
 ];
 
 const PACES = [
-  ["car", "trip", "trips", "by car", 100],
-  ["walk", "journey", "journeys", "at walking pace", 5],
-  ["cycle", "journey", "journeys", "at cycling pace", 20],
-  ["rail", "journey", "journeys", "at high-speed-rail pace", 250],
+  ["car", "trip", "trips", t("by car"), 100],
+  ["walk", "journey", "journeys", t("at walking pace"), 5],
+  ["cycle", "journey", "journeys", t("at cycling pace"), 20],
+  ["rail", "journey", "journeys", t("at high-speed-rail pace"), 250],
 ];
 
 function rounded(value) {
@@ -100,7 +101,7 @@ export function buildTokenFacts(generatedTokens) {
   const tokens = Math.max(0, Number(generatedTokens) || 0);
   const words = tokens * WORDS_PER_TOKEN;
   const spokenMinutes = words / ORAL_WORDS_PER_MINUTE;
-  const common = "English estimate: 0.75 words/token";
+  const common = t("English estimate: 0.75 words/token");
   const facts = [];
 
   for (const [id, singular, plural, title, wordCount] of BOOKS) {
@@ -136,7 +137,7 @@ export function createFactRotator({random = Math.random, intervalMs = 15 * 60 * 
     if (!(Number(generatedTokens) > 0)) {
       selectedId = null;
       expiresAt = -Infinity;
-      return {id: "empty", amount: 0, text: "Generate some tokens to unlock a real-world comparison", assumption: "Uses generated output tokens only"};
+      return {id: "empty", amount: 0, text: t("Generate some tokens to unlock a real-world comparison"), assumption: t("Uses generated output tokens only")};
     }
     const catalog = buildTokenFacts(generatedTokens);
     const current = catalog.find(fact => fact.id === selectedId);
@@ -147,7 +148,7 @@ export function createFactRotator({random = Math.random, intervalMs = 15 * 60 * 
     const eligible = catalog.filter(fact => fact.amount >= 0.1);
     if (!eligible.length) {
       const amount = rounded(Number(generatedTokens) * WORDS_PER_TOKEN);
-      return {id: "words", amount, text: `${shown(amount)} English words`, assumption: "English estimate: 0.75 words/token"};
+      return {id: "words", amount, text: `${shown(amount)} English words`, assumption: t("English estimate: 0.75 words/token")};
     }
     let next = Math.min(eligible.length - 1, Math.floor(Math.max(0, random()) * eligible.length));
     if (eligible.length > 1 && eligible[next].id === selectedId) {

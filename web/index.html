@@ -150,6 +150,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
   padding:16px 0 14px;border-bottom:1px solid var(--hair);margin-bottom:20px;position:sticky;top:0;z-index:5;
   background:var(--topbar-bg);-webkit-backdrop-filter:blur(10px) saturate(1.2);backdrop-filter:blur(10px) saturate(1.2)}
 .topbar #engine-badge{margin-left:auto}
+#lang-pick{font:inherit;font-size:11px;padding:2px 6px;border:1px solid var(--hair);border-radius:var(--r-xs);background:var(--panel2);color:var(--ink);cursor:pointer}
 #page-title{font-family:var(--disp);font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-strong);font-size:18px;
   display:inline-flex;align-items:center;gap:10px}
 #page-title::before{content:"";width:8px;height:8px;background:var(--amber);border-radius:2px;transform:rotate(45deg);box-shadow:0 0 10px var(--amber-dim)}
@@ -493,67 +494,68 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="side-head">
     <div class="logo"></div>
     <span class="brand-word">Llama<span>Forge</span> <small id="lf-version" class="brand-ver"></small></span>
-    <button id="nav-toggle" class="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar">‹</button>
+    <button id="nav-toggle" class="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar" data-i18n-attr="title:Collapse / expand,aria-label:Toggle sidebar">‹</button>
     <div id="nav-hint" class="nav-hint" hidden>Click to expand &rsaquo;</div>
   </div>
-  <div class="nav-cap">Workshop</div>
+  <div class="nav-cap" data-i18n="Workshop">Workshop</div>
   <div class="side-nav">
-    <div class="tab navitem active" data-tab="models" data-lede="Everything on disk, what is warm in VRAM, and the knobs for each model." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2"/></svg><span class="label">Models</span></div>
-    <div class="tab navitem" data-tab="stats" data-lede="Throughput and memory, read from the router&rsquo;s own /metrics." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg><span class="label">Stats</span></div>
-    <div class="tab navitem" data-tab="discover" data-lede="Find GGUFs on Hugging Face and pull them onto this machine." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6"/><line x1="16" y1="16" x2="21" y2="21"/></svg><span class="label">Discover</span></div>
-    <div class="tab navitem" data-tab="willrun" data-lede="Estimate placement and speed before you download anything." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label">Will it run?</span></div>
-    <div class="tab navitem" data-tab="build" data-lede="Pull and rebuild llama.cpp without leaving the panel." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 6a4 4 0 0 0-5 5L4 16l4 4 5-5a4 4 0 0 0 5-5l-3 3-2-2 3-3a4 4 0 0 0-2-2z"/></svg><span class="label">Build / Update</span></div>
-    <div class="tab navitem" data-tab="setup" data-lede="Paths, engines, connected agents and network access." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span class="label">Setup</span></div>
-    <div class="tab navitem" data-tab="gateway" data-lede="One model name over many: requests alternate across the real models." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h4l8 10h4"/><path d="M4 17h4l3-3.75"/><path d="M17 4l3 3-3 3"/><path d="M17 14l3 3-3 3"/></svg><span class="label">Gateway</span></div>
+    <div class="tab navitem active" data-tab="models" data-lede="Everything on disk, what is warm in VRAM, and the knobs for each model." tabindex="0" role="button" data-i18n-attr="data-lede:Everything on disk, what is warm in VRAM, and the knobs for each model."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2"/></svg><span class="label" data-i18n="Models">Models</span></div>
+    <div class="tab navitem" data-tab="stats" data-lede="Throughput and memory, read from the router&rsquo;s own /metrics." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg><span class="label" data-i18n="Stats">Stats</span></div>
+    <div class="tab navitem" data-tab="discover" data-lede="Find GGUFs on Hugging Face and pull them onto this machine." tabindex="0" role="button" data-i18n-attr="data-lede:Find GGUFs on Hugging Face and pull them onto this machine."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6"/><line x1="16" y1="16" x2="21" y2="21"/></svg><span class="label" data-i18n="Discover">Discover</span></div>
+    <div class="tab navitem" data-tab="willrun" data-lede="Estimate placement and speed before you download anything." tabindex="0" role="button" data-i18n-attr="data-lede:Estimate placement and speed before you download anything."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label" data-i18n="Will it run?">Will it run?</span></div>
+    <div class="tab navitem" data-tab="build" data-lede="Pull and rebuild llama.cpp without leaving the panel." tabindex="0" role="button" data-i18n-attr="data-lede:Pull and rebuild llama.cpp without leaving the panel."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 6a4 4 0 0 0-5 5L4 16l4 4 5-5a4 4 0 0 0 5-5l-3 3-2-2 3-3a4 4 0 0 0-2-2z"/></svg><span class="label" data-i18n="Build / Update">Build / Update</span></div>
+    <div class="tab navitem" data-tab="setup" data-lede="Paths, engines, connected agents and network access." tabindex="0" role="button" data-i18n-attr="data-lede:Paths, engines, connected agents and network access."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span class="label" data-i18n="Setup">Setup</span></div>
+    <div class="tab navitem" data-tab="gateway" data-lede="One model name over many: requests alternate across the real models." tabindex="0" role="button" data-i18n-attr="data-lede:One model name over many: requests alternate across the real models."><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h4l8 10h4"/><path d="M4 17h4l3-3.75"/><path d="M17 4l3 3-3 3"/><path d="M17 14l3 3-3 3"/></svg><span class="label" data-i18n="Gateway">Gateway</span></div>
   </div>
   <div class="side-spacer"></div>
   <div class="side-settings">
     <span class="mode-toggle" id="mode-toggle">
-      <button data-mode="lite">Lite</button>
-      <button data-mode="advanced">Advanced</button>
+      <button data-mode="lite" data-i18n="Lite">Lite</button>
+      <button data-mode="advanced" data-i18n="Advanced">Advanced</button>
     </span>
     <span class="mode-toggle" id="theme-toggle">
       <button data-theme="light">Light</button>
-      <button data-theme="dark">Dark</button>
+      <button data-theme="dark" data-i18n="Dark">Dark</button>
     </span>
-    <label class="cvd-toggle"><input type="checkbox" id="cvd-check"> Colorblind-safe</label>
-    <span class="mode-toggle" id="skin-toggle" title="Look: Stowage (bay plan), Hearth (warm) or Classic (terminal)">
+    <label class="cvd-toggle"><input type="checkbox" id="cvd-check" data-i18n="Colorblind-safe"> Colorblind-safe</label>
+    <span class="mode-toggle" id="skin-toggle" title="Look: Stowage (bay plan), Hearth (warm) or Classic (terminal)" data-i18n-attr="title:Look: Stowage (bay plan), Hearth (warm) or Classic (terminal)">
       <button data-skin="stowage">Stowage</button>
-      <button data-skin="hearth">Hearth</button>
-      <button data-skin="classic">Classic</button>
+      <button data-skin="hearth" data-i18n="Hearth">Hearth</button>
+      <button data-skin="classic" data-i18n="Classic">Classic</button>
     </span>
     <div class="settings-rail">
-      <button class="sicon" id="rail-mode" title="Mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 18L11 6l6 12M7.5 14h7"/></svg></button>
-      <button class="sicon" id="rail-theme" title="Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg></button>
-      <button class="sicon" id="rail-cvd" title="Colorblind-safe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
-      <button class="sicon" id="rail-skin" title="Look: Stowage / Hearth / Classic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 2 0-2 0-3 0-5z"/></svg></button>
+      <button class="sicon" id="rail-mode" title="Mode" data-i18n-attr="title:Mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 18L11 6l6 12M7.5 14h7"/></svg></button>
+      <button class="sicon" id="rail-theme" title="Theme" data-i18n-attr="title:Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg></button>
+      <button class="sicon" id="rail-cvd" title="Colorblind-safe" data-i18n-attr="title:Colorblind-safe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+      <button class="sicon" id="rail-skin" title="Look: Stowage / Hearth / Classic" data-i18n-attr="title:Look: Stowage / Hearth / Classic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 2 0-2 0-3 0-5z"/></svg></button>
     </div>
   </div>
 </nav>
 <main id="content">
   <div class="topbar">
-    <button id="nav-menu" class="nav-toggle" title="Menu" aria-label="Open menu">&#9776;</button>
+    <button id="nav-menu" class="nav-toggle" title="Menu" aria-label="Open menu" data-i18n-attr="title:Menu,aria-label:Open menu">&#9776;</button>
     <div class="page-head">
       <span id="page-title">Models</span>
       <span id="page-lede"></span>
     </div>
     <span id="engine-badge"></span>
+    <span id="lang-pick-host"></span>
   </div>
   <div class="views">
   <div class="view active" id="view-models">
     <div id="onboard"></div>
     <div class="gpus" id="gpus"></div>
     <div id="profiles"></div>
-    <div class="tbl-head"><h2>Model Registry</h2><div class="count" id="count">--</div></div>
+    <div class="tbl-head"><h2 data-i18n="Model Registry">Model Registry</h2><div class="count" id="count">--</div></div>
     <div class="toolbar">
-      <input class="search" id="model-search" placeholder="filter models (e.g. qwen, vision, coder)...">
+      <input class="search" id="model-search" placeholder="filter models (e.g. qwen, vision, coder)..." data-i18n-attr="placeholder:filter models (e.g. qwen, vision, coder)...">
       <span class="chip" id="fav-chip"><span class="g g-star" aria-hidden="true">&starf;</span> Favorites only</span>
-      <span class="chip" id="cmp-chip" title="pick 2-3 models to compare their settings">Compare</span>
-      <span class="chip" id="cmp-run" style="display:none">Compare (<span id="cmp-n">0</span>)</span>
-      <span class="chip" id="unload-all" title="unload every loaded model">Unload all</span>
+      <span class="chip" id="cmp-chip" title="pick 2-3 models to compare their settings" data-i18n-attr="title:pick 2-3 models to compare their settings" data-i18n="Compare">Compare</span>
+      <span class="chip" id="cmp-run" style="display:none" data-i18n="Compare (">Compare (<span id="cmp-n">0</span>)</span>
+      <span class="chip" id="unload-all" title="unload every loaded model" data-i18n-attr="title:unload every loaded model" data-i18n="Unload all">Unload all</span>
     </div>
     <div id="slots-banner"></div>
-    <div class="list" id="list"><div class="skel">SCANNING REGISTRY...</div></div>
+    <div class="list" id="list"><div class="skel" data-i18n="SCANNING REGISTRY...">SCANNING REGISTRY...</div></div>
     <details class="kgroup" style="margin-top:16px" id="router-log-details">
       <summary>Router Log (llama.cpp stdout/stderr)</summary>
       <div class="log" id="router-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
@@ -563,12 +565,12 @@ body.mode-lite .advanced-only{display:none !important}
       <div class="log" id="vllm-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
     </details>
   </div>
-  <div class="view" id="view-stats"><div class="skel">LOADING STATS...</div></div>
+  <div class="view" id="view-stats"><div class="skel" data-i18n="LOADING STATS...">LOADING STATS...</div></div>
   <div class="view" id="view-discover"><div class="skel">LOADING...</div></div>
-  <div class="view" id="view-willrun"><div class="skel">READY</div></div>
-  <div class="view" id="view-build"><div class="skel">LOADING BUILD STATUS...</div></div>
-  <div class="view" id="view-setup"><div class="skel">PROBING SYSTEM...</div></div>
-  <div class="view" id="view-gateway"><div class="skel">LOADING GATEWAY...</div></div>
+  <div class="view" id="view-willrun"><div class="skel" data-i18n="READY">READY</div></div>
+  <div class="view" id="view-build"><div class="skel" data-i18n="LOADING BUILD STATUS...">LOADING BUILD STATUS...</div></div>
+  <div class="view" id="view-setup"><div class="skel" data-i18n="PROBING SYSTEM...">PROBING SYSTEM...</div></div>
+  <div class="view" id="view-gateway"><div class="skel" data-i18n="LOADING GATEWAY...">LOADING GATEWAY...</div></div>
   </div>
 </main>
 <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -578,8 +580,8 @@ body.mode-lite .advanced-only{display:none !important}
     <div id="wizard-body"></div>
     <div class="wizard-nav">
       <button id="wiz-back">Back</button>
-      <button id="wiz-skip">Skip (I'll set up later)</button>
-      <button id="wiz-next" class="primary">Next</button>
+      <button id="wiz-skip" data-i18n="Skip (I'll set up later)">Skip (I'll set up later)</button>
+      <button id="wiz-next" class="primary" data-i18n="Next">Next</button>
     </div>
   </div>
 </div>

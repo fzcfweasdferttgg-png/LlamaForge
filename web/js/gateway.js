@@ -6,18 +6,19 @@
 // free-form LiteLLM presets (written verbatim into the generated config), and
 // the process.
 import { $, $$, esc, setHTML, api, toast } from "./core.js";
+import { t } from "./i18n.js";
 import { models } from "./state.js";
 
-const MODES = [["alternation", "Alternate across models"],
-               ["reserve", "Primary + reserve"]];
-const BUSY = [["queue", "Wait in queue"], ["reject", "Reply 429 busy"]];
+const MODES = [["alternation", t("Alternate across models")],
+               ["reserve", t("Primary + reserve")]];
+const BUSY = [["queue", t("Wait in queue")], ["reject", t("Reply 429 busy")]];
 
 export async function loadGateway() {
   const v = $("#view-gateway");
   const st = await api("/api/gateway");
   if (!st || st.error) {
-    setHTML(v, `<div class="card"><h3>Gateway</h3><div class="note">${
-      esc(st && st.error ? st.error : "the gateway did not answer")}</div></div>`);
+    setHTML(v, `<div class="card"><h3>${t("Gateway")}</h3><div class="note">${
+      esc(st && st.error ? st.error : t("the gateway did not answer"))}</div></div>`);
     return;
   }
   const state = st.model_states || {};
@@ -27,7 +28,7 @@ export async function loadGateway() {
     .filter(id => (state[id] || {}).loaded || configured.has(id));
   const chip = (id) => {
     const s = state[id] || {};
-    return s.loaded ? (s.busy ? "busy" : "free") : "not loaded";
+    return s.loaded ? (s.busy ? "busy" : "free") : t("not loaded");
   };
   const specs = Object.entries(st.models || {}).map(([name, s]) => ({
     name,
@@ -41,17 +42,17 @@ export async function loadGateway() {
     const s = specs[i];
     if (s.mode === "reserve") {
       const primary = s.models[0] || rows[0] || "";
-      return `<span class="lbl">Primary</span>
+      return `<span class="lbl">${t("Primary")}</span>
         <select data-gw-primary="${i}">${rows.map(id =>
           `<option value="${esc(id)}"${id === primary ? " selected" : ""}>${
             esc(id)} (${chip(id)})</option>`).join("")}</select>
-        <span class="lbl">Reserve models</span>
+        <span class="lbl">${t("Reserve models")}</span>
         <div>${rows.filter(id => id !== primary).map(id => `
           <label style="display:block;font-size:12px"><input type="checkbox" data-gw-res="${i}" value="${
             esc(id)}"${s.models.slice(1).includes(id) ? " checked" : ""}> ${
             esc(id)} (${chip(id)})</label>`).join("")}</div>`;
     }
-    return `<span class="lbl">Models</span><div>${rows.map(id => `
+    return `<span class="lbl">${t("Models")}</span><div>${rows.map(id => `
       <label style="display:block;font-size:12px"><input type="checkbox" data-gw-alt="${i}" value="${
         esc(id)}"${s.models.includes(id) ? " checked" : ""}> ${
         esc(id)} (${chip(id)})</label>`).join("")}</div>`;
@@ -61,23 +62,23 @@ export async function loadGateway() {
     const s = specs[i];
     return `
       <div class="formrow" data-gw-row>
-        <label class="f"><span class="lbl">Virtual name</span>
-          <input data-gw-name="${i}" value="${esc(s.name)}" placeholder="e.g. mix"></label>
-        <label class="f"><span class="lbl">Behavior</span>
+        <label class="f"><span class="lbl">${t("Virtual name")}</span>
+          <input data-gw-name="${i}" value="${esc(s.name)}" placeholder="${t("e.g. mix")}"></label>
+        <label class="f"><span class="lbl">${t("Behavior")}</span>
           <select data-gw-mode="${i}">${MODES.map(([val, lab]) =>
             `<option value="${val}"${s.mode === val ? " selected" : ""}>${lab}</option>`).join("")}</select></label>
         <div class="f grow" data-gw-pick="${i}">${pickHTML(i)}</div>
-        <label class="f"${s.mode === "reserve" ? "" : " hidden"} data-gw-busy-wrap="${i}"><span class="lbl">When all busy</span>
+        <label class="f"${s.mode === "reserve" ? "" : " hidden"} data-gw-busy-wrap="${i}"><span class="lbl">${t("When all busy")}</span>
           <select data-gw-busy="${i}">${BUSY.map(([val, lab]) =>
             `<option value="${val}"${s.when_busy === val ? " selected" : ""}>${lab}</option>`).join("")}</select></label>
       </div>`;
   };
 
   setHTML(v, `
-    <div class="card"><h3>Model gateway <span style="color:var(--dim);font-weight:normal;font-size:11px">(LiteLLM)</span></h3>
-      <div class="kv"><span class="k">LiteLLM</span><span class="v ${
+    <div class="card"><h3>${t("Model gateway")} <span style="color:var(--dim);font-weight:normal;font-size:11px">(LiteLLM)</span></h3>
+      <div class="kv"><span class="k">${t("LiteLLM")}</span><span class="v ${
         st.installed === "installed" ? "ok" : "bad"}">${st.installed === "installed"
-          ? "installed" : st.installed === "installing" ? "installing..." : "not installed"}</span></div>
+          ? "installed" : st.installed === "installing" ? "installing..." : t("not installed")}</span></div>
       <div class="kv"><span class="k">process</span><span class="v ${st.running ? "ok" : ""}">${
         st.running ? "running (pid " + esc(st.pid) + ")" : "stopped"}</span></div>
       <div class="kv"><span class="k">endpoint</span><span class="v">${esc(st.endpoint)}</span></div>
@@ -85,49 +86,48 @@ export async function loadGateway() {
       ${specs.filter(s => s.name).map(s => `<div class="kv"><span class="k">${esc(s.name)}</span>
         <span class="v">${s.mode === "reserve" ? "primary + reserve" : "alternation"}: ${
         s.models.map(id => `${esc(id)} (${chip(id)})`).join(", ")}</span></div>`).join("")}
-      <div class="note">A virtual name hides the real models behind one API name.
-        <b>Alternate</b> rotates requests across its models; <b>Primary + reserve</b> keeps
+      <div class="note">${t("A virtual name hides the real models behind one API name.")}
+        <b>${t("Alternate")}</b> rotates requests across its models; <b>${t("Primary + reserve")}</b> keeps
         traffic on the primary while it has a free slot and spills to the reserves when it is
-        full or not loaded. Streaming passes through. ${st.bind === "0.0.0.0" ? "The gateway answers on the LAN." : "The gateway answers on this machine only."}</div>
+        full or not loaded. Streaming passes through. ${st.bind === "0.0.0.0" ? t("The gateway answers on the LAN.") : t("The gateway answers on this machine only.")}</div>
       <div class="actions">
-        <button id="gw-start" class="primary">${st.running ? "Restart" : "Start"}</button>
-        <button id="gw-stop">Stop</button>
+        <button id="gw-start" class="primary">${st.running ? t("Restart") : t("Start")}</button>
+        <button id="gw-stop">${t("Stop")}</button>
         ${st.installed === "missing" ? '<button id="gw-install">Install LiteLLM</button>' : ""}
         <span class="msg" id="gw-msg"></span>
       </div>
     </div>
-    <div class="card"><h3>Virtual names</h3>
+    <div class="card"><h3>${t("Virtual names")}</h3>
       <div id="gw-names">${specs.map((_, i) => rowHTML(i)).join("")}</div>
       <div class="actions">
-        <button id="gw-add">Add name</button>
+        <button id="gw-add">${t("Add name")}</button>
         <label class="f"><span class="lbl">port</span>
           <input id="gw-port" type="number" min="1" max="65535" value="${esc(st.port)}" style="width:9ch"></label>
         <label class="f"><span class="lbl">bind</span>
           <select id="gw-bind">
-            <option value=""${st.bind === "127.0.0.1" ? " selected" : ""}>127.0.0.1 (this machine)</option>
-            <option value="0.0.0.0"${st.bind === "0.0.0.0" ? " selected" : ""}>0.0.0.0 (LAN)</option>
+            <option value=""${st.bind === "127.0.0.1" ? " selected" : ""}>${t("127.0.0.1 (this machine)")}</option>
+            <option value="0.0.0.0"${st.bind === "0.0.0.0" ? " selected" : ""}>${t("0.0.0.0 (LAN)")}</option>
           </select></label>
-        <label class="f"><span class="lbl">serve on panel start</span>
+        <label class="f"><span class="lbl">${t("serve on panel start")}</span>
           <input id="gw-enabled" type="checkbox"${st.enabled ? " checked" : ""}></label>
-        <button id="gw-save" class="primary">Save settings</button>
+        <button id="gw-save" class="primary">${t("Save settings")}</button>
         <span class="msg" id="gw-save-msg"></span>
       </div>
     </div>
-    <div class="card"><h3>LiteLLM preset</h3>
+    <div class="card"><h3>${t("LiteLLM preset")}</h3>
       <div class="formrow">
-        <label class="f grow"><span class="lbl">Preset</span>
+        <label class="f grow"><span class="lbl">${t("Preset")}</span>
           <select id="gw-preset">${Object.keys(st.presets || {}).map(n =>
             `<option${n === st.preset ? " selected" : ""}>${esc(n)}</option>`).join("")}
           </select></label>
-        <label class="f grow"><span class="lbl">New / rename to</span>
+        <label class="f grow"><span class="lbl">${t("New / rename to")}</span>
           <input id="gw-preset-name" value="${esc(st.preset)}"></label>
       </div>
       <textarea id="gw-preset-json" rows="8" spellcheck="false" style="width:100%;font-family:var(--mono);font-size:12px">${
         esc(JSON.stringify((st.presets || {})[st.preset] || {}, null, 2))}</textarea>
-      <div class="note">Free-form LiteLLM settings: the <b>router</b> / <b>litellm_settings</b> /
-        <b>general_settings</b> sections are written verbatim into the generated config, so any
-        documented LiteLLM setting can be turned here. The virtual names above fill model_list.</div>
-      <div class="actions"><button id="gw-preset-save" class="primary">Save preset</button>
+      <div class="note">${t("Free-form LiteLLM settings: the")} <b>router</b> / <b>litellm_settings</b> /
+        <b>general_settings</b> ${t("sections are written verbatim into the generated config, so any\n        documented LiteLLM setting can be turned here. The virtual names above fill model_list.")}</div>
+      <div class="actions"><button id="gw-preset-save" class="primary">${t("Save preset")}</button>
         <span class="msg" id="gw-preset-msg"></span></div>
     </div>`);
 
@@ -175,9 +175,9 @@ export async function loadGateway() {
     const r = await api("/api/gateway/save", body);
     const msg = $("#gw-save-msg");
     msg.className = "msg " + (r && r.ok ? "ok" : "err");
-    msg.textContent = r && r.ok ? (r.restarted ? "saved - gateway restarted" : "saved")
-      : (r && r.error) || "not saved";
-    if (r && r.ok && r.restarted && r.status && r.status.running) toast("Gateway restarted", "ok");
+    msg.textContent = r && r.ok ? (r.restarted ? t("saved - gateway restarted") : "saved")
+      : (r && r.error) || t("not saved");
+    if (r && r.ok && r.restarted && r.status && r.status.running) toast(t("Gateway restarted"), "ok");
   };
   $("#gw-preset").onchange = () => {
     const n = $("#gw-preset").value;
@@ -191,14 +191,14 @@ export async function loadGateway() {
     } catch {
       const msg = $("#gw-preset-msg");
       msg.className = "msg err";
-      msg.textContent = "the preset must be valid JSON";
+      msg.textContent = t("the preset must be valid JSON");
       return;
     }
     const name = ($("#gw-preset-name").value || $("#gw-preset").value || "").trim();
     const r = await api("/api/gateway/preset/save", { name, settings });
     const msg = $("#gw-preset-msg");
     msg.className = "msg " + (r && r.ok ? "ok" : "err");
-    msg.textContent = r && r.ok ? "saved" : (r && r.error) || "not saved";
+    msg.textContent = r && r.ok ? "saved" : (r && r.error) || t("not saved");
     if (r && r.ok) loadGateway();
   };
   const act = async (path, label) => {
@@ -212,7 +212,7 @@ export async function loadGateway() {
       return;
     }
     msg.className = "msg ok";
-    msg.textContent = label + " done";
+    msg.textContent = label + t(" done");
     loadGateway();
   };
   $("#gw-start").onclick = () => act("start", "starting");
@@ -221,7 +221,7 @@ export async function loadGateway() {
   if (inst) inst.onclick = async () => {
     const msg = $("#gw-msg");
     msg.className = "msg work";
-    msg.textContent = "installing LiteLLM (several minutes)...";
+    msg.textContent = t("installing LiteLLM (several minutes)...");
     await api("/api/gateway/install", {});
     loadGateway();
   };

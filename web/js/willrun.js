@@ -1,22 +1,23 @@
-// "Will it run?" panel — a standalone estimator over /api/vram/predict.
+// t("Will it run?") panel — a standalone estimator over /api/vram/predict.
 // Mirrors vramwise's CLI: pick a repo + quant, see placement regime, a tok/s
 // estimate, and the per-token time budget. Registered as a tab loader in main.js;
 // loadWillRun() re-renders idempotently each time the tab is shown.
 import { $, esc, setHTML, api } from "./core.js";
+import { t } from "./i18n.js";
 
 const REGIME = {
-  "gpu-resident": ["FITS IN VRAM", "var(--green)"],
-  "hybrid":       ["HYBRID (VRAM+RAM)", "var(--amber)"],
-  "streaming":    ["STREAMS FROM DISK", "var(--red)"],
+  "gpu-resident": [t("FITS IN VRAM"), "var(--green)"],
+  "hybrid":       [t("HYBRID (VRAM+RAM)"), "var(--amber)"],
+  "streaming":    [t("STREAMS FROM DISK"), "var(--red)"],
 };
 
 export function loadWillRun() {
   setHTML($("#view-willrun"), `
     <div class="card">
       <div class="formrow" style="gap:8px;margin:0;align-items:center">
-        <input id="wr-repo" placeholder="HuggingFace repo, e.g. unsloth/GLM-4.5-Air-GGUF" style="flex:1 1 280px;min-width:0">
+        <input id="wr-repo" placeholder="${t("HuggingFace repo, e.g. unsloth/GLM-4.5-Air-GGUF")}" style="flex:1 1 280px;min-width:0">
         <input id="wr-quant" placeholder="quant" value="q4_k_m" style="width:150px">
-        <button id="wr-go" class="primary">Estimate</button>
+        <button id="wr-go" class="primary">${t("Estimate")}</button>
       </div>
       <div id="wr-out" class="note" style="margin-top:10px">Enter a HuggingFace repo to estimate placement and speed on this machine. Numbers are approximate (&plusmn;order-of-magnitude).</div>
     </div>`);
@@ -32,7 +33,7 @@ async function runEstimate() {
   setHTML($("#wr-out"), `<div class="note">estimating&hellip;</div>`);
   const p = await api("/api/vram/predict", { repo, quant: ($("#wr-quant").value.trim() || "q4_k_m") });
   if (!p || p.error) {
-    setHTML($("#wr-out"), `<div class="note" style="color:var(--red)">${esc((p && p.error) || "request failed")}</div>`);
+    setHTML($("#wr-out"), `<div class="note" style="color:var(--red)">${esc((p && p.error) || t("request failed"))}</div>`);
     return;
   }
   if (p.confidence === "unknown" || !p.regime) {
@@ -44,6 +45,6 @@ async function runEstimate() {
   setHTML($("#wr-out"), `
     <div class="kv"><span class="k">regime</span><span class="v"><span class="tag" style="color:${col};border-color:${col}">${esc(label)}</span></span></div>
     <div class="kv"><span class="k">speed</span><span class="v">~${esc(String(p.tok_s))} tok/s <span style="color:var(--dim)">(rough estimate)</span> <span class="tag">${esc(p.usability || "")}</span></span></div>
-    <div class="kv"><span class="k">time / token</span><span class="v">disk ${esc(String(tb.disk))}ms &middot; weights ${esc(String(tb.weight_read))}ms &middot; compute ${esc(String(tb.compute))}ms</span></div>
+    <div class="kv"><span class="k">${t("time / token")}</span><span class="v">disk ${esc(String(tb.disk))}ms &middot; weights ${esc(String(tb.weight_read))}ms &middot; compute ${esc(String(tb.compute))}ms</span></div>
     <div class="note" style="margin-top:8px">${esc(p.note || "")} ${p.confidence !== "high" ? "(estimate)" : ""}</div>`);
 }

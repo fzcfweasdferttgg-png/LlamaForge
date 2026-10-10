@@ -2003,11 +2003,16 @@ def _v_bandwidths(v):
     return out
 
 
+def _v_lang(v):
+    return v if v in ("", "en", "ru", "ja", "ko", "zh") else None
+
+
 CONFIG_WRITABLE = {
     "ui_mode":                 _v_mode,
     "theme":                   _v_theme,
     "cvd":                     _v_bool,
     "skin":                    _v_skin,
+    "web_lang":                _v_lang,
     "onboarded":               _v_bool,
     "auto_load_model":         _v_str,
     "wsl_distro":              _v_str,

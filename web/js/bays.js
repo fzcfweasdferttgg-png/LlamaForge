@@ -14,6 +14,7 @@
 // second render inside one poll can't cut it short. Each view owns its own,
 // so switching tabs never replays the motion for boxes that view has shown.
 import { esc } from "./core.js";
+import { t } from "./i18n.js";
 
 export const tenth = mib => Math.round(mib / 102.4) / 10;
 export const gb = mib => tenth(mib).toFixed(1);
@@ -36,7 +37,7 @@ export function cargoHue(fps = {}, main = "") {
 }
 
 export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId = "", seen = new Map()} = {}) {
-  if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">GPU telemetry unavailable: nvidia-smi did not answer.</div></div>`;
+  if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">${t("GPU telemetry unavailable: nvidia-smi did not answer.")}</div></div>`;
   const unknown = up.filter(id => !fps[id]);           // loaded, but no footprint we can stow
   const workers = Object.keys(fps).filter(id => id !== main).sort();
   const hue = cargoHue(fps, main);
@@ -59,7 +60,7 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
       if (!seen.has(bid)) seen.set(bid, {t: now, i: n++});
       const rec = seen.get(bid), stow = cls !== "sys" && now - rec.t < 1500;
       fresh.add(bid);
-      if (id && evict.has(id)) { cls += " out"; title += ", unloaded to make room"; }
+      if (id && evict.has(id)) { cls += t(" out"); title += ", unloaded to make room"; }
       // too narrow to carry its name: the key under the hold names it instead
       const narrow = mib / maxTotal < 0.16;
       boxes.push({cls: cls + (narrow ? " nar" : ""), stow, label, mib, g, x: at, title, i: stow ? rec.i : 0});
@@ -72,11 +73,11 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
     const rest = used - at;
     if (rest >= 51) {
       // memory no footprint accounts for: say plainly what it is, or that we can't split it
-      let cls = "sys", label = "In use";
-      if (!unknown.length) label = order.length ? "System + other apps" : "System";
-      else if (unknown.length === 1 && rest >= 1024) { cls = "main"; label = unknown[0] + " + system"; }
+      let cls = "sys", label = t("In use");
+      if (!unknown.length) label = order.length ? t("System + other apps") : t("System");
+      else if (unknown.length === 1 && rest >= 1024) { cls = "main"; label = unknown[0] + t(" + system"); }
       put(cls, cls === "main" ? unknown[0] : "", label, rest,
-        `${label}: ${gb(rest)} GiB` + (cls === "main" ? " (the model's share is not measured separately here)" : ""));
+        `${label}: ${gb(rest)} GiB` + (cls === "main" ? t(" (the model's share is not measured separately here)") : ""));
     }
     const free = total - used, need = want(x);
     let bookMib = 0, shortMib = 0, deck = "";
@@ -84,10 +85,10 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
       bookMib = Math.min(need, free); shortMib = need - bookMib;
       const title = shortMib > 0 ? `${bookId} needs ${gb(need)} GiB here, ${gb(shortMib)} GiB more than is free`
                                  : `${bookId} would take ${gb(need)} GiB here`;
-      put(shortMib > 0 ? "booked over" : "booked", "book:" + bookId, bookId, bookMib, title, need);
+      put(shortMib > 0 ? t("booked over") : "booked", "book:" + bookId, bookId, bookMib, title, need);
       // the part that doesn't fit hangs past the end of the hold as deck cargo
       if (shortMib > 0) deck = `<div class="deck" title="${esc(title)}" style="--w:${(shortMib / 1024).toFixed(3)}">
-          <span class="box-n">Short</span><span class="box-g">${esc(gb(shortMib))}</span></div>`;
+          <span class="box-n">${t("Short")}</span><span class="box-g">${esc(gb(shortMib))}</span></div>`;
     }
     const usedT = tenth(used), bookT = tenth(bookMib), totT = tenth(total);
     // a booking that fits comes out of free; one that doesn't is never stowed
@@ -99,12 +100,12 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
       (boxes.length ? ", " : "") + `${freeT.toFixed(1)} GiB free of ${totT.toFixed(1)} GiB` +
       (shortMib > 0 ? `, ${gb(shortMib)} GiB short` : "");
     const boxHTML = boxes.map(b => `<div class="box ${esc(b.cls + (b.stow ? " stow" : ""))}" title="${esc(b.title)}" style="--x:${(b.x / 1024).toFixed(3)};--w:${(b.mib / 1024).toFixed(3)};--i:${b.i}">
-        <span class="box-n">${esc(b.label)}</span><span class="box-g">${esc(gb(b.g))}</span>${b.cls.split(" ").includes("out") ? `<span class="box-x">Unload</span>` : ""}</div>`).join("");
+        <span class="box-n">${esc(b.label)}</span><span class="box-g">${esc(gb(b.g))}</span>${b.cls.split(" ").includes("out") ? `<span class="box-x">${t("Unload")}</span>` : ""}</div>`).join("");
     // the key names every box; CSS shows it for narrow boxes only, and for all on a phone
     const keyHTML = boxes.map(b => `<span class="k ${esc(b.cls)}"><i></i>${esc(b.label)} <b>${esc(gb(b.g))}</b>${b.cls.split(" ").includes("out") ? " <em>unload</em>" : ""}</span>`).join("");
     return `<section class="bay" aria-label="${esc(x.name)}, GPU ${esc(key)}">
       <div class="bay-head"><span class="bay-name">${esc(x.name)}</span><span class="bay-idx">GPU ${esc(key)}</span>
-        <span class="bay-tele"><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></span></div>
+        <span class="bay-tele"><span>${t("UTIL")} <b>${esc(x.util)}%</b></span><span>${t("TEMP")} <b>${esc(x.temp)}&deg;C</b></span></span></div>
       <div class="bay-body">
         <div class="hold-col" style="--span:${(total / maxTotal).toFixed(4)}">
           <div class="hold" role="img" aria-label="${esc(aria)}" style="--cells:${cells.toFixed(3)}">${boxHTML}${deck}</div>
@@ -112,12 +113,12 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
           ${boxes.length ? `<div class="hold-key" aria-hidden="true">${keyHTML}</div>` : ""}
         </div>
         <dl class="ledger">
-          <dd class="unit">GiB</dd>
-          <dt>Used</dt><dd>${usedT.toFixed(1)}</dd>
-          ${need > 0 && !shortMib ? `<dt>Booked</dt><dd>${bookT.toFixed(1)}</dd>` : ""}
-          <dt>Free</dt><dd>${freeT.toFixed(1)}</dd>
-          ${shortMib > 0 ? `<dt>Needs</dt><dd>${gb(need)}</dd><dt class="short">Short</dt><dd class="short">${gb(shortMib)}</dd>` : ""}
-          <dt class="tot">Total</dt><dd class="tot">${totT.toFixed(1)}</dd>
+          <dd class="unit">${t("GiB")}</dd>
+          <dt>${t("Used")}</dt><dd>${usedT.toFixed(1)}</dd>
+          ${need > 0 && !shortMib ? `<dt>${t("Booked")}</dt><dd>${bookT.toFixed(1)}</dd>` : ""}
+          <dt>${t("Free")}</dt><dd>${freeT.toFixed(1)}</dd>
+          ${shortMib > 0 ? `<dt>${t("Needs")}</dt><dd>${gb(need)}</dd><dt class="short">${t("Short")}</dt><dd class="short">${gb(shortMib)}</dd>` : ""}
+          <dt class="tot">${t("Total")}</dt><dd class="tot">${totT.toFixed(1)}</dd>
         </dl>
       </div></section>`;
   }).join("");

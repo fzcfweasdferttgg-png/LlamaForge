@@ -51,6 +51,7 @@ order: 1
 | `theme` | string | `""` | Light or dark. Empty string follows the OS/`localStorage`; otherwise `"light"` or `"dark"`. |
 | `cvd` | bool | `False` | Enables the colorblind-safe palette and non-color status cues. |
 | `skin` | string | `""` | UI skin. Empty string is the default, `"stowage"`; the others are `"hearth"` and `"classic"`. See [Theming](theming.md). |
+| `web_lang` | string | `""` | Default UI language for new browsers: `""` (follow the browser), `"en"`, `"ru"`, `"ja"`, `"ko"` or `"zh"`. A browser can override it for itself via the topbar picker. |
 | `vram_bandwidths` | object | `{}` | Optional `{vram_bw, ram_bw, disk_bw}` GB/s overrides for the VRAM-fit estimate; empty uses GPU presets/defaults. |
 | `vram_predict_enabled` | bool | `True` | Whether the offline VRAM-fit/tok-s estimate is computed (Discover, on expand). |
 | `docs_dir` | string | `""` | Directory the documentation corpus is read from. Empty string resolves to `<repo root>/docs/content`. |

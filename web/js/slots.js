@@ -1,6 +1,6 @@
 // Multi-model slots in the Models tab: which loaded model is the main and
 // which are workers, whether an unloaded one fits beside them, why a load was
-// refused, and the "unload these workers, then load" the planner offers a main
+// refused, and the t("unload these workers, then load") the planner offers a main
 // load that doesn't fit.
 //
 // Cost contract: role()/chip() read S.STATE.slots, the summary /api/state
@@ -8,6 +8,7 @@
 // (/api/slots/plan) runs only for the open row, and again only when the set
 // of loaded models changes.
 import { $, esc, setHTML, api, toast, askYes } from "./core.js";
+import { t } from "./i18n.js";
 import { S, models as modelRows } from "./state.js";
 
 const UP = new Set(["loaded", "sleeping"]);
@@ -17,8 +18,8 @@ const refusals = {};    // model id -> {sig, reason, evict} from the last refuse
 export const slots = () => (S.STATE && S.STATE.slots) || {};
 export const slotsOn = () => !!slots().enabled;
 const isLlama = m => (m.backend || "llamacpp") === "llamacpp";
-const gpus = devs => (devs || []).map(d => "GPU" + d).join("+");
-const gib = mib => (mib / 1024).toFixed(1) + " GiB";
+const gpus = devs => (devs || []).map(d => t("GPU") + d).join("+");
+const gib = mib => (mib / 1024).toFixed(1) + t(" GiB");
 
 /** "main", "worker", or "" when the model isn't up on a pool. */
 export function role(m) {
@@ -31,8 +32,8 @@ export function chip(m) {
   if (!r) return "";
   const where = gpus((slots().devices || {})[m.id]);
   const tip = r === "main"
-    ? "Main model: the one you work with. It gets the fastest GPU that fits."
-    : "Worker: loaded beside the main model, on the GPUs the main doesn't use.";
+    ? t("Main model: the one you work with. It gets the fastest GPU that fits.")
+    : t("Worker: loaded beside the main model, on the GPUs the main doesn't use.");
   return `<span class="tag slot-${esc(r)}" title="${esc(tip)}">${esc(r)}${where ? " " + esc(where) : ""}</span>`;
 }
 
@@ -44,7 +45,7 @@ export function chipSig(m) {
 
 // The loaded set as the planner sees it: a verdict is stale once this changes.
 function loadedSig() {
-  const up = modelRows().filter(m => isLlama(m) && (UP.has(m.status) || m.status === "loading"));
+  const up = modelRows().filter(m => isLlama(m) && (UP.has(m.status) || m.status === t("loading")));
   return JSON.stringify([slots().main || "", up.map(m => m.id).sort()]);
 }
 
@@ -54,8 +55,8 @@ function planFor(id, rerender) {
   plans[id] = {sig, verdict: null};
   const settle = v => { if (plans[id] && plans[id].sig === sig) plans[id].verdict = v; };
   api(`/api/slots/plan?model=${encodeURIComponent(id)}&role=main`)
-    .then(v => settle(v && typeof v === "object" ? v : {ok: false, reason: "no answer"}),
-          () => settle({ok: false, reason: "could not ask the planner"}))
+    .then(v => settle(v && typeof v === "object" ? v : {ok: false, reason: t("no answer")}),
+          () => settle({ok: false, reason: t("could not ask the planner")}))
     .finally(rerender);
   return null;
 }
@@ -75,7 +76,7 @@ const dropped = {};
 export function droppedNote(id) {
   const d = dropped[id];
   return d && d.length
-    ? `<div class="slotnote dim">Started without ${esc(d.join(", "))}: this build doesn't have ${d.length > 1 ? "those options" : "that option"}.</div>`
+    ? `<div class="slotnote dim">Started without ${esc(d.join(", "))}: this build doesn't have ${d.length > 1 ? t("those options") : t("that option")}.</div>`
     : "";
 }
 
@@ -93,29 +94,29 @@ export function block(m, rerender) {
   if (r === "main")
     return `<div class="slotnote">Main model${where ? " on " + esc(where) : ""}. Other models load beside it as workers when the VRAM math leaves room.</div>`;
   if (r === "worker")
-    return `<div class="slotnote">Worker${where ? " on " + esc(where) : ""}, beside the main model. <button class="qbtn" data-slot-main="${esc(m.id)}" title="make this the model you work with; nothing moves or reloads">Make main</button></div>`;
-  if (m.status === "loading" || m.failed) return "";
+    return `<div class="slotnote">Worker${where ? " on " + esc(where) : ""}, beside the main model. <button class="qbtn" data-slot-main="${esc(m.id)}" title="make this the model you work with; nothing moves or reloads">${t("Make main")}</button></div>`;
+  if (m.status === t("loading") || m.failed) return "";
   const ref = refusals[m.id];
-  if (ref && ref.sig === loadedSig()) return warn(m.id, "Didn't load", ref.reason, ref.evict);
+  if (ref && ref.sig === loadedSig()) return warn(m.id, t("Didn't load"), ref.reason, ref.evict);
   const v = planFor(m.id, rerender);
-  if (v === null) return `<div class="slotnote dim">Checking whether it fits beside the loaded models...</div>`;
-  if (!v.ok) return warn(m.id, "Won't fit", v.reason || v.error || "the planner refused", v.evict);
+  if (v === null) return `<div class="slotnote dim">${t("Checking whether it fits beside the loaded models...")}</div>`;
+  if (!v.ok) return warn(m.id, t("Won't fit"), v.reason || v.error || t("the planner refused"), v.evict);
   const need = Object.values(v.footprint || {}).reduce((a, b) => a + (Number(b) || 0), 0);
-  const how = v.source === "measured" ? "measured" : v.confident ? "predicted" : "rough estimate";
+  const how = v.source === "measured" ? "measured" : v.confident ? "predicted" : t("rough estimate");
   const on = gpus(v.devices);
   return `<div class="slotnote ok">Fits${on ? " on " + esc(on) : ""}${need ? `, needs ~${esc(gib(need))} (${esc(how)})` : ""}.</div>`;
 }
 
-/** Can this row offer "Load as worker"? Only beside a model that is already up. */
+/** Can this row offer t("Load as worker")? Only beside a model that is already up. */
 export function canLoadWorker(m) {
-  return slotsOn() && isLlama(m) && !UP.has(m.status) && m.status !== "loading"
+  return slotsOn() && isLlama(m) && !UP.has(m.status) && m.status !== t("loading")
     && modelRows().some(x => x.id !== m.id && isLlama(x) && UP.has(x.status));
 }
 
 export function errText(r) {
-  if (!r) return "load failed";
+  if (!r) return t("load failed");
   if (typeof r.error === "string" && r.error) return r.error;
-  return (r.error && r.error.message) || r.reason || "load failed";
+  return (r.error && r.error.message) || r.reason || t("load failed");
 }
 
 /** POST /api/load; a planner refusal is remembered for the row's editor. */
@@ -130,7 +131,7 @@ export async function load(id, asRole = "main", evict = false) {
 
 export async function makeMain(id) {
   const r = await api("/api/slots/main", {model: id});
-  toast(r && r.ok ? `${id} is the main model` : "could not change the main model", r && r.ok ? "ok" : "err");
+  toast(r && r.ok ? `${id} is the main model` : t("could not change the main model"), r && r.ok ? "ok" : "err");
 }
 
 /* ---------- the banner above the list ---------- */
@@ -141,7 +142,7 @@ export function renderBanner() {
   const sl = slots();
   let h = "";
   if (sl.restart_needed)
-    h = `<div class="slotnote warn"><b>Multi-model is on,</b> but the router running now holds one model at a time (it was started before the setting, or by the run script). <button class="qbtn" data-slot-apply title="restart the router with the multi-model pool; loaded models are unloaded">Restart router</button></div>`;
+    h = `<div class="slotnote warn"><b>${t("Multi-model is on,")}</b> ${t("but the router running now holds one model at a time (it was started before the setting, or by the run script).")} <button class="qbtn" data-slot-apply title="restart the router with the multi-model pool; loaded models are unloaded">${t("Restart router")}</button></div>`;
   else if (sl.enabled) {
     const cap = (sl.settings || {}).slot_cap;
     h = `<div class="slotnote dim">MULTI-MODEL &middot; up to ${esc(cap)} at once &middot; main: ${esc(sl.main || "none")}</div>`;
@@ -150,11 +151,11 @@ export function renderBanner() {
 }
 
 export async function applyPool() {
-  if (!(await askYes("Every loaded model is unloaded.",
-      {title: "Restart the router with multi-model on", ok: "Restart", danger: true}))) return false;
-  toast("Restarting the router...", "ok");
+  if (!(await askYes(t("Every loaded model is unloaded."),
+      {title: t("Restart the router with multi-model on"), ok: t("Restart"), danger: true}))) return false;
+  toast(t("Restarting the router..."), "ok");
   const r = await api("/api/slots/apply", {});
-  toast(r && r.ok ? (r.restarted ? "Router restarted with multi-model" : "Already running with multi-model")
-                  : `Restart failed: ${(r && r.error) || "unknown error"}`, r && r.ok ? "ok" : "err");
+  toast(r && r.ok ? (r.restarted ? t("Router restarted with multi-model") : t("Already running with multi-model"))
+                  : `Restart failed: ${(r && r.error) || t("unknown error")}`, r && r.ok ? "ok" : "err");
   return true;
 }

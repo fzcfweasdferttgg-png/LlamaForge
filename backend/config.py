@@ -65,6 +65,7 @@ DEFAULTS = {
     "theme":         "",                       # "" = follow OS/localStorage; "light"|"dark"
     "cvd":           False,                     # colorblind-safe palette + non-color cues
     "skin":          "",                       # "" = default (stowage); "stowage"|"hearth"|"classic"
+    "web_lang":      "",                       # default UI language; "" = follow the browser. A browser can override it for itself.
     "vram_bandwidths":      {},   # optional {vram_bw,ram_bw,disk_bw} GB/s overrides (empty = presets/defaults)
     "vram_predict_enabled": True, # compute vramwise placement/tok-s estimates (offline; Discover only on expand)
     "docs_dir":      "",                        # "" = <ROOT>/docs/content
