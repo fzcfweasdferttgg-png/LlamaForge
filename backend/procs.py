@@ -259,6 +259,14 @@ def stop(root):
     if vllm:
         _run(vllm, timeout=30)
         print("stopped LlamaForge's vLLM server, if one was running")
+    pid = read_pid(logdir, "gateway")
+    if pid:
+        kill(pid)
+        print(f"stopped the LiteLLM gateway (pid {pid})")
+        try:
+            os.remove(pidfile(logdir, "gateway"))
+        except OSError:
+            pass
     if not steps:
         print("nothing of LlamaForge's was running.")
     print("LlamaForge stopped.")

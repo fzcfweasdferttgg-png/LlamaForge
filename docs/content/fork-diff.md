@@ -32,6 +32,15 @@ temperature) is read from the kernel's DRM sysfs. Device names and tokens come
 from `llama-server --list-devices`, so the multi-model planner speaks `Vulkan0`
 and not just `CUDA0`.
 
+## Model gateway (LiteLLM)
+
+The **Gateway** tab runs [LiteLLM](https://github.com/BerriAI/litellm) (MIT)
+as a managed sidecar: one virtual model name alternates requests across
+several real models (`gateway_models`), tuned by free-form LiteLLM presets
+(`gateway_presets`). Off by default; own port (`gateway_port`, default 8300),
+own venv (`tools/litellm/venv`), managed through the panel's API and MCP
+tools. Details: [Model gateway](gateway.md).
+
 ## Install and updates
 
 The one-line installers in the README install the original project. This build

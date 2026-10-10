@@ -507,6 +507,7 @@ body.mode-lite .advanced-only{display:none !important}
     <div class="tab navitem" data-tab="willrun" data-lede="Estimate placement and speed before you download anything." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label">Will it run?</span></div>
     <div class="tab navitem" data-tab="build" data-lede="Pull and rebuild llama.cpp without leaving the panel." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 6a4 4 0 0 0-5 5L4 16l4 4 5-5a4 4 0 0 0 5-5l-3 3-2-2 3-3a4 4 0 0 0-2-2z"/></svg><span class="label">Build / Update</span></div>
     <div class="tab navitem" data-tab="setup" data-lede="Paths, engines, connected agents and network access." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span class="label">Setup</span></div>
+    <div class="tab navitem" data-tab="gateway" data-lede="One model name over many: requests alternate across the real models." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h4l8 10h4"/><path d="M4 17h4l3-3.75"/><path d="M17 4l3 3-3 3"/><path d="M17 14l3 3-3 3"/></svg><span class="label">Gateway</span></div>
   </div>
   <div class="side-spacer"></div>
   <div class="side-settings">
@@ -570,6 +571,7 @@ body.mode-lite .advanced-only{display:none !important}
   <div class="view" id="view-willrun"><div class="skel">READY</div></div>
   <div class="view" id="view-build"><div class="skel">LOADING BUILD STATUS...</div></div>
   <div class="view" id="view-setup"><div class="skel">PROBING SYSTEM...</div></div>
+  <div class="view" id="view-gateway"><div class="skel">LOADING GATEWAY...</div></div>
   </div>
   <div class="credit">
     LlamaForge is an independent GUI wrapper. Inference by

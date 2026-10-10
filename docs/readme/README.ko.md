@@ -57,6 +57,7 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
 - **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동하고, Windows에서는 WSL2의 [vLLM](https://github.com/vllm-project/vllm)도 구동합니다.
 - **Stats**: 라우터 자체 메트릭에서 모델별 토큰, 속도, 실행 횟수를 집계합니다. 클라이언트는 라우터에 직접 연결하므로 클라이언트별 통계는 불가능합니다.
+- **모델 게이트웨이**: 여러 실제 모델 위의 가상 모델 이름 하나 — 요청은 LiteLLM 프리셋에 따라 번갈아 배분됩니다. [자세히](../content/gateway.md).
 - **Recipes**: 프로필을 읽기 쉬운 JSON으로 공유; 다른 사람은 붙여넣기 한 번으로 가져오고, 모델이 없으면 LlamaForge가 다운로드합니다. [커뮤니티 갤러리](../../recipes/)가 있습니다.
 
 첫 실행 마법사와 **Lite / Advanced** 토글이 상세 설정을 원할 때까지 치워 둡니다. 기본 테마인 **Stowage**는 각 GPU를 1 GiB 칸으로 그린 적재 구역 도면처럼 그립니다. **Hearth**와 **Classic**은 한 번의 클릭으로 전환되며, 각각 라이트, 다크, 색각 보호 모드를 제공합니다.

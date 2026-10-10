@@ -68,6 +68,14 @@ DEFAULTS = {
     "vram_bandwidths":      {},   # optional {vram_bw,ram_bw,disk_bw} GB/s overrides (empty = presets/defaults)
     "vram_predict_enabled": True, # compute vramwise placement/tok-s estimates (offline; Discover only on expand)
     "docs_dir":      "",                        # "" = <ROOT>/docs/content
+    # LiteLLM gateway (gateway.py): virtual model names over the real ones.
+    # Off by default - nothing runs until it is enabled and configured.
+    "gateway_enabled": False,                # serve the virtual names on gateway_port
+    "gateway_port":   8300,                 # LiteLLM's own port, above LlamaForge's
+    "gateway_bind":   "",                     # "" = 127.0.0.1; "0.0.0.0" shares it on the LAN
+    "gateway_models": {},                    # {virtual_name: [model_id, ...]} - what to alternate
+    "gateway_presets": {"default": {"router": {"routing_strategy": "simple-shuffle"}}},
+    "gateway_preset": "default",             # active preset name (free-form LiteLLM settings)
     # Multi-model (slots.py): off = one model at a time, exactly as before.
     "multi_model":       False,                 # let the router hold several models at once
     "slot_cap":          3,                     # most models loaded together (2-4)

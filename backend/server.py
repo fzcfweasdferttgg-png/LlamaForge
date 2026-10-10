@@ -442,6 +442,17 @@ def main():
             mcp_server.serve_http(routes.cfg)
         except Exception as e:
             print(f"  WARNING: MCP HTTP did not start ({type(e).__name__}: {e})")
+    if c.get("gateway_enabled"):  # opt-in LiteLLM gateway (config gateway_*)
+        try:
+            import gateway
+            ok, err = gateway.start(c, routes.ROOT)
+            if ok:
+                print("  started the LiteLLM gateway on port %s"
+                      % c.get("gateway_port", 8300))
+            else:
+                print(f"  WARNING: the LiteLLM gateway did not start ({err})")
+        except Exception as e:
+            print(f"  WARNING: the LiteLLM gateway did not start ({type(e).__name__}: {e})")
     try:                    # optional tray icon (no-op unless pystray+pillow present)
         import tray
         if tray.available():

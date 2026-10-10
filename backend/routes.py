@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server, piinstall, logfiles
+import gateway, mcp_server, piinstall, logfiles
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -1007,6 +1007,11 @@ def get_presets(req):
     return 200, {"presets": config.get_presets()}
 
 
+def get_gateway(req):
+    """The LiteLLM gateway: state, virtual names and the free-form presets."""
+    return 200, gateway.status(cfg(), ROOT)
+
+
 def _resolve_model_row(mid, hint=""):
     if not isinstance(mid, str) or not mid.strip():
         raise ApiError(400, "model is required")
@@ -1505,6 +1510,99 @@ def post_presets_apply(req):
     clean = _clean_settings(preset)
     running = _apply_knobs_and_reload(mid, clean)
     return 200, {"ok": True, "applied": list(clean), "was_running": running}
+
+
+def post_gateway_save(req):
+    """Save the gateway's settings (virtual names, port, bind, active preset).
+    Omitted fields keep their current value; a running gateway is restarted so
+    the change takes effect."""
+    body = req.body if isinstance(req.body, dict) else {}
+    unknown = set(body) - {"enabled", "port", "bind", "models", "preset"}
+    if unknown:
+        raise ApiError(400, "unsupported gateway fields: " + ", ".join(sorted(unknown)))
+    now = cfg()
+    port = body.get("port", now.get("gateway_port") or 8300)
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise ApiError(400, "port must be 1-65535")
+    bind = body.get("bind", now.get("gateway_bind") or "")
+    if bind not in ("", "127.0.0.1", "0.0.0.0"):
+        raise ApiError(400, "bind must be empty, 127.0.0.1 or 0.0.0.0")
+    models = body.get("models", now.get("gateway_models") or {})
+    if not isinstance(models, dict) or any(
+            not isinstance(v, str) or not isinstance(ids, list)
+            or any(not isinstance(m, str) or not m.strip() for m in ids)
+            for v, ids in (models or {}).items()):
+        raise ApiError(400, "models must map a virtual name to model ids")
+    preset = body.get("preset", now.get("gateway_preset") or "default")
+    if not isinstance(preset, str) or preset not in (now.get("gateway_presets") or {}):
+        raise ApiError(400, f"unknown preset: {preset}")
+    was_running = gateway.is_running(ROOT)
+    c = config.update({
+        "gateway_enabled": bool(body.get("enabled", now.get("gateway_enabled", False))),
+        "gateway_port": port,
+        "gateway_bind": bind,
+        "gateway_models": {v: [m.strip() for m in ids if m.strip()]
+                           for v, ids in (models or {}).items() if v},
+        "gateway_preset": preset,
+    })
+    restarted = False
+    if was_running:
+        restarted = True
+        gateway.stop(ROOT)
+        ok, err = gateway.start(c, ROOT)
+        if not ok:
+            return 200, {"ok": False, "error": err, "restarted": True,
+                         "status": gateway.status(c, ROOT)}
+    return 200, {"ok": True, "restarted": restarted,
+                 "status": gateway.status(c, ROOT)}
+
+
+def post_gateway_preset_save(req):
+    """Save one free-form LiteLLM preset ({name, settings}); its settings are
+    written verbatim into the generated config's router / litellm_settings /
+    general_settings sections, so any documented LiteLLM setting works."""
+    body = req.body if isinstance(req.body, dict) else {}
+    name = (body.get("name") or "").strip()
+    settings = body.get("settings")
+    if not name:
+        raise ApiError(400, "preset name is required")
+    if not isinstance(settings, dict):
+        raise ApiError(400, "settings must be an object")
+
+    def _save(cfg):
+        presets = cfg.setdefault("gateway_presets", {})
+        presets[name] = settings
+        return dict(presets)
+
+    presets = config.mutate(_save)
+    c = cfg()
+    if gateway.is_running(ROOT):
+        gateway.stop(ROOT)
+        gateway.start(c, ROOT)
+    return 200, {"ok": True, "presets": presets,
+                 "status": gateway.status(c, ROOT)}
+
+
+def post_gateway_install(req):
+    ok, err = gateway.install(ROOT)
+    return 200, {"ok": ok, "error": err,
+                 "installed": gateway.install_state(ROOT)}
+
+
+def post_gateway_start(req):
+    if gateway.install_state(ROOT) != "installed":
+        ok, err = gateway.install(ROOT)
+        return 200, {"ok": False,
+                     "error": err or "LiteLLM is installing - start again when it is done",
+                     "installed": gateway.install_state(ROOT)}
+    ok, err = gateway.start(cfg(), ROOT)
+    return 200, {"ok": ok, "error": err, "status": gateway.status(cfg(), ROOT)}
+
+
+def post_gateway_stop(req):
+    stopped = gateway.stop(ROOT)
+    return 200, {"ok": True, "stopped": stopped,
+                 "status": gateway.status(cfg(), ROOT)}
 
 
 def post_profiles_save(req):
@@ -2356,6 +2454,7 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
+    "/api/gateway":           get_gateway,
     "/api/slots":             get_slots,
     "/api/slots/plan":        get_slots_plan,
     "/api/mcp/setup":         get_mcp_setup,
@@ -2381,6 +2480,11 @@ POST_ROUTES = {
     "/api/presets/bind":        post_presets_bind,
     "/api/presets/delete":      post_presets_delete,
     "/api/presets/apply":       post_presets_apply,
+    "/api/gateway/save":        post_gateway_save,
+    "/api/gateway/preset/save": post_gateway_preset_save,
+    "/api/gateway/install":     post_gateway_install,
+    "/api/gateway/start":       post_gateway_start,
+    "/api/gateway/stop":        post_gateway_stop,
     "/api/profiles/save":       post_profiles_save,
     "/api/profiles/delete":     post_profiles_delete,
     "/api/profiles/launch":     post_profiles_launch,

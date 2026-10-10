@@ -52,6 +52,7 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
 - **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も、Windows では WSL2 上の [vLLM](https://github.com/vllm-project/vllm) も操作する。
 - **Stats**: ルーター自身のメトリクスから、モデルごとのトークン数、速度、実行回数。クライアントはルーターと直接通信するため、クライアント別の統計は不可能。
+- **モデルゲートウェイ**: 複数の実モデルの上の仮想モデル名ひとつ — リクエストは LiteLLM の自由なプリセットに従ってローテーション。[詳細](../content/gateway.md)。
 - **Recipes**: プロファイルを可読な JSON で共有。受け取った側は 1 回のペーストでインポートでき、モデルがなければ LlamaForge がダウンロードする。[コミュニティギャラリー](../../recipes/)がある。
 
 初回ウィザードと **Lite / Advanced** トグルで、細かい設定項目は必要なときまで視界から外しておく。既定の外観 **Stowage** は各 GPU を 1 GiB 目盛りのベイ平面図として描く。**Hearth** と **Classic** は 1 クリック先にあり、それぞれライト、ダーク、色覚安全を持つ。

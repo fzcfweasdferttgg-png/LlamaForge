@@ -55,6 +55,7 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
 - **Will it run?**：选一个仓库和量化版本，得到适配结果和粗略速度估计。
 - **Build / Update**：一键官方 llama.cpp 构建并可回滚，或从源码构建（参数按你的 GPU 检测）。也驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) 以及 Windows 上 WSL2 里的 [vLLM](https://github.com/vllm-project/vllm)。
 - **Stats**：来自路由器自身指标的每模型 token 数、速度和运行次数。无法做每客户端统计，因为客户端直连路由器。
+- **模型网关**：多个真实模型之上的一个虚拟模型名 — 请求按 LiteLLM 预设轮流分发。[详见](../content/gateway.md)。
 - **Recipes**：把配置以可读 JSON 分享；他人一次粘贴即可导入，缺模型时 LlamaForge 会下载。设有[社区画廊](../../recipes/)。
 
 首次运行向导和 **Lite / Advanced** 开关让深层旋钮在你需要之前不碍事。默认外观 **Stowage** 把每个 GPU 画成按 1 GiB 格线划分的舱位图；**Hearth** 和 **Classic** 一键可换，每种都有浅色、深色和色盲友好三种配色。

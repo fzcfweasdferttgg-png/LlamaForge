@@ -531,6 +531,44 @@ class Server:
                                          minimum=10, maximum=pirun.MAX_TIMEOUT)}, ["task"]),
              {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
              self.t_pi),
+            ("gateway_status", "Gateway status", "The LiteLLM gateway: whether it is "
+             "installed and running, its endpoint, the virtual model names -> real models "
+             "mapping, and the active preset.", _schema(), ro, self.t_gateway_status),
+            ("gateway_save", "Configure the gateway", "Configure the LiteLLM gateway: "
+             "virtual names -> model ids (a request naming a virtual name is handed to one "
+             "of its models - the active preset's routing_strategy picks which per request), "
+             "port, LAN bind and the active preset. A running gateway is restarted so the "
+             "change takes effect.",
+             _schema({"enabled": _prop("boolean", "Serve the virtual names when the panel "
+                                             "starts."),
+                      "port": _prop("integer", "Gateway port (default 8300).",
+                                    minimum=1, maximum=65535),
+                      "bind": _prop("string", "Empty = 127.0.0.1; '0.0.0.0' shares it on "
+                                    "the LAN.", enum=["", "127.0.0.1", "0.0.0.0"]),
+                      "models": _prop("object", "Virtual name -> list of model ids."),
+                      "preset": _prop("string", "Active preset name (see "
+                                             "gateway_preset_save).")}),
+             {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+              "openWorldHint": False}, self.t_gateway_save),
+            ("gateway_preset_save", "Save a gateway preset", "Save a free-form LiteLLM "
+             "settings preset; its router / litellm_settings / general_settings sections "
+             "are written verbatim into the generated config, so any documented LiteLLM "
+             "setting can be turned without a code change.",
+             _schema({"name": _prop("string", "Preset name."),
+                      "settings": _prop("object", "Free-form: {router: {...}, "
+                                                "litellm_settings: {...}, "
+                                                "general_settings: {...}}.")},
+                     ["name", "settings"]),
+             {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+              "openWorldHint": False}, self.t_gateway_preset_save),
+            ("gateway_start", "Start the gateway", "Start the LiteLLM gateway (installs "
+             "it in the background first when missing - call again when that is done).",
+             _schema(),
+             {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+              "openWorldHint": False}, self.t_gateway_start),
+            ("gateway_stop", "Stop the gateway", "Stop the LiteLLM gateway.", _schema(),
+             {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+              "openWorldHint": False}, self.t_gateway_stop),
         ]
         return [{"name": n, "title": ti, "description": d, "inputSchema": s, "annotations": a,
                  "fn": f} for n, ti, d, s, a, f in t]
@@ -640,6 +678,33 @@ class Server:
         log = self.panel.get("/api/router/log").get("log") or ""
         lines = log.splitlines()[-a.get("log_lines", 60):]
         return {"model": mid, "diag": diag, "log_tail": "\n".join(lines)}
+
+    def t_gateway_status(self, a, ctx):
+        return self.panel.get("/api/gateway")
+
+    def t_gateway_save(self, a, ctx):
+        body = {k: a[k] for k in ("enabled", "port", "bind", "models", "preset") if k in a}
+        out = self.panel.post("/api/gateway/save", body, timeout=90)
+        if out.get("ok") is False:
+            raise ToolError(out.get("error") or "the gateway settings were not saved")
+        return out
+
+    def t_gateway_preset_save(self, a, ctx):
+        out = self.panel.post("/api/gateway/preset/save",
+                              {"name": a.get("name", ""),
+                               "settings": a.get("settings") or {}}, timeout=90)
+        if out.get("ok") is False:
+            raise ToolError(out.get("error") or "the preset was not saved")
+        return out
+
+    def t_gateway_start(self, a, ctx):
+        out = self.panel.post("/api/gateway/start", {}, timeout=180)
+        if out.get("ok") is False:
+            raise ToolError(out.get("error") or "the gateway did not start")
+        return out
+
+    def t_gateway_stop(self, a, ctx):
+        return self.panel.post("/api/gateway/stop", {}, timeout=60)
 
     @staticmethod
     def _hub_ok(out, what):

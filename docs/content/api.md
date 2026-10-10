@@ -150,6 +150,17 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 | POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
 | POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`). It may use the stored key internally but never returns a key. |
 
+## Model gateway
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/gateway` | Status of the LiteLLM gateway: install state, running, whether it responds, the virtual names and the presets. |
+| POST | `/api/gateway/save` | Save `{enabled, port, bind, models, preset}`; when it was already running, restarts it. |
+| POST | `/api/gateway/preset/save` | Save one named preset `{name, settings}` - free-form LiteLLM sections. Restarts it when running. |
+| POST | `/api/gateway/install` | Install LiteLLM into `tools/litellm/venv` in the background. No root needed. |
+| POST | `/api/gateway/start` | Start it (installs first when missing). |
+| POST | `/api/gateway/stop` | Stop it. |
+
 ## Static / UI
 
 | Method | Path | Purpose |
