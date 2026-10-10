@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-这些命令安装的是原项目；本构建从本仓库部署。然后 **Install llama.cpp**（适配你 GPU 的官方构建，无需编译器）→ **Discover** → **Load**。
+这些命令安装的是原项目；本构建从本仓库部署。然后在 **Engines** 标签页安装预构建引擎（适配你 GPU 的官方 llama.cpp，无需编译器）→ **Discover** → **Load**。
 早期预览：Windows + NVIDIA 是测试最充分的路径。Linux 和 macOS 通过 CI，但真机使用很少。
 
 LlamaForge 本身不运行任何模型。它安装并驱动 llama.cpp 自带的 `llama-server` 路由，并代你编辑其 `models.ini`。
@@ -34,7 +34,7 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
 | 开源 | ✅ MIT | ❌ 闭源应用 | ✅ MIT |
-| 引擎 | 官方上游 llama.cpp 构建，任意版本，或你自己的 fork | LM Studio 内置的 llama.cpp / MLX 运行时 | Ollama 自有引擎，基于 ggml |
+| 引擎 | 官方 llama.cpp / ik_llama.cpp / beellama.cpp 构建，任意版本，或你自己的二进制 | LM Studio 内置的 llama.cpp / MLX 运行时 | Ollama 自有引擎，基于 ggml |
 | 每模型设置 | `llama-server --help` 列出的每个参数（当前构建 200+） | 很多，精选 | Modelfile 参数 |
 | Hugging Face 上任意 GGUF，下载前按你的显存评级 | ✅（粗略估计） | ✅ | 拉取 GGUF，无适配评级 |
 | OpenAI + Anthropic 兼容 API | ✅，另有一键 Claude Code / Codex / pi.dev 配置 | ✅ | ✅ |
@@ -50,10 +50,10 @@ LlamaForge 直接运行**官方 llama.cpp 发布版本身**（或你自己的构
   - 展开模型可编辑每个 llama-server 参数，分组且可搜索，旁边是 GGUF 元数据卡片（架构、量化、训练上下文、层数）。
   - 保存会就地重新加载模型。加载失败时显示路由器日志中的最后一条错误，并给出推测提示。
   - 预设、启动配置（模型 + 预设 + 固定的 llama.cpp 构建，一键完成）、并排对比，以及可复制粘贴的客户端片段。
-  - 在 Setup 中开启 **Multi-model** 可同时保持一个主模型和若干 worker 加载。规划器按在你机器上实测的占用量，把每个模型放到放得下的 GPU 上。模型也可固定到各自的 llama.cpp（或 ik_llama.cpp）构建。
+  - 在 Setup 中开启 **Multi-model** 可同时保持一个主模型和若干 worker 加载。规划器按在你机器上实测的占用量，把每个模型放到放得下的 GPU 上。模型也可固定到各自的引擎构建（llama.cpp、ik_llama.cpp 或 beellama.cpp）。
 - **Discover**：Hugging Face GGUF 搜索，打开即见本周新增。下载前每个量化版本都给出针对你显存的粗略适配评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传、自动注册，最后进入 **Load** 就绪状态。
 - **Will it run?**：选一个仓库和量化版本，得到适配结果和粗略速度估计。
-- **Build / Update**：一键官方 llama.cpp 构建并可回滚，或从源码构建（参数按你的 GPU 检测）。也驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)。
+- **Engines**：一键下载 [llama.cpp](https://github.com/ggml-org/llama.cpp)、[ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp) 和 [beellama.cpp](https://github.com/Anbeeld/beellama.cpp) 的预构建 Ubuntu 版本，可回滚到任意已安装构建，并一键切换路由器运行的引擎。[详情](../content/build.md)。
 - **Stats**：来自路由器自身指标的每模型 token 数、速度和运行次数。无法做每客户端统计，因为客户端直连路由器。
 - **模型网关**：多个真实模型之上的一个虚拟模型名 — 请求按 LiteLLM 预设轮流分发。[详见](../content/gateway.md)。
 - **Recipes**：把配置以可读 JSON 分享；他人一次粘贴即可导入，缺模型时 LlamaForge 会下载。设有[社区画廊](../../recipes/)。
@@ -110,13 +110,12 @@ llama-server 不受影响。
 
 **系统要求：**Windows 10/11、Linux 或 Apple Silicon 上的 macOS。Python 3.10+（仅标准库；
 Windows 安装器自带）。有 NVIDIA (CUDA)、AMD/Intel (Vulkan) 或 Apple (Metal) GPU 时会用上；
-纯 CPU 也能跑。从源码构建还需要 Git、CMake、Ninja 和
-C++ 编译器，在包管理器允许的情况下 Setup 标签页可以安装它们。
+纯 CPU 也能跑。
 
 ## 工作原理
 
 LlamaForge 不含任何 llama.cpp 代码。纯标准库的 Python 后端驱动 llama.cpp 自带的
-路由器 API，编辑 `models.ini`，并获取官方构建（或调用 `git` / `cmake`）。
+路由器 API，编辑 `models.ini`，并获取官方引擎构建。
 旋钮列表从 `llama-server --help` 实时解析，因此跟随你所运行的构建。
 
 LlamaForge 不固定上下文大小、GPU 层数或多 GPU 切分。llama.cpp 的 `--fit`

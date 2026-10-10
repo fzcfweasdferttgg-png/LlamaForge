@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-These install the original project; this build deploys from this repository. Then **Install llama.cpp** (the official build for your GPU, no compiler) → **Discover** → **Load**.
+These install the original project; this build deploys from this repository. Then install a prebuilt engine on the **Engines** tab (official llama.cpp for your GPU, no compiler) → **Discover** → **Load**.
 Early preview: Windows + NVIDIA is the most-tested path. Linux and macOS pass CI but have had little real-hardware use.
 
 LlamaForge runs no models itself. It installs and drives llama.cpp's own `llama-server` router and
@@ -36,7 +36,7 @@ every server flag instead of a curated subset.
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
 | Open source | ✅ MIT | ❌ proprietary app | ✅ MIT |
-| Engine | official upstream llama.cpp builds, any version, or your own fork | LM Studio's bundled llama.cpp / MLX runtimes | Ollama's own engine on ggml |
+| Engine | official llama.cpp, ik_llama.cpp and beellama.cpp builds, any version, or your own binary | LM Studio's bundled llama.cpp / MLX runtimes | Ollama's own engine on ggml |
 | Per-model settings | every flag your `llama-server --help` lists (200+ on current builds) | many, curated | Modelfile parameters |
 | Any GGUF from Hugging Face, rated for your VRAM before download | ✅ (a rough estimate) | ✅ | pulls GGUFs, no fit rating |
 | OpenAI + Anthropic-compatible API | ✅, plus one-click Claude Code / Codex / pi.dev config | ✅ | ✅ |
@@ -52,10 +52,10 @@ every server flag instead of a curated subset.
   - Expand a model to edit every llama-server flag, grouped and searchable, next to a GGUF metadata card (architecture, quant, trained context, layers).
   - Save reloads the model in place. A failed load shows the last error from the router log with a best-guess hint.
   - Presets, launch profiles (model + preset + pinned llama.cpp build in one click), side-by-side compare, and copy-paste client snippets.
-  - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own llama.cpp (or ik_llama.cpp) build.
+  - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own engine build (llama.cpp, ik_llama.cpp or beellama.cpp).
 - **Discover**: Hugging Face GGUF search that opens on what's new this week. Every quant gets a rough fit rating for your VRAM before you download (FITS / TIGHT / CPU OFFLOAD). Downloads resume after interruption, register themselves, and end ready to **Load**.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
-- **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp).
+- **Engines**: one-click prebuilt Ubuntu builds of [llama.cpp](https://github.com/ggml-org/llama.cpp), [ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp) and [beellama.cpp](https://github.com/Anbeeld/beellama.cpp), with rollback to any installed build and one switch for what the router runs. [Details](docs/content/build.md).
 - **Stats**: per-model tokens, speed and run counts from the router's own metrics. Per-client stats aren't possible, because clients talk to the router directly.
 - **Model gateway**: one virtual model name over several real models - requests alternate across them, driven by free-form LiteLLM presets. [Details](docs/content/gateway.md).
 - **Recipes**: share a profile as readable JSON; others import it in one paste and LlamaForge downloads the model if missing. There's a [community gallery](recipes/).
@@ -113,13 +113,12 @@ llama-server you run is left alone.
 
 **Requirements:** Windows 10/11, Linux, or macOS on Apple Silicon. Python 3.10+ (stdlib only;
 the Windows installer brings its own). NVIDIA (CUDA), AMD/Intel (Vulkan) or Apple (Metal) GPUs
-are used when present; CPU-only works. Building from source also needs Git, CMake, Ninja and
-a C++ compiler, which the Setup tab can install where a package manager allows.
+are used when present; CPU-only works.
 
 ## How it works
 
 LlamaForge contains no llama.cpp code. A pure-stdlib Python backend drives llama.cpp's own
-router API, edits `models.ini`, and fetches official builds (or shells out to `git` / `cmake`).
+router API, edits `models.ini`, and fetches official engine builds.
 The knob list is parsed live from `llama-server --help`, so it tracks whatever build you run.
 
 LlamaForge doesn't pin context size, GPU layers or the multi-GPU split. llama.cpp's `--fit`

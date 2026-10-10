@@ -62,7 +62,7 @@ order: 1
 
 52 keys total, matching `DEFAULTS` in `backend/config.py`.
 
-`prebuilt_channel` (`"nightly"` or `"stable"`, the channel the Build / Update tab's prebuilt-engine card follows) is not in `DEFAULTS`: it is written the first time you install a prebuilt engine, and the card reads it as `"nightly"` until then.
+`prebuilt_channel` (`"nightly"` or `"stable"`, the channel the Engines tab's llama.cpp card follows; the ik_llama and beellama cards pick a release by tag instead) is not in `DEFAULTS`: it is written the first time you install a prebuilt engine, and the card reads it as `"nightly"` until then.
 
 `POST /api/config` accepts only the settings the dashboard itself changes: `ui_mode`, `theme`, `cvd`, `skin`, `onboarded`, `auto_load_model`, `model_dirs`, `anthropic_default_model`, `anthropic_shim_enabled`, `vram_bandwidths`, `vram_predict_enabled`, `multi_model`, `slot_cap`, `slot_headroom_mib` and `slot_autoload`. Any other key is refused and named in the response; the rest are edited by their own endpoints or by hand in `config.json`.
 

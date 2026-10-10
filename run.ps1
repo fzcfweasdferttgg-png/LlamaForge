@@ -141,7 +141,7 @@ if (-not (Listening $cfg.router_port)) {
         Write-Host "started $engineLabel router on $($routerHost):$($cfg.router_port)"
       }
     } else {
-      Write-Host "no $engineLabel engine yet - install one from the dashboard (Build / Update tab)." -ForegroundColor Yellow
+      Write-Host "no $engineLabel engine yet - install one from the dashboard (Engines tab)." -ForegroundColor Yellow
     }
   }
 } else {

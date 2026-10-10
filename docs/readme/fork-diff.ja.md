@@ -16,6 +16,12 @@
 
 `nvidia-smi` がない場合、GPU 状態(VRAM 使用/合計、使用率、温度)はカーネルの DRM sysfs から読む。デバイス名とトークンは `llama-server --list-devices` に由来するため、マルチモデルプランナーは `CUDA0` だけでなく `Vulkan0` も扱える。
 
+## Engines(プリビルトビルド)
+
+Build / Update タブは **Engines** になった: llama.cpp 系エンジン 3つ — llama.cpp(ggml-org)、
+ik_llama.cpp(Thireus ビルド)、beellama.cpp(Anbeeld) — のビルドを取得して選び、ルーターが動かすものを切り替える。
+ソースからのビルドと vLLM バックエンドは削除された。詳細: [Engines](../content/build.md)。
+
 ## インストールと更新
 
 README のワンラインインストーラはオリジナルのプロジェクトをインストールする。このビルドはこのリポジトリからデプロイする。アプリ内アップデータは、インストールマニフェスト(`.lf-files.json`)のないコピーを拒否する。そのようなコピーは手動で更新する。

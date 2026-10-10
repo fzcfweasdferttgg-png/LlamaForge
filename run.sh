@@ -92,7 +92,7 @@ if ! listening "$router_port"; then
     elif [ -x "$server_bin" ]; then
       echo "Router not started: repair Network Access in the dashboard." >&2
     else
-      echo "no llama.cpp engine yet - install one from the dashboard (Build / Update tab)."
+      echo "no llama.cpp engine yet - install one from the dashboard (Engines tab)."
     fi
   else
     echo "Router not started: repair Network Access in the dashboard." >&2

@@ -46,7 +46,7 @@ tools. Details: [Model gateway](gateway.md).
 The Build / Update tab is **Engines**: download and select builds for three
 llama.cpp-family engines - llama.cpp (ggml-org), ik_llama.cpp (Thireus
 prebuilts) and beellama.cpp (Anbeeld) - and switch what the router runs.
-Building from source is gone. Details: [Engines](build.md).
+Building from source and the vLLM backend are gone. Details: [Engines](build.md).
 
 ## Install and updates
 

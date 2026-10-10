@@ -24,6 +24,12 @@ Streamable HTTP로 제공합니다. 기본적으로 꺼져 있습니다. 세부 
 읽습니다. 장치 이름과 토큰은 `llama-server --list-devices`에서 오므로, 다중 모델
 플래너는 `CUDA0`만이 아니라 `Vulkan0`도 인식합니다.
 
+## Engines(사전 빌드)
+
+Build / Update 탭은 이제 **Engines**입니다: llama.cpp 계열 엔진 세 개 — llama.cpp(ggml-org),
+ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) —의 빌드를 내려받아 고르고, 라우터가 돌릴 엔진을 전환합니다.
+소스 빌드와 vLLM 백엔드는 제거되었습니다. 자세한 내용: [Engines](../content/build.md).
+
 ## 설치 및 업데이트
 
 README의 한 줄 설치 명령은 원본 프로젝트를 설치합니다. 이 빌드는 이 저장소에서

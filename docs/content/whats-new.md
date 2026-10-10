@@ -8,6 +8,11 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Fork build: three engines, no building
+
+- **Engines tab.** Download and pick prebuilt Ubuntu builds for three llama.cpp-family engines - [llama.cpp](https://github.com/ggml-org/llama.cpp), [ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp) and [beellama.cpp](https://github.com/Anbeeld/beellama.cpp) - and switch which one the router runs. Fork releases are pickable by tag, ik_llama builds match your CPU's instruction set, and any installed build rolls back with one click. See [Engines](build.md).
+- **Building from source and the vLLM backend are removed** in this build: the panel downloads and drives prebuilt engines only.
+
 ## v0.16: several models at once, an MCP server
 
 - **Several models at once.** Multi-model mode places your main model on the fastest GPU that fits it and keeps worker models off that GPU. Fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. Workers are evicted least-recently-used, and only after you agree to it. A model with no context size set is refused, with the reason. The model rows get **Load as worker**, **Make main** and **Unload X and load**, and Setup has a Multi-model card. API: `/api/slots`, `/api/slots/plan`, `/api/slots/main`, `/api/slots/apply`.

@@ -24,6 +24,12 @@ Streamable HTTP 提供 MCP server。默认关闭。详情：[MCP Server](../cont
 `llama-server --list-devices`，因此多模型规划器说的是 `Vulkan0`
 而不只是 `CUDA0`。
 
+## Engines（预构建）
+
+Build / Update 标签页现在是 **Engines**：下载并选择三个 llama.cpp 系列引擎 — llama.cpp（ggml-org）、
+ik_llama.cpp（Thireus 构建）和 beellama.cpp（Anbeeld）— 的构建，并切换路由器运行哪一个。
+从源码构建和 vLLM 后端已移除。详情：[Engines](../content/build.md)。
+
 ## 安装与更新
 
 README 中的一键安装命令安装的是原项目。本构建从本仓库部署。应用内更新器拒绝没有

@@ -12,7 +12,7 @@ LlamaForge's dashboard listens for a fixed set of keyboard shortcuts (`web/js/mo
 
 | Key | Action |
 |---|---|
-| `1`–`7` | Switch tab, in sidebar order: `1` Models, `2` Stats, `3` Discover, `4` Will it run?, `5` Build / Update, `6` Setup, `7` Context. Help, the eighth tab, has no number key. The numbers follow the sidebar, so they stay right if tabs are added. |
+| `1`–`7` | Switch tab, in sidebar order: `1` Models, `2` Stats, `3` Discover, `4` Will it run?, `5` Engines, `6` Setup, `7` Gateway. The numbers follow the sidebar, so they stay right if tabs are added. |
 | `Escape` | Close an open modal. If a modal isn't open and the model search box is focused, clear the search box instead. |
 
 ## Models tab only

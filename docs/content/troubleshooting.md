@@ -16,8 +16,8 @@ It then matches llama.cpp's actual error strings, most specific first. Healthy s
 
 | llama.cpp says | Suggested fix |
 |---|---|
-| `unknown model architecture` / `unknown pre-tokenizer type` | Update llama.cpp (Build / Update tab). The model is newer than your build. |
-| `has invalid ggml type N` | The file's quant type isn't one this build knows. The message says whether it needs a newer llama.cpp (Build / Update tab), ik_llama.cpp, or a fork the model card names. |
+| `unknown model architecture` / `unknown pre-tokenizer type` | Update llama.cpp (Engines tab). The model is newer than your build. |
+| `has invalid ggml type N` | The file's quant type isn't one this build knows. The message says whether it needs a newer llama.cpp (Engines tab), ik_llama.cpp, beellama.cpp, or a fork the model card names. |
 | `error while handling argument "--x"` / `invalid argument: --x` | Clear that setting (the flag is named). If it's a newer flag, update llama.cpp. |
 | `... requires flash_attn to be enabled` | Set flash-attn on (or auto), or set cache-type-v back to f16. |
 | `cudaMalloc failed`, `out of memory`, `failed to allocate ... buffer` | If the model pins `n-gpu-layers`, `ctx-size` or `tensor-split`, those switch off llama.cpp's automatic fit: clear them and load again. Otherwise pick a smaller quant or a smaller ctx-size. |

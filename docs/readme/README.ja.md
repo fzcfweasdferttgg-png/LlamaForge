@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-これらはオリジナルのプロジェクトをインストールする。このビルドはこのリポジトリからデプロイする。その後は **Install llama.cpp**(GPU 向けの公式ビルド、コンパイラ不要)→ **Discover** → **Load**。
+これらはオリジナルのプロジェクトをインストールする。このビルドはこのリポジトリからデプロイする。その後は **Engines** タブでプリビルトのエンジンを入れる(GPU 向けの公式 llama.cpp、コンパイラ不要)→ **Discover** → **Load**。
 アーリープレビュー: Windows + NVIDIA が最もテストされている経路。Linux と macOS は CI は通るが、実機での使用は少ない。
 
 LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-server` ルーターをインストールして操作し、`models.ini` を代わりに編集する。ggml-org とは無関係。制御より洗練を優先するなら [LM Studio](https://lmstudio.ai)、[Ollama](https://ollama.com)、[Jan](https://jan.ai) を使うこと。
@@ -31,7 +31,7 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
 | オープンソース | ✅ MIT | ❌ プロプライエタリアプリ | ✅ MIT |
-| エンジン | 公式 upstream llama.cpp ビルド、任意のバージョン、自分のフォークも可 | LM Studio 同梱の llama.cpp / MLX ランタイム | ggml 上の Ollama 独自エンジン |
+| エンジン | 公式 llama.cpp / ik_llama.cpp / beellama.cpp ビルド、任意のバージョン、自分のバイナリも可 | LM Studio 同梱の llama.cpp / MLX ランタイム | ggml 上の Ollama 独自エンジン |
 | モデルごとの設定 | `llama-server --help` に列挙されるすべてのフラグ(現行ビルドで 200 以上) | 多数、厳選 | Modelfile パラメータ |
 | Hugging Face の任意の GGUF、ダウンロード前に VRAM への適合を評定 | ✅(おおまかな推定) | ✅ | GGUF を取得、適合評定なし |
 | OpenAI + Anthropic 互換 API | ✅、さらに Claude Code / Codex / pi.dev のワンクリック設定 | ✅ | ✅ |
@@ -47,10 +47,10 @@ LlamaForge はモデル自体を実行しない。llama.cpp 純正の `llama-ser
   - モデルを展開すると llama-server のすべてのフラグを編集できる。グループ化・検索可能で、GGUF メタデータカード(アーキテクチャ、quant、学習時コンテキスト、レイヤー)の隣に並ぶ。
   - 保存するとモデルをその場で再読み込みする。読み込み失敗時はルーターログの直近エラーと推測のヒントを表示する。
   - プリセット、起動プロファイル(モデル + プリセット + 固定した llama.cpp ビルドを 1 クリック)、並列比較、コピー&ペースト用クライアントスニペット。
-  - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用の llama.cpp(または ik_llama.cpp)ビルドを固定することもできる。
+  - Setup で **Multi-model** を有効にすると、メインモデルとワーカーを同時に読み込んだままにできる。プランナーが自機で測定したフットプリントを使い、収まる GPU に各モデルを配置する。モデルごとに専用のエンジンビルド(llama.cpp、ik_llama.cpp または beellama.cpp)を固定することもできる。
 - **Discover**: 今週の新着から開く Hugging Face の GGUF 検索。ダウンロード前に各 quant へ VRAM への適合のおおまかな評定(FITS / TIGHT / CPU OFFLOAD)。ダウンロードは中断後に再開し、自動登録され、**Load** 準備で終わる。
 - **Will it run?**: リポジトリと quant を選ぶと、適合と速度の概算が出る。
-- **Build / Update**: ロールバック付きの公式 llama.cpp ビルドをワンクリック、または GPU 向けフラグを検出してソースからビルド。[ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) も操作する。
+- **Engines**: [llama.cpp](https://github.com/ggml-org/llama.cpp)、[ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp)、[beellama.cpp](https://github.com/Anbeeld/beellama.cpp) のプリビルト Ubuntu ビルドをワンクリックで。ロールバックと、ルーターが動かすエンジンの切り替えもここで行う。[詳細](../content/build.md)。
 - **Stats**: ルーター自身のメトリクスから、モデルごとのトークン数、速度、実行回数。クライアントはルーターと直接通信するため、クライアント別の統計は不可能。
 - **モデルゲートウェイ**: 複数の実モデルの上の仮想モデル名ひとつ — リクエストは LiteLLM の自由なプリセットに従ってローテーション。[詳細](../content/gateway.md)。
 - **Recipes**: プロファイルを可読な JSON で共有。受け取った側は 1 回のペーストでインポートでき、モデルがなければ LlamaForge がダウンロードする。[コミュニティギャラリー](../../recipes/)がある。
@@ -91,11 +91,11 @@ bootstrap スクリプトは Python と Git を確認し(何かをインスト�
 
 `llamaforge stop`(`stop.ps1` / `stop.sh` も可)はダッシュボード、ルーター、それが生んだモデルを停止する。止めるのは LlamaForge が起動したプロセスだけで、他に動かしている llama-server には触れない。
 
-**必要な環境:** Windows 10/11、Linux、または Apple Silicon 上の macOS。Python 3.10+(stdlib のみ。Windows インストーラは同梱)。NVIDIA(CUDA)、AMD/Intel(Vulkan)、Apple(Metal) GPU があれば使う。CPU のみでも動作する。ソースからのビルドには Git、CMake、Ninja、C++ コンパイラも必要で、パッケージマネージャが許す範囲では Setup タブから入れられる。
+**必要な環境:** Windows 10/11、Linux、または Apple Silicon 上の macOS。Python 3.10+(stdlib のみ。Windows インストーラは同梱)。NVIDIA(CUDA)、AMD/Intel(Vulkan)、Apple(Metal) GPU があれば使う。CPU のみでも動作する。
 
 ## 仕組み
 
-LlamaForge には llama.cpp のコードは含まれない。純 stdlib の Python バックエンドが llama.cpp 純正のルーター API を操作し、`models.ini` を編集し、公式ビルドを取得する(または `git` / `cmake` を呼び出す)。ノブの一覧は `llama-server --help` からその場でパースするので、動かしているビルドに追従する。
+LlamaForge には llama.cpp のコードは含まれない。純 stdlib の Python バックエンドが llama.cpp 純正のルーター API を操作し、`models.ini` を編集し、公式のエンジンビルドを取得する。ノブの一覧は `llama-server --help` からその場でパースするので、動かしているビルドに追従する。
 
 LlamaForge はコンテキストサイズ、GPU レイヤー、マルチ GPU 分割を固定しない。llama.cpp の `--fit`(既定で有効)がこの 3 つを読み込み時の空き VRAM に合わせ、必要なら MoE エキスパートを CPU へ移す。いずれかを固定すると fit は切れるため、自分で設定しない限り未設定のままになる。
 

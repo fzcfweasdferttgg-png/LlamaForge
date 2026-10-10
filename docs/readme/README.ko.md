@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
 ```
-이 명령은 원본 프로젝트를 설치합니다. 이 빌드는 이 저장소에서 배포됩니다. 그다음 **Install llama.cpp**(GPU에 맞는 공식 빌드, 컴파일러 불필요) → **Discover** → **Load**.
+이 명령은 원본 프로젝트를 설치합니다. 이 빌드는 이 저장소에서 배포됩니다. 그다음 **Engines** 탭에서 사전 빌드 엔진을 설치합니다(GPU에 맞는 공식 llama.cpp, 컴파일러 불필요) → **Discover** → **Load**.
 얼리 프리뷰: Windows + NVIDIA가 가장 많이 테스트된 경로입니다. Linux와 macOS는 CI를 통과하지만 실제 하드웨어 사용 경험이 거의 없습니다.
 
 LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-server` 라우터를 설치·구동하고
@@ -36,7 +36,7 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
 | 오픈 소스 | ✅ MIT | ❌ 독점 앱 | ✅ MIT |
-| 엔진 | 공식 업스트림 llama.cpp 빌드, 모든 버전, 또는 자체 포크 | LM Studio가 동봉한 llama.cpp / MLX 런타임 | ggml 위의 Ollama 자체 엔진 |
+| 엔진 | 공식 llama.cpp / ik_llama.cpp / beellama.cpp 빌드, 모든 버전, 또는 자체 바이너리 | LM Studio가 동봉한 llama.cpp / MLX 런타임 | ggml 위의 Ollama 자체 엔진 |
 | 모델별 설정 | `llama-server --help`에 나오는 모든 플래그 (현재 빌드 기준 200개 이상) | 많지만 선별됨 | Modelfile 매개변수 |
 | Hugging Face의 모든 GGUF, 다운로드 전 VRAM 적합성 평가 | ✅ (대략적인 추정치) | ✅ | GGUF 가져오기, 적합성 평가 없음 |
 | OpenAI + Anthropic 호환 API | ✅, 여기에 Claude Code / Codex / pi.dev 원클릭 설정 | ✅ | ✅ |
@@ -52,10 +52,10 @@ LlamaForge는 모델을 직접 실행하지 않습니다. llama.cpp의 `llama-se
   - 모델을 펼치면 GGUF 메타데이터 카드(아키텍처, 양자화, 학습 컨텍스트, 레이어) 옆에서 llama-server 플래그 전부를 그룹별로 검색하며 편집합니다.
   - 저장하면 모델을 그 자리에서 다시 로드합니다. 로드 실패 시 라우터 로그의 마지막 오류와 추정 원인 힌트를 보여줍니다.
   - 프리셋, 실행 프로필(모델 + 프리셋 + 고정된 llama.cpp 빌드를 한 번에), 나란히 비교, 복사-붙여넣기용 클라이언트 코드 조각.
-  - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 얍니다. 모델마다 llama.cpp(또는 ik_llama.cpp) 빌드를 따로 고정할 수도 있습니다.
+  - Setup에서 **Multi-model**을 켜면 메인 모델과 워커를 동시에 올려 둘 수 있습니다. 플래너가 각 모델을 들어맞는 GPU에 배치하며, 메모리 점유량은 이 기기에서 측정값을 얍니다. 모델마다 엔진 빌드(llama.cpp, ik_llama.cpp 또는 beellama.cpp)를 따로 고정할 수도 있습니다.
 - **Discover**: 이번 주 신규 모델을 먼저 보여주는 Hugging Face GGUF 검색. 모든 양자화는 다운로드 전에 VRAM 적합성 대략 등급(FITS / TIGHT / CPU OFFLOAD)을 받습니다. 다운로드는 중단 후 재개되고 스스로 등록되며 **Load** 준비로 끝납니다.
 - **Will it run?**: 저장소와 양자화를 고르면 적합성과 대략적인 속도 추정치를 알려줍니다.
-- **Build / Update**: 원클릭 공식 llama.cpp 빌드와 롤백, 또는 GPU에 맞게 플래그를 감지해 소스에서 빌드. [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)도 구동합니다.
+- **Engines**: [llama.cpp](https://github.com/ggml-org/llama.cpp), [ik_llama.cpp](https://github.com/Thireus/ik_llama.cpp), [beellama.cpp](https://github.com/Anbeeld/beellama.cpp)의 원클릭 사전 빌드(Ubuntu). 설치된 빌드로 롤백하고, 라우터가 돌릴 엔진을 전환합니다. [자세히](../content/build.md).
 - **Stats**: 라우터 자체 메트릭에서 모델별 토큰, 속도, 실행 횟수를 집계합니다. 클라이언트는 라우터에 직접 연결하므로 클라이언트별 통계는 불가능합니다.
 - **모델 게이트웨이**: 여러 실제 모델 위의 가상 모델 이름 하나 — 요청은 LiteLLM 프리셋에 따라 번갈아 배분됩니다. [자세히](../content/gateway.md).
 - **Recipes**: 프로필을 읽기 쉬운 JSON으로 공유; 다른 사람은 붙여넣기 한 번으로 가져오고, 모델이 없으면 LlamaForge가 다운로드합니다. [커뮤니티 갤러리](../../recipes/)가 있습니다.
@@ -112,15 +112,12 @@ bootstrap 스크립트는 Python과 Git을 확인하고(무엇이든 설치하�
 
 **시스템 요구 사항:** Windows 10/11, Linux, 또는 Apple Silicon macOS. Python 3.10+(표준
 라이브러리만 사용; Windows 설치 프로그램이 자체 포함). NVIDIA(CUDA), AMD/Intel(Vulkan),
-Apple(Metal) GPU가 있으면 사용하고, CPU만으로도 동작합니다. 소스에서 빌드하려면 추가로
-Git, CMake, Ninja, C++ 컴파일러가 필요하며, 패키지 매니저가 허용하는 곳에서는 Setup 탭이
-설치해 줄 수 있습니다.
+Apple(Metal) GPU가 있으면 사용하고, CPU만으로도 동작합니다.
 
 ## 동작 방식
 
 LlamaForge에는 llama.cpp 코드가 들어 있지 않습니다. 순수 표준 라이브러리 Python 백엔드가
-llama.cpp 자체 라우터 API를 구동하고, `models.ini`를 편집하며, 공식 빌드를 내려받습니다
-(또는 `git` / `cmake`를 호출). 설정 항목 목록은 `llama-server --help`에서 실시간으로
+llama.cpp 자체 라우터 API를 구동하고, `models.ini`를 편집하며, 공식 엔진 빌드를 내려받습니다. 설정 항목 목록은 `llama-server --help`에서 실시간으로
 파싱하므로, 실행 중인 빌드를 그대로 따라갑니다.
 
 LlamaForge는 컨텍스트 크기, GPU 레이어, 다중 GPU 분할을 고정하지 않습니다. llama.cpp의 `--fit`
