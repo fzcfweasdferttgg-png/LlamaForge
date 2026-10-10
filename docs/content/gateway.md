@@ -23,9 +23,20 @@ process on its own port (default `8300`) in its own venv
 
 The **Gateway** tab owns the whole thing:
 
-- **Virtual names** - each name maps to a list of installed model ids. One
-  deployment per (name, model) is written into the generated config, all
-  pointed at the local router.
+- **Virtual names** - each name maps to real model ids, with one of two ready
+  behaviors:
+  - **Alternate across models** - requests rotate across the name's models
+    (LiteLLM `simple-shuffle`).
+  - **Primary + reserve** - the first model is the primary: traffic stays on it
+    while it has a free slot and spills to the reserves when it is full or not
+    loaded (LiteLLM `order` priority plus a `max_parallel_requests` cap of the
+    model's slot count - `parallel` in models.ini). **When all busy** says what
+    happens then: *Wait in queue* keeps the last model queueing at llama.cpp,
+    *Reply 429 busy* caps every model so a full group answers 429.
+
+  Only models loaded right now are offered; a model unloaded later fails over
+  to the next one automatically. One deployment per (name, model) is written
+  into the generated config, all pointed at the local router.
 - **port / bind** - the gateway's own port (default `8300`) and its bind:
   `127.0.0.1` by default, `0.0.0.0` to share it on the LAN like `panel_host`.
 - **serve on panel start** - `gateway_enabled`: the panel starts the gateway on

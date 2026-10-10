@@ -532,20 +532,25 @@ class Server:
              {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
              self.t_pi),
             ("gateway_status", "Gateway status", "The LiteLLM gateway: whether it is "
-             "installed and running, its endpoint, the virtual model names -> real models "
-             "mapping, and the active preset.", _schema(), ro, self.t_gateway_status),
+             "installed and running, its endpoint, each virtual name's behavior mode and "
+             "models, per-model loaded/busy state, and the active preset.",
+             _schema(), ro, self.t_gateway_status),
             ("gateway_save", "Configure the gateway", "Configure the LiteLLM gateway: "
-             "virtual names -> model ids (a request naming a virtual name is handed to one "
-             "of its models - the active preset's routing_strategy picks which per request), "
-             "port, LAN bind and the active preset. A running gateway is restarted so the "
-             "change takes effect.",
+             "virtual names -> {mode: 'alternation'|'reserve', models: [...], when_busy: "
+             "'queue'|'reject'} (a plain list of model ids also means alternation). In "
+             "reserve mode models[0] is the primary: traffic goes to it while it has a "
+             "free slot and spills to the next model when it is full or not loaded. "
+             "Port, LAN bind and the active preset. A running gateway is restarted so "
+             "the change takes effect.",
              _schema({"enabled": _prop("boolean", "Serve the virtual names when the panel "
                                              "starts."),
                       "port": _prop("integer", "Gateway port (default 8300).",
                                     minimum=1, maximum=65535),
                       "bind": _prop("string", "Empty = 127.0.0.1; '0.0.0.0' shares it on "
                                     "the LAN.", enum=["", "127.0.0.1", "0.0.0.0"]),
-                      "models": _prop("object", "Virtual name -> list of model ids."),
+                      "models": _prop("object", "Virtual name -> {mode, models, "
+                                      "when_busy}, or a plain list of model ids "
+                                      "(alternation)."),
                       "preset": _prop("string", "Active preset name (see "
                                              "gateway_preset_save).")}),
              {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,

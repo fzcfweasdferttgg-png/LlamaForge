@@ -1,10 +1,16 @@
-// Gateway tab: the LiteLLM gateway - one virtual model name over many real
-// ones. A request naming a virtual name is handed to one of its models; the
-// active preset's routing_strategy picks which per request, so traffic
-// alternates across them. This view owns the settings, the free-form LiteLLM
-// presets (written verbatim into the generated config), and the process.
+// Gateway tab: the LiteLLM gateway - virtual model names over the real ones.
+// A name is either "alternation" (requests rotate across its models) or
+// "reserve" (the first model is primary: traffic stays on it while it has a
+// free slot and spills to the rest when it is full or not loaded). Only models
+// LlamaForge has loaded are offered. This view owns the settings, the
+// free-form LiteLLM presets (written verbatim into the generated config), and
+// the process.
 import { $, $$, esc, setHTML, api, toast } from "./core.js";
 import { models } from "./state.js";
+
+const MODES = [["alternation", "Alternate across models"],
+               ["reserve", "Primary + reserve"]];
+const BUSY = [["queue", "Wait in queue"], ["reject", "Reply 429 busy"]];
 
 export async function loadGateway() {
   const v = $("#view-gateway");
@@ -14,11 +20,59 @@ export async function loadGateway() {
       esc(st && st.error ? st.error : "the gateway did not answer")}</div></div>`);
     return;
   }
-  const rows = models();
-  const modelOpts = (sel) => rows.map(m =>
-    `<option value="${esc(m.id)}"${sel.includes(m.id) ? " selected" : ""}>${
-      esc(m.id)}</option>`).join("");
-  const names = Object.keys(st.models || {});
+  const state = st.model_states || {};
+  const configured = new Set(Object.values(st.models || {})
+    .flatMap(s => (s && s.models) || []));
+  const rows = models().map(m => m.id)
+    .filter(id => (state[id] || {}).loaded || configured.has(id));
+  const chip = (id) => {
+    const s = state[id] || {};
+    return s.loaded ? (s.busy ? "busy" : "free") : "not loaded";
+  };
+  const specs = Object.entries(st.models || {}).map(([name, s]) => ({
+    name,
+    mode: s.mode === "reserve" ? "reserve" : "alternation",
+    when_busy: s.when_busy === "reject" ? "reject" : "queue",
+    models: [...(s.models || [])],
+  }));
+  if (!specs.length) specs.push({ name: "", mode: "alternation", when_busy: "queue", models: [] });
+
+  const pickHTML = (i) => {
+    const s = specs[i];
+    if (s.mode === "reserve") {
+      const primary = s.models[0] || rows[0] || "";
+      return `<span class="lbl">Primary</span>
+        <select data-gw-primary="${i}">${rows.map(id =>
+          `<option value="${esc(id)}"${id === primary ? " selected" : ""}>${
+            esc(id)} (${chip(id)})</option>`).join("")}</select>
+        <span class="lbl">Reserve models</span>
+        <div>${rows.filter(id => id !== primary).map(id => `
+          <label style="display:block;font-size:12px"><input type="checkbox" data-gw-res="${i}" value="${
+            esc(id)}"${s.models.slice(1).includes(id) ? " checked" : ""}> ${
+            esc(id)} (${chip(id)})</label>`).join("")}</div>`;
+    }
+    return `<span class="lbl">Models</span><div>${rows.map(id => `
+      <label style="display:block;font-size:12px"><input type="checkbox" data-gw-alt="${i}" value="${
+        esc(id)}"${s.models.includes(id) ? " checked" : ""}> ${
+        esc(id)} (${chip(id)})</label>`).join("")}</div>`;
+  };
+
+  const rowHTML = (i) => {
+    const s = specs[i];
+    return `
+      <div class="formrow" data-gw-row>
+        <label class="f"><span class="lbl">Virtual name</span>
+          <input data-gw-name="${i}" value="${esc(s.name)}" placeholder="e.g. mix"></label>
+        <label class="f"><span class="lbl">Behavior</span>
+          <select data-gw-mode="${i}">${MODES.map(([val, lab]) =>
+            `<option value="${val}"${s.mode === val ? " selected" : ""}>${lab}</option>`).join("")}</select></label>
+        <div class="f grow" data-gw-pick="${i}">${pickHTML(i)}</div>
+        <label class="f"${s.mode === "reserve" ? "" : " hidden"} data-gw-busy-wrap="${i}"><span class="lbl">When all busy</span>
+          <select data-gw-busy="${i}">${BUSY.map(([val, lab]) =>
+            `<option value="${val}"${s.when_busy === val ? " selected" : ""}>${lab}</option>`).join("")}</select></label>
+      </div>`;
+  };
+
   setHTML(v, `
     <div class="card"><h3>Model gateway <span style="color:var(--dim);font-weight:normal;font-size:11px">(LiteLLM)</span></h3>
       <div class="kv"><span class="k">LiteLLM</span><span class="v ${
@@ -28,9 +82,13 @@ export async function loadGateway() {
         st.running ? "running (pid " + esc(st.pid) + ")" : "stopped"}</span></div>
       <div class="kv"><span class="k">endpoint</span><span class="v">${esc(st.endpoint)}</span></div>
       <div class="kv"><span class="k">serve</span><span class="v">${st.enabled ? "on panel start" : "manual only"}</span></div>
-      <div class="note">One virtual name over the real models: a request naming it goes to
-        one of them (the preset's routing_strategy picks which per request), streaming passes
-        through. ${st.bind === "0.0.0.0" ? "The gateway answers on the LAN." : "The gateway answers on this machine only."}</div>
+      ${specs.filter(s => s.name).map(s => `<div class="kv"><span class="k">${esc(s.name)}</span>
+        <span class="v">${s.mode === "reserve" ? "primary + reserve" : "alternation"}: ${
+        s.models.map(id => `${esc(id)} (${chip(id)})`).join(", ")}</span></div>`).join("")}
+      <div class="note">A virtual name hides the real models behind one API name.
+        <b>Alternate</b> rotates requests across its models; <b>Primary + reserve</b> keeps
+        traffic on the primary while it has a free slot and spills to the reserves when it is
+        full or not loaded. Streaming passes through. ${st.bind === "0.0.0.0" ? "The gateway answers on the LAN." : "The gateway answers on this machine only."}</div>
       <div class="actions">
         <button id="gw-start" class="primary">${st.running ? "Restart" : "Start"}</button>
         <button id="gw-stop">Stop</button>
@@ -39,13 +97,7 @@ export async function loadGateway() {
       </div>
     </div>
     <div class="card"><h3>Virtual names</h3>
-      <div id="gw-names">${(names.length ? names : [""]).map((n, i) => `
-        <div class="formrow" data-gw-row>
-          <label class="f grow"><span class="lbl">Virtual name</span>
-            <input id="gw-name-${i}" value="${esc(n)}" placeholder="e.g. mix"></label>
-          <label class="f grow"><span class="lbl">Real models</span>
-            <select id="gw-models-${i}" multiple size="3">${modelOpts((st.models || {})[n] || [])}</select></label>
-        </div>`).join("")}</div>
+      <div id="gw-names">${specs.map((_, i) => rowHTML(i)).join("")}</div>
       <div class="actions">
         <button id="gw-add">Add name</button>
         <label class="f"><span class="lbl">port</span>
@@ -79,24 +131,39 @@ export async function loadGateway() {
         <span class="msg" id="gw-preset-msg"></span></div>
     </div>`);
 
+  $("#gw-names").onchange = (e) => {
+    const t = e.target;
+    const idx = (key) => Number(t.dataset[key]);
+    if (t.dataset.gwMode !== undefined) {
+      const i = idx("gwMode");
+      specs[i].mode = t.value;
+      specs[i].models = [];
+      $(`[data-gw-pick="${i}"]`).innerHTML = pickHTML(i);
+      $(`[data-gw-busy-wrap="${i}"]`).hidden = specs[i].mode !== "reserve";
+    } else if (t.dataset.gwPrimary !== undefined) {
+      const i = idx("gwPrimary");
+      specs[i].models = [t.value, ...specs[i].models.slice(1)];
+      $(`[data-gw-pick="${i}"]`).innerHTML = pickHTML(i);
+    }
+  };
   $("#gw-add").onclick = () => {
-    const host = $("#gw-names");
-    const i = host.querySelectorAll("[data-gw-row]").length;
-    host.insertAdjacentHTML("beforeend", `
-      <div class="formrow" data-gw-row>
-        <label class="f grow"><span class="lbl">Virtual name</span>
-          <input id="gw-name-${i}" placeholder="e.g. mix"></label>
-        <label class="f grow"><span class="lbl">Real models</span>
-          <select id="gw-models-${i}" multiple size="3">${modelOpts([])}</select></label>
-      </div>`);
+    specs.push({ name: "", mode: "alternation", when_busy: "queue", models: [] });
+    $("#gw-names").insertAdjacentHTML("beforeend", rowHTML(specs.length - 1));
   };
   $("#gw-save").onclick = async () => {
     const map = {};
-    $$("[data-gw-row]").forEach((row, i) => {
-      const n = ($(`#gw-name-${i}`) || {}).value;
-      if (!n || !n.trim()) return;
-      const sel = $(`#gw-models-${i}`);
-      map[n.trim()] = [...sel.selectedOptions].map(o => o.value);
+    specs.forEach((s, i) => {
+      const name = (($(`[data-gw-name="${i}"]`) || {}).value || "").trim();
+      if (!name) return;
+      const when = ($(`[data-gw-busy="${i}"]`) || {}).value || "queue";
+      if (s.mode === "reserve") {
+        const primary = ($(`[data-gw-primary="${i}"]`) || {}).value || "";
+        const reserves = [...($$(`[data-gw-res="${i}"]:checked`) || [])].map(o => o.value);
+        map[name] = { mode: "reserve", models: [primary, ...reserves].filter(Boolean), when_busy: when };
+      } else {
+        const picked = [...($$(`[data-gw-alt="${i}"]:checked`) || [])].map(o => o.value);
+        map[name] = { mode: "alternation", models: picked, when_busy: when };
+      }
     });
     const body = {
       enabled: $("#gw-enabled").checked,

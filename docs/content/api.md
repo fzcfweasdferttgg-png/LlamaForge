@@ -154,8 +154,8 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/gateway` | Status of the LiteLLM gateway: install state, running, whether it responds, the virtual names and the presets. |
-| POST | `/api/gateway/save` | Save `{enabled, port, bind, models, preset}`; when it was already running, restarts it. |
+| GET | `/api/gateway` | Status of the LiteLLM gateway: install state, running, whether it responds, each virtual name's mode and models with per-model loaded/busy state, and the presets. |
+| POST | `/api/gateway/save` | Save `{enabled, port, bind, models, preset}`; `models` maps a virtual name to `{mode, models, when_busy}` (a plain list of ids means alternation). When it was already running, restarts it. |
 | POST | `/api/gateway/preset/save` | Save one named preset `{name, settings}` - free-form LiteLLM sections. Restarts it when running. |
 | POST | `/api/gateway/install` | Install LiteLLM into `tools/litellm/venv` in the background. No root needed. |
 | POST | `/api/gateway/start` | Start it (installs first when missing). |

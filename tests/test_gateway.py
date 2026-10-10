@@ -74,6 +74,33 @@ class GatewayConfigTest(unittest.TestCase):
             "general_settings": {"master_key": "sk-own"}}})
         self.assertNotIn(permit, gateway._serve_env(keyed))
 
+    def test_a_reserve_name_is_ordered_and_capped(self):
+        t = self.text(gateway_models={"mix": {
+            "mode": "reserve", "models": ["q6-k", "rvn-q6-k"], "when_busy": "queue"}})
+        self.assertIn("order: 1", t)
+        self.assertIn("order: 2", t)
+        # the primary is capped to its slots; the last model keeps queueing
+        self.assertEqual(t.count("max_parallel_requests"), 1)
+
+    def test_when_busy_reject_caps_every_model(self):
+        t = self.text(gateway_models={"mix": {
+            "mode": "reserve", "models": ["q6-k", "rvn-q6-k"], "when_busy": "reject"}})
+        self.assertEqual(t.count("max_parallel_requests"), 2)
+
+    def test_the_cap_follows_parallel_from_models_ini(self):
+        root = tempfile.mkdtemp()
+        with open(os.path.join(root, "models.ini"), "w", encoding="utf-8") as f:
+            f.write("[q6-k]\nparallel = 2\n[rvn-q6-k]\nparallel = 1\n")
+        t = gateway.render_config(dict(CFG, gateway_models={"mix": {
+            "mode": "reserve", "models": ["q6-k", "rvn-q6-k"]}}), root)
+        self.assertIn("max_parallel_requests: 2", t)
+        self.assertEqual(t.count("max_parallel_requests"), 1)
+
+    def test_an_old_model_list_still_means_alternation(self):
+        self.assertEqual(gateway.name_spec(["a", "b"]), {
+            "mode": "alternation", "models": ["a", "b"], "when_busy": "queue"})
+        self.assertNotIn("order:", self.text())
+
 
 class GatewayProcessTest(unittest.TestCase):
     """start()/stop() against a stub litellm that serves the health URL - a
@@ -155,7 +182,21 @@ class GatewayRoutesTest(unittest.TestCase):
         self.assertTrue(c["gateway_enabled"])
         self.assertEqual(c["gateway_port"], 8301)
         self.assertEqual(c["gateway_bind"], "0.0.0.0")
-        self.assertEqual(c["gateway_models"], {"mix": ["a", "b"]})
+        self.assertEqual(c["gateway_models"], {"mix": {
+            "mode": "alternation", "models": ["a", "b"], "when_busy": "queue"}})
+
+    def test_a_reserve_spec_round_trips_and_validates(self):
+        status, _ = routes.post_gateway_save(routes.Req(body={"models": {"mix": {
+            "mode": "reserve", "models": ["a", "b"], "when_busy": "reject"}}}))
+        self.assertEqual(status, 200)
+        self.assertEqual(config.load()["gateway_models"]["mix"], {
+            "mode": "reserve", "models": ["a", "b"], "when_busy": "reject"})
+        with self.assertRaises(routes.ApiError):
+            routes.post_gateway_save(routes.Req(body={"models": {"mix": {
+                "mode": "reserve", "models": ["a"], "when_busy": "explode"}}}))
+        with self.assertRaises(routes.ApiError):
+            routes.post_gateway_save(routes.Req(body={"models": {"mix": {
+                "mode": "chaos", "models": ["a"]}}}))
 
     def test_a_bad_port_is_rejected(self):
         with self.assertRaises(routes.ApiError):

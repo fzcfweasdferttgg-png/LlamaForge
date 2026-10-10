@@ -1007,9 +1007,27 @@ def get_presets(req):
     return 200, {"presets": config.get_presets()}
 
 
+def _gateway_model_states():
+    """{model id: {loaded, busy}} for the picker and the status card.
+    `busy` comes from the router's own slots (is_processing)."""
+    states = {}
+    for m in model_state().get("models", []):
+        mid = m.get("id", "")
+        loaded = m.get("status") == "loaded"
+        busy = False
+        if loaded:
+            st, data = router("/slots?model=%s" % urllib.parse.quote(mid))
+            busy = st == 200 and any(isinstance(s, dict) and s.get("is_processing")
+                                     for s in data)
+        states[mid] = {"loaded": loaded, "busy": busy}
+    return states
+
+
 def get_gateway(req):
     """The LiteLLM gateway: state, virtual names and the free-form presets."""
-    return 200, gateway.status(cfg(), ROOT)
+    st = gateway.status(cfg(), ROOT)
+    st["model_states"] = _gateway_model_states()
+    return 200, st
 
 
 def _resolve_model_row(mid, hint=""):
@@ -1528,11 +1546,20 @@ def post_gateway_save(req):
     if bind not in ("", "127.0.0.1", "0.0.0.0"):
         raise ApiError(400, "bind must be empty, 127.0.0.1 or 0.0.0.0")
     models = body.get("models", now.get("gateway_models") or {})
-    if not isinstance(models, dict) or any(
-            not isinstance(v, str) or not isinstance(ids, list)
-            or any(not isinstance(m, str) or not m.strip() for m in ids)
-            for v, ids in (models or {}).items()):
-        raise ApiError(400, "models must map a virtual name to model ids")
+    if not isinstance(models, dict):
+        raise ApiError(400, "models must map a virtual name to its spec")
+    for v, val in models.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ApiError(400, "every virtual name must be a non-empty string")
+        ids = val.get("models") if isinstance(val, dict) else val
+        if not isinstance(ids, list) or any(
+                not isinstance(m, str) or not m.strip() for m in ids):
+            raise ApiError(400, "models must map a virtual name to model ids")
+        if isinstance(val, dict):
+            if val.get("mode") not in (None, "alternation", "reserve"):
+                raise ApiError(400, "mode must be alternation or reserve")
+            if val.get("when_busy") not in (None, "queue", "reject"):
+                raise ApiError(400, "when_busy must be queue or reject")
     preset = body.get("preset", now.get("gateway_preset") or "default")
     if not isinstance(preset, str) or preset not in (now.get("gateway_presets") or {}):
         raise ApiError(400, f"unknown preset: {preset}")
@@ -1541,8 +1568,8 @@ def post_gateway_save(req):
         "gateway_enabled": bool(body.get("enabled", now.get("gateway_enabled", False))),
         "gateway_port": port,
         "gateway_bind": bind,
-        "gateway_models": {v: [m.strip() for m in ids if m.strip()]
-                           for v, ids in (models or {}).items() if v},
+        "gateway_models": {v.strip(): gateway.name_spec(val)
+                           for v, val in models.items() if v.strip()},
         "gateway_preset": preset,
     })
     restarted = False
