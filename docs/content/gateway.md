@@ -25,8 +25,9 @@ The **Gateway** tab owns the whole thing:
 
 - **Virtual names** - each name maps to real model ids, with one of two ready
   behaviors:
-  - **Alternate across models** - requests rotate across the name's models
-    (LiteLLM `simple-shuffle`).
+  - **Alternate across models** - requests rotate strictly in turn across the
+    name's models: request 1 to the first, request 2 to the second, and back
+    around (a round-robin strategy LlamaForge installs into LiteLLM).
   - **Primary + reserve** - the first model is the primary: traffic stays on it
     while it has a free slot and spills to the reserves when it is full or not
     loaded (LiteLLM `order` priority plus a `max_parallel_requests` cap of the
@@ -63,10 +64,14 @@ without a code change. The shipped default is
 
 ```yaml
 router:
-  routing_strategy: "simple-shuffle"
+  routing_strategy: "round-robin"
 ```
 
 `routing_strategy` decides which of a name's models takes each request:
+`round-robin` is LlamaForge's own strategy (installed into the venv's LiteLLM
+on every gateway start - stock strategies are untouched) and rotates strictly
+in turn, A, B, A, B. The candidates are still LiteLLM's own eligible set, so
+cooldowns, slot caps and the primary+reserve spill keep working as before.
 `simple-shuffle` picks one at random per request (statistically even
 alternation), `latency-based-routing` prefers the fastest responder. Presets
 live in `gateway_presets`, the active one's name in `gateway_preset`. The

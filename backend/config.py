@@ -67,7 +67,7 @@ DEFAULTS = {
     "gateway_port":   8300,                 # LiteLLM's own port, above LlamaForge's
     "gateway_bind":   "",                     # "" = 127.0.0.1; "0.0.0.0" shares it on the LAN
     "gateway_models": {},                    # {virtual_name: [model_id, ...]} - what to alternate
-    "gateway_presets": {"default": {"router": {"routing_strategy": "simple-shuffle"}}},
+    "gateway_presets": {"default": {"router": {"routing_strategy": "round-robin"}}},
     "gateway_preset": "default",             # active preset name (free-form LiteLLM settings)
     # Multi-model (slots.py): off = one model at a time, exactly as before.
     "multi_model":       False,                 # let the router hold several models at once

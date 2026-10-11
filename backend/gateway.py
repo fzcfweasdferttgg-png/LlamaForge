@@ -29,7 +29,7 @@ import urllib.request
 import network_policy
 import procs
 
-DEFAULT_PRESET = {"router": {"routing_strategy": "simple-shuffle"}}
+DEFAULT_PRESET = {"router": {"routing_strategy": "round-robin"}}
 DEFAULT_PORT = 8300
 STOP_TIMEOUT_S = 10
 INSTALL_LOG = "gateway-install.log"
@@ -203,6 +203,87 @@ def _responding(port):
         return False
 
 
+RR_MARKER = "# LlamaForge round-robin"
+_RR_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "litellm_round_robin.py")
+_RR_EDITS = (
+    ("litellm/router_utils/routing_groups.py",
+     'VALID_ROUTING_STRATEGIES: Final = ("simple-shuffle", "lar1", *(s.value for s in RoutingStrategy))',
+     'VALID_ROUTING_STRATEGIES: Final = ("simple-shuffle", "lar1", "round-robin", '
+     '*(s.value for s in RoutingStrategy))  ' + RR_MARKER),
+    ("litellm/router.py",
+     '        if self._normalize_strategy(routing_strategy) == "lar1":\n'
+     '            from litellm.router_strategy.lar1_routing import apply_lar1_routing_strategy\n'
+     '\n'
+     '            apply_lar1_routing_strategy(self, routing_strategy_args)\n'
+     '        else:\n',
+     '        if self._normalize_strategy(routing_strategy) == "lar1":\n'
+     '            from litellm.router_strategy.lar1_routing import apply_lar1_routing_strategy\n'
+     '\n'
+     '            apply_lar1_routing_strategy(self, routing_strategy_args)\n'
+     '        elif self._normalize_strategy(routing_strategy) == "round-robin":  '
+     + RR_MARKER + '\n'
+     '            from litellm.router_strategy.round_robin import apply_round_robin_strategy\n'
+     '\n'
+     '            apply_round_robin_strategy(self, routing_strategy_args)\n'
+     '        else:\n'),
+)
+
+
+def apply_round_robin_pkg(pkg_dir, src_path=None):
+    """'' when the round-robin strategy is in place under a litellm package
+    dir, else why not. Idempotent: patched files are recognized by the marker,
+    an unpatched file must contain its anchor exactly once - a different count
+    means a litellm version we have not seen."""
+    src_path = src_path or _RR_SRC
+    with open(src_path, "r", encoding="utf-8") as f:
+        src = f.read()
+    with open(os.path.join(pkg_dir, "router_strategy", "round_robin.py"),
+              "w", encoding="utf-8") as f:
+        f.write(src)
+    base = os.path.dirname(pkg_dir.rstrip("/\\"))
+    for rel, old, new in _RR_EDITS:
+        path = os.path.join(base, rel)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            return "round-robin patch: %s" % e
+        if RR_MARKER in text:
+            continue
+        if text.count(old) != 1:
+            return ("round-robin patch: anchor not found exactly once in %s - "
+                    "litellm version changed?" % rel)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(old, new, 1))
+    return ""
+
+
+def ensure_round_robin(root):
+    """apply_round_robin_pkg() against the venv's litellm. A missing venv or
+    litellm is not an error (install() runs later); anything else is, and
+    start() reports it when the preset asks for round-robin."""
+    py = python(root)
+    if not py:
+        return ""
+    try:
+        out = subprocess.run(
+            [py, "-c",
+             "import litellm, os; print(os.path.dirname(litellm.__file__))"],
+            capture_output=True, text=True, timeout=120)
+    except OSError:
+        return ""
+    lines = (out.stdout or "").strip().splitlines()
+    if out.returncode != 0 or not lines:
+        return ""
+    return apply_round_robin_pkg(lines[-1].strip())
+
+
+def _wants_round_robin(cfg):
+    return ((active_preset(cfg).get("router") or {}).get("routing_strategy")
+            == "round-robin")
+
+
 def _serve_env(cfg):
     """The environment LiteLLM starts with. It refuses to run with no master
     key; one comes from the LAN credential (_lan_key) or the preset's
@@ -223,6 +304,9 @@ def start(cfg, root):
                        "Gateway section first")
     if not any(s["models"] for s in specs(cfg).values()):
         return False, "no virtual model is configured yet"
+    err = ensure_round_robin(root)
+    if err and _wants_round_robin(cfg):
+        return False, err
     if is_running(root):
         return True, ""
     port = int(cfg.get("gateway_port") or DEFAULT_PORT)

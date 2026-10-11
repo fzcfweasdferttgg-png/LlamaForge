@@ -44,7 +44,7 @@ class GatewayConfigTest(unittest.TestCase):
 
     def test_an_unknown_preset_falls_back_to_the_default(self):
         t = self.text(gateway_preset="ghost")
-        self.assertIn('routing_strategy: "simple-shuffle"', t)
+        self.assertIn('routing_strategy: "round-robin"', t)   # DEFAULT_PRESET
         self.assertNotIn("latency", t)
 
     def test_no_names_no_deployments(self):
@@ -231,6 +231,105 @@ class PresetSectionValues(unittest.TestCase):
             "root")
         self.assertIn("drop_params: true", t)
         self.assertIn('additional_drop_params: ["reasoning_effort"]', t)
+
+
+class RoundRobinStrategyTest(unittest.TestCase):
+    """The round-robin strategy rotates over the eligible set the Router hands
+    it; the rotation is stable even when the upstream list order moves."""
+
+    @staticmethod
+    def _fake(healthy):
+        class FakeRouter:
+            async def async_get_healthy_deployments(self, **kw):
+                return healthy
+
+        return FakeRouter()
+
+    def _run(self, router, model, n):
+        import asyncio
+        import litellm_round_robin as rr
+
+        s = rr.RoundRobinRoutingStrategy(router_instance=router)
+
+        async def go():
+            return [await s.async_get_available_deployment(model=model)
+                    for _ in range(n)]
+
+        return asyncio.run(go())
+
+    def test_two_models_alternate_a_b_a_b(self):
+        a = {"litellm_params": {"model": "openai/a"}, "model_info": {"id": "a"}}
+        b = {"litellm_params": {"model": "openai/b"}, "model_info": {"id": "b"}}
+        got = self._run(self._fake([b, a]), "mix", 4)   # upstream order is not the rotation order
+        self.assertEqual([d["model_info"]["id"] for d in got], ["a", "b", "a", "b"])
+
+    def test_one_candidate_stays_put(self):
+        a = {"litellm_params": {"model": "openai/a"}, "model_info": {"id": "a"}}
+        got = self._run(self._fake([a]), "mix", 3)
+        self.assertEqual([d["model_info"]["id"] for d in got], ["a", "a", "a"])
+
+    def test_turns_are_counted_per_name(self):
+        a = {"litellm_params": {"model": "openai/a"}, "model_info": {"id": "a"}}
+        b = {"litellm_params": {"model": "openai/b"}, "model_info": {"id": "b"}}
+        import asyncio
+        import litellm_round_robin as rr
+
+        s = rr.RoundRobinRoutingStrategy(router_instance=self._fake([a, b]))
+
+        async def go():
+            return [(await s.async_get_available_deployment(model=n))["model_info"]["id"]
+                    for n in ("mix", "other", "mix")]
+
+        self.assertEqual(asyncio.run(go()), ["a", "a", "b"])
+
+    def test_error_payload_passes_through(self):
+        self.assertEqual(self._run(self._fake({"error": "no deployment"}), "mix", 1),
+                         [{"error": "no deployment"}])
+
+    def test_sync_selection_is_refused(self):
+        import litellm_round_robin as rr
+
+        s = rr.RoundRobinRoutingStrategy(router_instance=self._fake([]))
+        with self.assertRaises(NotImplementedError):
+            s.get_available_deployment(model="mix")
+
+
+class RoundRobinPatchTest(unittest.TestCase):
+    """apply_round_robin_pkg() drops the strategy into site-packages and marks
+    its two registration edits; idempotent, and anchor-strict."""
+
+    def _tree(self, anchors=True):
+        import shutil
+
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        pkg = os.path.join(base, "litellm")
+        os.makedirs(os.path.join(pkg, "router_utils"))
+        os.makedirs(os.path.join(pkg, "router_strategy"))
+        groups_ok, router_ok = (e[1] for e in gateway._RR_EDITS)
+        with open(os.path.join(pkg, "router_utils", "routing_groups.py"), "w") as f:
+            f.write((groups_ok + "\n") if anchors else "VALID_ROUTING_STRATEGIES = ()\n")
+        with open(os.path.join(pkg, "router.py"), "w") as f:
+            f.write((router_ok + "            pass\n") if anchors else "nothing here\n")
+        return pkg
+
+    def test_patch_applies_and_stays_applied(self):
+        pkg = self._tree()
+        self.assertEqual(gateway.apply_round_robin_pkg(pkg), "")
+        base = os.path.dirname(pkg)
+        with open(os.path.join(pkg, "router_strategy", "round_robin.py")) as f:
+            self.assertIn("RoundRobinRoutingStrategy", f.read())
+        with open(os.path.join(base, "litellm", "router_utils", "routing_groups.py")) as f:
+            groups = f.read()
+        with open(os.path.join(base, "litellm", "router.py")) as f:
+            router = f.read()
+        self.assertIn('"round-robin"', groups)
+        self.assertIn(gateway.RR_MARKER, router)
+        self.assertEqual(gateway.apply_round_robin_pkg(pkg), "")   # idempotent
+
+    def test_unknown_anchor_reports_the_mismatch(self):
+        err = gateway.apply_round_robin_pkg(self._tree(anchors=False))
+        self.assertIn("anchor not found", err)
 
 
 if __name__ == "__main__":
