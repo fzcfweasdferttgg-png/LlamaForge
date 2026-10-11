@@ -603,5 +603,20 @@ class Setup(unittest.TestCase):
         self.assertTrue(os.path.isfile(out["script"]))
 
 
+class ArgTypes(unittest.TestCase):
+    """check_args covers the full JSON-Schema vocabulary _prop can declare;
+    an object-typed argument used to KeyError('object') and kill the tool."""
+
+    def test_object_and_array_arguments_validate(self):
+        schema = M._schema({"settings": M._prop("object", "x"),
+                            "list": M._prop("array", "y")}, ["settings"])
+        args = M.check_args(schema, {"settings": {"a": 1}, "list": [1, 2]})
+        self.assertEqual(args, {"settings": {"a": 1}, "list": [1, 2]})
+        with self.assertRaises(M.ToolError):
+            M.check_args(schema, {"settings": "nope"})
+        with self.assertRaises(M.ToolError):
+            M.check_args(schema, {"settings": {}, "list": {"not": "a list"}})
+
+
 if __name__ == "__main__":
     unittest.main()

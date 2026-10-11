@@ -154,6 +154,8 @@ _TYPES = {
     "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
     "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
     "boolean": lambda v: isinstance(v, bool),
+    "object": lambda v: isinstance(v, dict),
+    "array": lambda v: isinstance(v, list),
 }
 
 

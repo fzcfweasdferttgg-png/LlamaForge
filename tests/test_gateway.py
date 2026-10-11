@@ -219,5 +219,19 @@ class GatewayRoutesTest(unittest.TestCase):
             routes.post_gateway_save(routes.Req(body={"port": 0}))
 
 
+class PresetSectionValues(unittest.TestCase):
+    """Preset sections ride through verbatim - including list values, which
+    must render as YAML flow style, not as a quoted str(list)."""
+
+    def test_lists_and_dicts_render_as_yaml_flow(self):
+        t = gateway.render_config(dict(CFG, gateway_presets={"default": {
+            "router": {"routing_strategy": "simple-shuffle"},
+            "litellm_settings": {"drop_params": True,
+                                 "additional_drop_params": ["reasoning_effort"]}}}),
+            "root")
+        self.assertIn("drop_params: true", t)
+        self.assertIn('additional_drop_params: ["reasoning_effort"]', t)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -163,6 +163,8 @@ def render_config(cfg, root):
                     scalar = "true" if v else "false"
                 elif isinstance(v, (int, float)):
                     scalar = str(v)
+                elif isinstance(v, (list, dict)):
+                    scalar = json.dumps(v)      # JSON is valid YAML flow style
                 else:
                     scalar = json.dumps(str(v))
                 lines.append("  %s: %s" % (k, scalar))
