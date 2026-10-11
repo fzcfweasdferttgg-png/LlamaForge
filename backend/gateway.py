@@ -110,6 +110,16 @@ def _slot_caps(root, ids):
     return caps
 
 
+def _lan_key(cfg):
+    """The credential the LAN gateway authenticates with. The minted loopback
+    key (router_local_key) is not a LAN credential: when the router itself is
+    open to the LAN (router_allow_keyless_lan with no user-set router_api_key),
+    the gateway mirrors that stance - no master key at all."""
+    if cfg.get("router_allow_keyless_lan") and not cfg.get("router_api_key"):
+        return ""
+    return network_policy.effective_key(cfg)
+
+
 def render_config(cfg, root):
     """The litellm YAML for the current gateway_models + active preset.
 
@@ -140,7 +150,7 @@ def render_config(cfg, root):
     sections = {s: preset.get(s) for s in ("router", "litellm_settings",
                                            "general_settings")}
     gs = dict(sections.get("general_settings") or {})
-    real_key = network_policy.effective_key(cfg)
+    real_key = _lan_key(cfg)
     if real_key and "master_key" not in gs:
         gs["master_key"] = real_key
     if gs:
@@ -193,11 +203,12 @@ def _responding(port):
 
 def _serve_env(cfg):
     """The environment LiteLLM starts with. It refuses to run with no master
-    key; one comes from the router key or the preset's general_settings, and a
-    keyless setup mirrors the router's own network_policy stance explicitly."""
+    key; one comes from the LAN credential (_lan_key) or the preset's
+    general_settings, and a keyless setup mirrors the router's own stance
+    explicitly."""
     env = dict(os.environ)
     gs = active_preset(cfg).get("general_settings") or {}
-    if not gs.get("master_key") and not network_policy.effective_key(cfg):
+    if not gs.get("master_key") and not _lan_key(cfg):
         env["LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY"] = "true"
     return env
 

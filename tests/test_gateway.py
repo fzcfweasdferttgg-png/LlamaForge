@@ -74,6 +74,22 @@ class GatewayConfigTest(unittest.TestCase):
             "general_settings": {"master_key": "sk-own"}}})
         self.assertNotIn(permit, gateway._serve_env(keyed))
 
+    def test_a_keyless_lan_router_makes_the_gateway_keyless(self):
+        # the minted loopback key is not a LAN credential: with the router open
+        # to the LAN (router_allow_keyless_lan, no user key) the gateway runs
+        # with no master key at all
+        permit = "LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY"
+        open_lan = dict(CFG, router_allow_keyless_lan=True)
+        self.assertNotIn("master_key:", self.text(router_allow_keyless_lan=True))
+        self.assertEqual(gateway._serve_env(open_lan).get(permit), "true")
+
+    def test_a_user_key_still_gates_the_gateway_on_a_keyless_lan(self):
+        permit = "LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY"
+        both = dict(CFG, router_allow_keyless_lan=True, router_api_key="U" * 43)
+        t = self.text(router_allow_keyless_lan=True, router_api_key="U" * 43)
+        self.assertIn('  master_key: "%s"' % ("U" * 43), t)
+        self.assertNotIn(permit, gateway._serve_env(both))
+
     def test_a_reserve_name_is_ordered_and_capped(self):
         t = self.text(gateway_models={"mix": {
             "mode": "reserve", "models": ["q6-k", "rvn-q6-k"], "when_busy": "queue"}})

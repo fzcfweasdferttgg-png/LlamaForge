@@ -45,11 +45,14 @@ The **Gateway** tab owns the whole thing:
 ## Authentication
 
 LiteLLM refuses to start with no master key, so one is filled in for it: the
-router's own key becomes `general_settings.master_key`, or a preset can set
-its own. A keyless setup (no router key and no preset `master_key`) starts
-with LiteLLM's explicit permit for an unset master key - the gateway then
-mirrors the router's own keyless-LAN stance. With a master key set, clients
-send it as `Authorization: Bearer <master key>`.
+router's shared key (`router_api_key`) becomes `general_settings.master_key`,
+or a preset can set its own. The minted loopback key (`router_local_key`) is
+not a LAN credential and never gates the gateway. A keyless setup - no
+`router_api_key`, no preset `master_key` - starts with LiteLLM's explicit
+permit for an unset master key, so the gateway needs no `Authorization` at
+all; in particular a keyless-LAN router (`router_allow_keyless_lan`) mirrors
+that open stance onto the gateway. With a master key set, clients send it as
+`Authorization: Bearer <master key>`.
 
 ## Presets
 
