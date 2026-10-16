@@ -58,8 +58,10 @@ default. Strings missing a translation fall back to English.
 ## Removed in this build
 
 Chat, Voice and Embers (the mini-agent), the Context wiki, the Help viewer,
-the topbar clock and the credit/star banner are cut. Everything else is
-upstream as-is.
+the topbar clock and the credit/star banner are cut. The vLLM backend is cut
+in full: the `backend/vllm_*` modules, the WSL2 helper that drove it, its
+docs page and its tests are gone, about 2,700 deleted lines across 87 files.
+Everything else is upstream as-is.
 
 ## Install and updates
 
