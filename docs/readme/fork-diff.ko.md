@@ -45,6 +45,19 @@ ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) — 의 빌드를 내려받�
 실행을 거부하고, 대상 엔진이 모르는 프리셋 키는 버려져 실행 보고서에 나열됩니다.
 소스 빌드와 vLLM 백엔드는 제거되었습니다. 자세한 내용: [Engines](../content/build.md).
 
+## 모델 벤치마크(Bench)
+
+**Bench** 탭은 [llama-bench](https://github.com/ggml-org/llama.cpp)를 batch-size /
+ubatch-size 격자로 실행해 모델이 실제로 원하는 크기를 고릅니다. 모델의 오프로드 키는
+해당 llama-bench 플래그가 되고, 부하는 프롬프트, 생성, 복합 테스트를 포괄합니다.
+벤치는 한 번에 하나만 실행되며, 모델 로딩은 벤치 자체가 하므로 일반 llama.cpp에
+모델이 로드된 동안에는 시작을 거부합니다. 완료된 실행은 `logs/bench/history.jsonl`에
+llama-bench 원시 출력과 함께 기록됩니다. 각 셀은 같은 모델의 이전 실행 대비 변화를
+보여주고, 최적 쌍이 추천됩니다(최고 합산 처리량; 3% 이내 차이에서는 더 작은
+micro-batch가 이기고, 다음은 더 작은 batch). 클릭 한 번으로 모델의 `models.ini`
+섹션에 기록됩니다. MCP에서도 `bench_run`, `bench_status`, `bench_stop`,
+`bench_apply`, `bench_history`로 같은 기능을 제공합니다.
+
 ## UI 현지화
 
 웹 UI는 영어, 러시아어, 일본어, 한국어, 중국어(간체)를 지원합니다. 언어는 엔진
