@@ -37,8 +37,13 @@ and not just `CUDA0`.
 The **Gateway** tab runs [LiteLLM](https://github.com/BerriAI/litellm) (MIT)
 as a managed sidecar: one virtual model name alternates requests across
 several real models (`gateway_models`), tuned by free-form LiteLLM presets
-(`gateway_presets`). Off by default; own port (`gateway_port`, default 8300),
-own venv (`tools/litellm/venv`), managed through the panel's API and MCP
+(`gateway_presets`). Each virtual name runs in one of two behaviors: alternate
+(requests rotate strictly in turn across the models - a round-robin LlamaForge
+installs into LiteLLM) or primary + reserve (traffic stays on the first model
+while it has a free slot and spills to the reserves when it is full). With
+`router_allow_keyless_lan` the gateway serves without a key too. Off by
+default; own port (`gateway_port`, default 8300), own venv
+(`tools/litellm/venv`), managed through the panel's API and MCP
 tools. Details: [Model gateway](gateway.md).
 
 ## Engines (prebuilt builds)
@@ -46,7 +51,10 @@ tools. Details: [Model gateway](gateway.md).
 The Build / Update tab is **Engines**: download and select builds for three
 llama.cpp-family engines - llama.cpp (ggml-org), ik_llama.cpp (Thireus
 prebuilts) and beellama.cpp (Anbeeld) - and switch what the router runs.
-Building from source and the vLLM backend are gone. Details: [Engines](build.md).
+Launch profiles are separated per engine family: an unpinned profile refuses
+to launch on another engine, and preset keys its engine does not know are
+dropped and listed in the launch report. Building from source and the vLLM
+backend are gone. Details: [Engines](build.md).
 
 ## Web UI localization
 

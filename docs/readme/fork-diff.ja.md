@@ -20,7 +20,10 @@
 
 **Gateway** タブが [LiteLLM](https://github.com/BerriAI/litellm)(MIT)を管理サイドカーとして動かす。仮想モデル名 1つが複数の実モデルにリクエストを
 交互に振り分ける(`gateway_models`)。調整は自由形式の LiteLLM プリセット
-(`gateway_presets`)。既定ではオフ。専用ポート(`gateway_port`、既定 8300)、
+(`gateway_presets`)。仮想名ごとの動作は 2種類: 交互(リクエストが厳密に順番に回る
+— LlamaForge が LiteLLM に入れる round-robin)か primary + reserve(最初のモデルに
+空きスロットがある間そこに留まり、満杯なら予備にこぼれる)。`router_allow_keyless_lan`
+ではゲートウェイもキーなしで応答する。既定ではオフ。専用ポート(`gateway_port`、既定 8300)、
 専用 venv(`tools/litellm/venv`)、パネルの API と MCP ツールで管理する。
 詳細: [モデルゲートウェイ](../content/gateway.md)。
 
@@ -28,7 +31,9 @@
 
 Build / Update タブは **Engines** になった: llama.cpp 系エンジン 3つ — llama.cpp(ggml-org)、
 ik_llama.cpp(Thireus ビルド)、beellama.cpp(Anbeeld) — のビルドを取得して選び、ルーターが動かすものを切り替える。
-ソースからのビルドと vLLM バックエンドは削除された。詳細: [Engines](../content/build.md)。
+起動プロファイルはエンジンファミリーごとに分かれる: ピン留めのないプロファイルは
+他のエンジンでの起動を拒否し、対象エンジンが知らないプリセットキーは破棄されて
+起動レポートに列挙される。ソースからのビルドと vLLM バックエンドは削除された。詳細: [Engines](../content/build.md)。
 
 ## UI のローカライズ
 

@@ -28,7 +28,10 @@ Streamable HTTP 提供 MCP server。默认关闭。详情：[MCP Server](../cont
 
 **Gateway** 标签页把 [LiteLLM](https://github.com/BerriAI/litellm)（MIT）作为受管
 边车运行：一个虚拟模型名在多个真实模型间轮换请求（`gateway_models`），用自由格式的
-LiteLLM 预设（`gateway_presets`）调校。默认关闭；独立端口（`gateway_port`，默认 8300）、
+LiteLLM 预设（`gateway_presets`）调校。每个虚拟名有两种工作方式：轮换（请求严格按序
+轮转各模型——LlamaForge 装入 LiteLLM 的 round-robin）或主备（第一个模型有空闲槽位时
+流量留在它上面，满了才溢出到备用模型）。设置 `router_allow_keyless_lan` 时网关同样
+免密钥响应。默认关闭；独立端口（`gateway_port`，默认 8300）、
 独立 venv（`tools/litellm/venv`），通过面板 API 和 MCP 工具管理。
 详情：[模型网关](../content/gateway.md)。
 
@@ -36,7 +39,8 @@ LiteLLM 预设（`gateway_presets`）调校。默认关闭；独立端口（`gat
 
 Build / Update 标签页现在是 **Engines**：下载并选择三个 llama.cpp 系列引擎 — llama.cpp（ggml-org）、
 ik_llama.cpp（Thireus 构建）和 beellama.cpp（Anbeeld）— 的构建，并切换路由器运行哪一个。
-从源码构建和 vLLM 后端已移除。详情：[Engines](../content/build.md)。
+启动配置文件按引擎家族分开：未固定构建的配置文件拒绝在其他引擎上启动，目标引擎不认识的
+预设键会被丢弃并列在启动报告中。从源码构建和 vLLM 后端已移除。详情：[Engines](../content/build.md)。
 
 ## 界面本地化
 

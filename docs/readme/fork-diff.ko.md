@@ -29,14 +29,20 @@ Streamable HTTP로 제공합니다. 기본적으로 꺼져 있습니다. 세부 
 **Gateway** 탭이 [LiteLLM](https://github.com/BerriAI/litellm)(MIT)을 관리되는
 사이드카로 실행합니다: 가상 모델 이름 하나가 여러 실제 모델에 요청을 번갈아
 보내고(`gateway_models`), 자유 형식의 LiteLLM 프리셋(`gateway_presets`)으로
-조정합니다. 기본적으로 꺼져 있습니다. 자체 포트(`gateway_port`, 기본값 8300),
+조정합니다. 각 가상 이름은 두 가지 동작 중 하나입니다: 교대(요청이 모델 사이에서
+엄격하게 순서대로 돕니다 — LlamaForge가 LiteLLM에 넣는 round-robin) 또는
+기본 + 예비(첫 모델에 여유 슬롯이 있는 동안은 거기에 머물고, 가득 차면 예비로
+넘어갑니다). `router_allow_keyless_lan`을 쓰면 게이트웨이도 키 없이 응답합니다.
+기본적으로 꺼져 있습니다. 자체 포트(`gateway_port`, 기본값 8300),
 자체 venv(`tools/litellm/venv`), 패널 API와 MCP 도구로 관리합니다.
 세부 내용: [모델 게이트웨이](../content/gateway.md).
 
 ## Engines(사전 빌드)
 
 Build / Update 탭은 이제 **Engines**입니다: llama.cpp 계열 엔진 세 개 — llama.cpp(ggml-org),
-ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) —의 빌드를 내려받아 고르고, 라우터가 돌릴 엔진을 전환합니다.
+ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) — 의 빌드를 내려받아 고르고, 라우터가 돌릴 엔진을 전환합니다.
+실행 프로파일은 엔진 계열별로 분리됩니다: 고정되지 않은 프로파일은 다른 엔진에서
+실행을 거부하고, 대상 엔진이 모르는 프리셋 키는 버려져 실행 보고서에 나열됩니다.
 소스 빌드와 vLLM 백엔드는 제거되었습니다. 자세한 내용: [Engines](../content/build.md).
 
 ## UI 현지화
