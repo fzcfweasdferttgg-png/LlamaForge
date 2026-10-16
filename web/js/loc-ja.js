@@ -1,8 +1,22 @@
 // UI strings for ja. Keys are the English source text (see i18n.js);
 // {param} placeholders are filled by t(key, params).
 export default {
+  "Bench": "ベンチマーク",
+  "Benchmark a model with llama-bench to tune batch-size and ubatch-size.": "llama-bench でモデルを測定し、batch-size と ubatch-size を調整します。",
+  "Run bench": "ベンチを実行",
+  "batch sizes": "batch サイズ",
+  "micro-batch sizes": "micro-batch サイズ",
+  "repeats": "繰り返し回数",
+  "no bench results yet": "まだ結果がありません",
+  "status": "ステータス",
+  "saved": "保存しました",
+  "Write batch-size = {b} and ubatch-size = {ub} to {model}?": "batch-size = {b} と ubatch-size = {ub} を {model} に書き込みますか？",
+  "Nothing else in the model's models.ini section changes.": "このモデルの models.ini セクションの他の内容は変わりません。",
   " (backup created)": "（バックアップを作成しました）",
   " (recommended)": "（推奨）",
+  "recommended": "推奨",
+  "Apply recommended": "推奨値を適用",
+  "started": "開始",
   " (the model's share is not measured separately here)": "（ここではモデルの分担分は個別に測定されません）",
   " + system": " + システム",
   " GiB": " GiB",

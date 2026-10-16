@@ -1,8 +1,22 @@
 // UI strings for ru. Keys are the English source text (see i18n.js);
 // {param} placeholders are filled by t(key, params).
 export default {
+  "Bench": "Бенчмарк",
+  "Benchmark a model with llama-bench to tune batch-size and ubatch-size.": "Прогон llama-bench для подбора batch-size и ubatch-size.",
+  "Run bench": "Запустить прогон",
+  "batch sizes": "размеры batch",
+  "micro-batch sizes": "размеры micro-batch",
+  "repeats": "повторы",
+  "no bench results yet": "результатов пока нет",
+  "status": "статус",
+  "saved": "сохранено",
+  "Write batch-size = {b} and ubatch-size = {ub} to {model}?": "Записать batch-size = {b} и ubatch-size = {ub} в {model}?",
+  "Nothing else in the model's models.ini section changes.": "Больше ничего в секции модели models.ini не изменится.",
   " (backup created)": " (резервная копия создана)",
   " (recommended)": " (рекомендуется)",
+  "recommended": "рекомендуется",
+  "Apply recommended": "Применить рекомендуемое",
+  "started": "начат",
   " (the model's share is not measured separately here)": " (доля модели здесь отдельно не учитывается)",
   " + system": " + система",
   " GiB": " GiB",

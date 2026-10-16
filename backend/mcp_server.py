@@ -576,6 +576,58 @@ class Server:
             ("gateway_stop", "Stop the gateway", "Stop the LiteLLM gateway.", _schema(),
              {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
               "openWorldHint": False}, self.t_gateway_stop),
+            ("bench_run", "Run llama-bench", "Benchmark a model over a b/ub grid "
+             "with llama-bench to pick batch-size and ubatch-size. The bench "
+             "loads the model itself and refuses while any model is loaded in "
+             "the regular llama.cpp. One bench at a time, repeats capped at 2. "
+             "Poll bench_status for progress; the finished run is kept in "
+             "bench_history.",
+             _schema({"model": model,
+                      "b": _prop("string", "Batch sizes, comma separated "
+                                 "(default 512,1024,2048,4096)."),
+                      "ub": _prop("string", "Micro-batch sizes, comma separated "
+                                  "(default 128,256,512,1024); values above b "
+                                  "are dropped."),
+                      "p": _prop("integer", "Prompt tokens per pp test "
+                                 "(default 5000)."),
+                      "n": _prop("integer", "Generated tokens per tg test "
+                                 "(default 2500)."),
+                      "pg": _prop("string", "Combined pp+tg workload tokens "
+                                  "'5000,2500' (default); empty string "
+                                  "skips the combined test."),
+                      "reps": _prop("integer", "Repetitions per test, 1-2 "
+                                    "(default 2).")},
+                     ["model"]),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": False, "openWorldHint": False}, self.t_bench_run),
+            ("bench_status", "Bench status", "Progress and measured values of "
+             "the current or last llama-bench run, with the recommended b/ub "
+             "pair and each cell's change against the previous run of the "
+             "same model.", _schema(), ro,
+             self.t_bench_status),
+            ("bench_stop", "Stop the bench", "Stop the running llama-bench run.",
+             _schema(),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": True, "openWorldHint": False}, self.t_bench_stop),
+            ("bench_apply", "Apply benched sizes", "Write batch-size and "
+             "ubatch-size into a model's models.ini section - exactly what the "
+             "Bench tab's Apply button writes. Returns the two values before "
+             "and after; nothing else in the section changes.",
+             _schema({"model": model,
+                      "b": _prop("integer", "batch-size to write."),
+                      "ub": _prop("integer", "ubatch-size to write, must be "
+                                  "less than or equal to b.")},
+                     ["model", "b", "ub"]),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": True, "openWorldHint": False}, self.t_bench_apply),
+            ("bench_history", "Bench history", "Finished llama-bench runs "
+             "recorded on this machine: model, engine build, the exact argv "
+             "and the measured grid, newest last. Compare a run against "
+             "earlier ones (e.g. after an engine upgrade).",
+             _schema({"model": model,
+                      "limit": _prop("integer", "How many records to return, "
+                                    "newest last (default 20).")}, []),
+             ro, self.t_bench_history),
         ]
         return [{"name": n, "title": ti, "description": d, "inputSchema": s, "annotations": a,
                  "fn": f} for n, ti, d, s, a, f in t]
@@ -712,6 +764,34 @@ class Server:
 
     def t_gateway_stop(self, a, ctx):
         return self.panel.post("/api/gateway/stop", {}, timeout=60)
+
+    def t_bench_run(self, a, ctx):
+        out = self.panel.post("/api/bench/run",
+                              {k: v for k, v in a.items() if v is not None},
+                              timeout=60)
+        if out.get("error") or out.get("ok") is False:
+            raise ToolError(out.get("error") or "the bench did not start")
+        return out
+
+    def t_bench_status(self, a, ctx):
+        return self.panel.get("/api/bench/status")
+
+    def t_bench_stop(self, a, ctx):
+        return self.panel.post("/api/bench/stop", {}, timeout=30)
+
+    def t_bench_apply(self, a, ctx):
+        out = self.panel.post("/api/bench/apply",
+                              {"model": a["model"], "b": a["b"], "ub": a["ub"]},
+                              timeout=60)
+        if out.get("error") or out.get("ok") is False:
+            raise ToolError(out.get("error") or "the values were not written")
+        return out
+
+    def t_bench_history(self, a, ctx):
+        q = {"limit": a.get("limit", 20)}
+        if a.get("model"):
+            q["model"] = a["model"]
+        return self.panel.get("/api/bench/history", q)
 
     @staticmethod
     def _hub_ok(out, what):

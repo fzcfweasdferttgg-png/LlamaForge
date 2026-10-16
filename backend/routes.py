@@ -24,15 +24,17 @@ import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, sta
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
+import bench
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import gateway, mcp_server, piinstall, logfiles
-
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
 DOWNLOADS = hub.DownloadManager()
 APP_UPDATE = selfupdate.UpdateJob(ROOT)
+# logdir: finished runs land in logs/bench/ and come back after a restart.
+BENCH = bench.BenchManager(logdir=LOGDIR)
 
 
 # The engine registry is built at the bottom of this module, once the helpers it
@@ -1306,9 +1308,109 @@ def post_slots_main(req):
 def post_autotune_recommend(req):
     return 200, _autotune_recommend(req.body)
 
-
 def post_autotune_refine(req):
     return 200, _autotune_refine(req.body)
+
+
+def _bench_model(req):
+    """The model's own models.ini section plus the llama-bench binary sitting
+    next to the router's server_bin."""
+    mid = (req.body.get("model") or "").strip()
+    section = config.read_sections().get(mid)
+    if not section or not section.get("model"):
+        raise ApiError(400, f"unknown model: {mid!r}")
+    sbin = cfg().get("server_bin") or ""
+    name = "llama-bench.exe" if sbin.lower().endswith(".exe") else "llama-bench"
+    bench_bin = os.path.join(os.path.dirname(sbin), name) if sbin else ""
+    if not bench_bin or not os.path.exists(bench_bin):
+        raise ApiError(400, "llama-bench is not next to the server binary")
+    return mid, section, bench_bin
+
+
+def _bench_list(v):
+    """\"512,1024\" or [512, 1024] -> [512, 1024]."""
+    if isinstance(v, str):
+        v = v.split(",")
+    return [int(str(x).strip()) for x in (v or []) if str(x).strip()]
+
+
+def post_bench_run(req):
+    """Start one llama-bench grid run. Refuses while any model is loaded in the
+    regular llama.cpp - it would sit in VRAM next to the benched one and skew
+    the numbers."""
+    mid, section, bench_bin = _bench_model(req)
+    loaded = sorted(m["id"] for m in REGISTRY.list_models()
+                    if m.get("status") == "loaded")
+    if loaded:
+        return 200, {"ok": False, "error":
+                     "unload first - a bench measures VRAM alone: "
+                     + ", ".join(loaded)}
+    body = req.body or {}
+    grid = bench.grid(_bench_list(body.get("b")) or bench.DEFAULT_B,
+                      _bench_list(body.get("ub")) or bench.DEFAULT_UB)
+    if not grid:
+        raise ApiError(400, "no ub fits under any b")
+    offload = {k: section.get(k) for k in bench.OFFLOAD_KEYS}
+    if offload.get("gpu-layers") not in (None, ""):
+        try:                       # 99/999 refused before anything launches
+            bench.ngl(offload["gpu-layers"])
+        except ValueError as e:
+            raise ApiError(400, str(e))
+    pg = body.get("pg", bench.DEF_PG)
+    if isinstance(pg, str):
+        pg = _bench_list(pg)
+    if pg:
+        pg = (int(pg[0]), int(pg[1]))
+    # engines/<family>/<build>/<host>/binary - the build folder is the label.
+    engine = os.path.basename(os.path.dirname(os.path.dirname(bench_bin)))
+    try:
+        BENCH.start({"bench_bin": bench_bin, "model_file": section["model"],
+                     "grid": grid, "offload": offload,
+                     "p": body.get("p"), "n": body.get("n"), "pg": pg,
+                     "reps": body.get("reps"), "model": mid, "engine": engine})
+    except RuntimeError as e:      # a bench is already running
+        return 200, {"ok": False, "error": str(e)}
+    return 200, {"ok": True, "grid": grid}
+
+
+def get_bench_status(req):
+    return 200, BENCH.progress()
+
+
+def post_bench_stop(req):
+    return 200, {"ok": True, "stopped": BENCH.cancel()}
+
+
+def post_bench_apply(req):
+    """Write one benched pair into models.ini - only batch-size and
+    ubatch-size, exactly what the tab's Apply button sends to /api/save."""
+    body = req.body or {}
+    mid = (body.get("model") or "").strip()
+    try:
+        b, ub = int(body.get("b")), int(body.get("ub"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "b and ub must be integers")
+    if b <= 0 or ub <= 0 or ub > b:
+        raise ApiError(400, "need 0 < ub <= b")
+    section = config.read_sections().get(mid)
+    if not section or not section.get("model"):
+        raise ApiError(400, f"unknown model: {mid!r}")
+    keys = ("batch-size", "ubatch-size")
+    before = {k: section.get(k, "") for k in keys}
+    _apply_knobs_and_reload(mid, {k: str(v) for k, v in zip(keys, (b, ub))})
+    after = {k: v for k, v in config.read_sections().get(mid, {}).items()
+             if k in keys}
+    return 200, {"ok": True, "model": mid, "before": before, "after": after}
+
+
+def get_bench_history(req):
+    """Finished runs from logs/bench/history.jsonl, newest last."""
+    try:
+        limit = int(req.q("limit") or 20)
+    except ValueError:
+        raise ApiError(400, "limit must be an integer")
+    return 200, {"records": bench.read_history(LOGDIR, req.q("model") or None,
+                                               limit)}
 
 
 def post_presets_save(req):
@@ -1324,7 +1426,6 @@ def post_presets_save(req):
         for mid in config.bindings_for_preset(name, engine):
             _reconcile_preset_binding(mid, clean, engine)
     return 200, {"ok": True, "presets": presets}
-
 
 def post_presets_delete(req):
     name = req.body.get("name", "")
@@ -2277,6 +2378,8 @@ GET_ROUTES = {
     "/api/gateway":           get_gateway,
     "/api/slots":             get_slots,
     "/api/slots/plan":        get_slots_plan,
+    "/api/bench/status":      get_bench_status,
+    "/api/bench/history":     get_bench_history,
     "/api/mcp/setup":         get_mcp_setup,
     "/api/pi/status":         get_pi_status,
 }
@@ -2296,6 +2399,9 @@ POST_ROUTES = {
     "/api/unload_all":          post_unload_all,
     "/api/autotune/recommend":  post_autotune_recommend,
     "/api/autotune/refine":     post_autotune_refine,
+    "/api/bench/run":           post_bench_run,
+    "/api/bench/stop":          post_bench_stop,
+    "/api/bench/apply":         post_bench_apply,
     "/api/presets/save":        post_presets_save,
     "/api/presets/bind":        post_presets_bind,
     "/api/presets/delete":      post_presets_delete,

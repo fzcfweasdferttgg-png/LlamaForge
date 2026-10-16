@@ -13,6 +13,7 @@ import * as models from "./models.js";
 import * as stats from "./stats.js";
 import { loadDiscover } from "./discover.js";
 import { loadWillRun } from "./willrun.js";
+import { loadBench } from "./bench.js";
 import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
 import { loadGateway } from "./gateway.js";
@@ -27,6 +28,7 @@ ui.onTabShown("setup", loadSetup);
 ui.onTabHidden("setup", leaveSetup);
 ui.onTabShown("discover", loadDiscover);
 ui.onTabShown("willrun", loadWillRun);
+ui.onTabShown("bench", loadBench);
 ui.onTabShown("stats", stats.loadStats);
 ui.onTabShown("gateway", loadGateway);
 

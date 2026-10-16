@@ -1,8 +1,22 @@
 // UI strings for zh. Keys are the English source text (see i18n.js);
 // {param} placeholders are filled by t(key, params).
 export default {
+  "Bench": "基准测试",
+  "Benchmark a model with llama-bench to tune batch-size and ubatch-size.": "用 llama-bench 测试模型，以调优 batch-size 和 ubatch-size。",
+  "Run bench": "运行测试",
+  "batch sizes": "batch 大小",
+  "micro-batch sizes": "micro-batch 大小",
+  "repeats": "重复次数",
+  "no bench results yet": "尚无测试结果",
+  "status": "状态",
+  "saved": "已保存",
+  "Write batch-size = {b} and ubatch-size = {ub} to {model}?": "将 batch-size = {b} 和 ubatch-size = {ub} 写入 {model}？",
+  "Nothing else in the model's models.ini section changes.": "该模型在 models.ini 中的其他内容不会改变。",
   " (backup created)": "（已创建备份）",
   " (recommended)": "（推荐）",
+  "recommended": "推荐",
+  "Apply recommended": "应用推荐值",
+  "started": "开始",
   " (the model's share is not measured separately here)": "（此处不单独统计该模型的份额）",
   " + system": " + 系统",
   " GiB": " GiB",

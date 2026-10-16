@@ -122,7 +122,8 @@ class Legacy(unittest.TestCase):
             "diagnose", "search_models", "list_files", "download_model",
             "download_progress", "ask", "pi_run",
             "gateway_status", "gateway_save", "gateway_preset_save",
-            "gateway_start", "gateway_stop"])
+            "gateway_start", "gateway_stop",
+            "bench_run", "bench_status", "bench_stop", "bench_apply", "bench_history"])
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object", t["name"])
             self.assertFalse(t["inputSchema"].get("additionalProperties", False), t["name"])
@@ -582,9 +583,8 @@ class Setup(unittest.TestCase):
     def test_no_secrets_and_lists_the_tools(self):
         s = M.setup_info(self.PY, self.SCRIPT)
         self.assertNotIn("key", json.dumps(s).lower())
-        self.assertEqual(s["tools"][-1], "gateway_stop")
+        self.assertEqual(s["tools"][-1], "bench_history")
         self.assertIn("gateway_status", s["tools"])
-
     def test_pythonw_is_swapped_for_the_console_build(self):
         d = tempfile.mkdtemp()
         try:

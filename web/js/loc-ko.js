@@ -1,8 +1,22 @@
 // UI strings for ko. Keys are the English source text (see i18n.js);
 // {param} placeholders are filled by t(key, params).
 export default {
+  "Bench": "벤치마크",
+  "Benchmark a model with llama-bench to tune batch-size and ubatch-size.": "llama-bench로 모델을 측정해 batch-size와 ubatch-size를 조정합니다.",
+  "Run bench": "벤치 실행",
+  "batch sizes": "batch 크기",
+  "micro-batch sizes": "micro-batch 크기",
+  "repeats": "반복 횟수",
+  "no bench results yet": "아직 결과가 없습니다",
+  "status": "상태",
+  "saved": "저장됨",
+  "Write batch-size = {b} and ubatch-size = {ub} to {model}?": "batch-size = {b} 및 ubatch-size = {ub}을(를) {model}에 기록할까요?",
+  "Nothing else in the model's models.ini section changes.": "모델의 models.ini 항목에서 다른 값은 변경되지 않습니다.",
   " (backup created)": " (백업 생성됨)",
   " (recommended)": " (권장)",
+  "recommended": "권장",
+  "Apply recommended": "권장 적용",
+  "started": "시작",
   " (the model's share is not measured separately here)": " (모델별 점유율은 여기서 따로 측정하지 않습니다)",
   " + system": " + 시스템",
   " GiB": " GiB",
