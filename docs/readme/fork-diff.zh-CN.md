@@ -42,7 +42,7 @@ LiteLLM 预设（`gateway_presets`）调校。每个虚拟名有两种工作方�
 Build / Update 标签页现在是 **Engines**：下载并选择三个 llama.cpp 系列引擎 — llama.cpp（ggml-org）、
 ik_llama.cpp（Thireus 构建）和 beellama.cpp（Anbeeld）— 的构建，并切换路由器运行哪一个。
 启动配置文件按引擎家族分开：未固定构建的配置文件拒绝在其他引擎上启动，目标引擎不认识的
-预设键会被丢弃并列在启动报告中。从源码构建和 vLLM 后端已移除。详情：[Engines](../content/build.md)。
+预设键会被丢弃并列在启动报告中。从源码构建和 vLLM 后端已移除。每个构建的标签和 `llama-server --version` 构建号显示在 Engines 页和顶栏，MCP 也可通过 `engine_status`、`engine_install`、`engine_use`、`engine_switch` 做同样的控制。详情：[Engines](../content/build.md)。
 
 ## 模型基准测试（Bench）
 

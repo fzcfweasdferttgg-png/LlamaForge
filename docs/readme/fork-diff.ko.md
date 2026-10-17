@@ -46,7 +46,7 @@ Build / Update 탭은 이제 **Engines**입니다: llama.cpp 계열 엔진 세 �
 ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) — 의 빌드를 내려받아 고르고, 라우터가 돌릴 엔진을 전환합니다.
 실행 프로파일은 엔진 계열별로 분리됩니다: 고정되지 않은 프로파일은 다른 엔진에서
 실행을 거부하고, 대상 엔진이 모르는 프리셋 키는 버려져 실행 보고서에 나열됩니다.
-소스 빌드와 vLLM 백엔드는 제거되었습니다. 자세한 내용: [Engines](../content/build.md).
+소스 빌드와 vLLM 백엔드는 제거되었습니다. 각 빌드의 태그와 `llama-server --version` 빌드 번호는 Engines 탭과 상단 바에 표시되며, `engine_status`, `engine_install`, `engine_use`, `engine_switch`로 MCP에서도 같은 제어가 가능합니다. 자세한 내용: [Engines](../content/build.md).
 
 ## 모델 벤치마크(Bench)
 

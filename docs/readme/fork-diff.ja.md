@@ -35,7 +35,7 @@ Build / Update タブは **Engines** になった: llama.cpp 系エンジン 3�
 ik_llama.cpp(Thireus ビルド)、beellama.cpp(Anbeeld) — のビルドを取得して選び、ルーターが動かすものを切り替える。
 起動プロファイルはエンジンファミリーごとに分かれる: ピン留めのないプロファイルは
 他のエンジンでの起動を拒否し、対象エンジンが知らないプリセットキーは破棄されて
-起動レポートに列挙される。ソースからのビルドと vLLM バックエンドは削除された。詳細: [Engines](../content/build.md)。
+起動レポートに列挙される。ソースからのビルドと vLLM バックエンドは削除された。各ビルドのタグと `llama-server --version` のビルド番号は Engines タブとトップバーに表示され、`engine_status`・`engine_install`・`engine_use`・`engine_switch` で MCP からも同じ操作ができる。詳細: [Engines](../content/build.md)。
 
 ## モデルベンチマーク(Bench)
 

@@ -57,7 +57,10 @@ prebuilts) and beellama.cpp (Anbeeld) - and switch what the router runs.
 Launch profiles are separated per engine family: an unpinned profile refuses
 to launch on another engine, and preset keys its engine does not know are
 dropped and listed in the launch report. Building from source and the vLLM
-backend are gone. Details: [Engines](build.md).
+backend are gone. The Engines tab and the topbar show each build's tag and
+its `llama-server --version` build number, and MCP gets `engine_status`,
+`engine_install`, `engine_use` and `engine_switch` for the same control.
+Details: [Engines](build.md).
 
 ## Model benchmarking (Bench)
 
