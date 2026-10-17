@@ -694,6 +694,22 @@ def _register_ggufs_beside(paths):
 
 # =============================================================== GET handlers
 
+def _engine_version(c=None):
+    """(build, tag) of the binary the router runs: the build number
+    `llama-server --version` reports, and the install tag when the binary is
+    one of the prebuilt installs ("" for a hand-placed binary)."""
+    c = c or cfg()
+    engine = c.get("active_engine", "llamacpp")
+    sbin = _active_server_bin(c)
+    tag = ""
+    if engine in prebuilt.ENGINE_DIRS:
+        for i in prebuilt.list_installs(engines_dir(engine), sbin):
+            if i.get("active"):
+                tag = i.get("tag") or ""
+                break
+    return feed.engine_build(sbin), tag
+
+
 def get_state(req):
     c = cfg()
     s = REGISTRY.state()
@@ -703,6 +719,7 @@ def get_state(req):
     s["platform"] = osplat.current()
     s["backends"] = [b.name for b in REGISTRY.enabled()]
     s["active_engine"] = c.get("active_engine", "llamacpp")
+    s["engine_build"], s["engine_tag"] = _engine_version(c)
     s["panel_host"] = c.get("panel_host", "127.0.0.1")
     s["mcp_host"] = c.get("mcp_host", "")
     s["mcp_port"] = c.get("mcp_port", 8092)
@@ -722,7 +739,6 @@ def _public_config(c):
     """Allowlisted browser state. Secret material is available only through
     deliberate client/agent/network POST actions."""
     return network_policy.public_config(c)
-
 
 def get_schema(req):
     return 200, schema()
@@ -2317,7 +2333,12 @@ def get_engine_prebuilt(req):
     tag = req.q("tag") or None
     active = cfg().get(ENGINE_BIN_KEYS[engine], "")
     installs = prebuilt.list_installs(engines_dir(engine), active)
-    latest = _prebuilt_latest(engine, channel, tag=tag, force=req.flag("force"))
+    for i in installs:
+        i["build"] = feed.engine_build(i.get("server_bin"))
+    # local=1 answers from the installed builds alone - the status tools use it
+    # so a version check never depends on GitHub being reachable.
+    latest = ({"ok": False, "error": "not checked"} if req.flag("local")
+              else _prebuilt_latest(engine, channel, tag=tag, force=req.flag("force")))
     current = next((i for i in installs if i["active"]), None)
     return 200, {
         "engine": engine,

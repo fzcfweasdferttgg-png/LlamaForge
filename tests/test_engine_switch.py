@@ -125,3 +125,41 @@ class IniPathTest(unittest.TestCase):
         got = self._path({"models_ini": "D:/conf.ini.d/models.ini",
                           "ik_llama_models_ini": "", "active_engine": "ikllama"})
         self.assertEqual(got.replace("\\", "/"), "D:/conf.ini.d/models-ikllama.ini")
+
+
+class EngineVersionTest(unittest.TestCase):
+    """`/api/state` carries the engine's build number and install tag."""
+
+    def test_version_reports_build_and_install_tag(self):
+        with mock.patch.object(routes.feed, "engine_build", return_value=11552), \
+             mock.patch.object(routes.prebuilt, "list_installs",
+                               return_value=[{"active": False, "tag": "b100"},
+                                             {"active": True, "tag": "b11552"}]):
+            self.assertEqual(
+                routes._engine_version({"active_engine": "llamacpp",
+                                        "server_bin": "/x/llama-server"}),
+                (11552, "b11552"))
+
+    def test_version_is_unknown_for_a_custom_binary(self):
+        with mock.patch.object(routes.feed, "engine_build", return_value=None), \
+             mock.patch.object(routes.prebuilt, "list_installs", return_value=[]):
+            self.assertEqual(
+                routes._engine_version({"active_engine": "llamacpp",
+                                        "server_bin": "/x/custom"}),
+                (None, ""))
+
+    def test_prebuilt_local_lists_builds_without_github(self):
+        insts = [{"tag": "b11552", "active": True, "dir": "/eng/b11552",
+                  "server_bin": "/eng/b11552/llama-server"}]
+        with mock.patch.object(routes, "cfg",
+                               return_value={"server_bin": "/eng/b11552/llama-server"}), \
+             mock.patch.object(routes.prebuilt, "list_installs", return_value=insts), \
+             mock.patch.object(routes.feed, "engine_build", return_value=11552), \
+             mock.patch.object(routes, "_prebuilt_latest",
+                               return_value={"ok": True, "tag": "b20000"}) as latest:
+            status, out = routes.get_engine_prebuilt(
+                Req(qs={"engine": "llamacpp", "local": "1"}))
+        latest.assert_not_called()
+        self.assertEqual(out["installs"][0]["build"], 11552)
+        self.assertFalse(out["update_available"])
+        self.assertFalse(out["latest"]["ok"])

@@ -20,6 +20,7 @@ META = {"io.modelcontextprotocol/protocolVersion": V_MODERN,
 
 STATE = {
     "version": "0.15.0", "active_engine": "llamacpp", "config_error": None,
+    "engine_build": 11552, "engine_tag": "b11552",
     "models": [
         {"id": "big-27b", "status": "loaded", "failed": False, "backend": "llamacpp",
          "eff_ctx": "32768", "file_gib": 16.1, "endpoint": "http://127.0.0.1:8080",
@@ -123,7 +124,8 @@ class Legacy(unittest.TestCase):
             "download_progress", "ask", "pi_run",
             "gateway_status", "gateway_save", "gateway_preset_save",
             "gateway_start", "gateway_stop",
-            "bench_run", "bench_status", "bench_stop", "bench_apply", "bench_history"])
+            "bench_run", "bench_status", "bench_stop", "bench_apply", "bench_history",
+            "engine_status", "engine_install", "engine_use", "engine_switch"])
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object", t["name"])
             self.assertFalse(t["inputSchema"].get("additionalProperties", False), t["name"])
@@ -222,6 +224,7 @@ class Tools(unittest.TestCase):
                          [("big-27b", "main"), ("small-9b", "worker")])
         self.assertEqual(s["loaded"][0]["endpoint"], "http://127.0.0.1:8080/v1")
         self.assertEqual(s["gpus"][0]["name"], "RTX 5080")
+        self.assertEqual((s["engine_build"], s["engine_tag"]), (11552, "b11552"))
         # the same JSON as text, for clients that only read text
         self.assertEqual(json.loads(text_of(r)), s)
 
@@ -583,7 +586,7 @@ class Setup(unittest.TestCase):
     def test_no_secrets_and_lists_the_tools(self):
         s = M.setup_info(self.PY, self.SCRIPT)
         self.assertNotIn("key", json.dumps(s).lower())
-        self.assertEqual(s["tools"][-1], "bench_history")
+        self.assertEqual(s["tools"][-1], "engine_switch")
         self.assertIn("gateway_status", s["tools"])
     def test_pythonw_is_swapped_for_the_console_build(self):
         d = tempfile.mkdtemp()
@@ -601,6 +604,102 @@ class Setup(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(out["script"].endswith("mcp_server.py"))
         self.assertTrue(os.path.isfile(out["script"]))
+
+
+class EngineTools(unittest.TestCase):
+    def test_engine_status_reports_versions_offline_when_asked(self):
+        def info(q):
+            return {"engine": q["engine"], "channel": "nightly",
+                    "latest": {"ok": q.get("local") != "1", "tag": "b20000",
+                               "error": "not checked"},
+                    "installs": [{"tag": "b11552", "variant": "vulkan", "build": 11552,
+                                  "installed_at": 1.0, "active": True,
+                                  "dir": "/eng/b11552"}],
+                    "active_bin": "/eng/b11552/llama-server",
+                    "using_prebuilt": True,
+                    "update_available": q.get("local") != "1"}
+        srv, panel, _ = make({
+            ("GET", "/api/engine/prebuilt"): info,
+            ("GET", "/api/engine/prebuilt/status"): {"running": False, "phase": "idle"}})
+        r = call(srv, "engine_status", {"engine": "llamacpp", "check_updates": False})
+        self.assertFalse(r["result"]["isError"], text_of(r))
+        s = r["result"]["structuredContent"]
+        fam = s["families"]["llamacpp"]
+        self.assertEqual((fam["current_tag"], fam["current_build"]), ("b11552", 11552))
+        self.assertIsNone(fam["latest_tag"])      # local=1: no GitHub answer
+        self.assertFalse(fam["update_available"])
+        got = [c[2] for c in panel.calls if c[:2] == ("GET", "/api/engine/prebuilt")]
+        self.assertEqual(got, [{"local": "1", "engine": "llamacpp"}])
+        self.assertEqual((s["engine_build"], s["engine_tag"]), (11552, "b11552"))
+
+    def test_engine_install_waits_and_confirms_the_switch(self):
+        seq = iter([
+            {"running": True, "phase": "downloading", "file": "x.zip",
+             "downloaded": 1, "total": 2, "tag": "b20000"},
+            {"running": False, "phase": "done", "tag": "b20000", "variant": "vulkan",
+             "server_bin": "/eng/b20000/llama-server"}])
+        srv, panel, _ = make({
+            ("POST", "/api/engine/prebuilt/install"): {"started": True},
+            ("GET", "/api/engine/prebuilt/status"): lambda q: next(seq),
+            ("GET", "/api/state"): state_with(engine_tag="b20000", engine_build=20000)})
+        r = call(srv, "engine_install",
+                 {"engine": "llamacpp", "channel": "nightly", "wait_s": 60})
+        self.assertFalse(r["result"]["isError"], text_of(r))
+        s = r["result"]["structuredContent"]
+        self.assertTrue(s["switched"])
+        self.assertEqual((s["tag"], s["build"]), ("b20000", 20000))
+        post = [c for c in panel.calls if c[0] == "POST"][0]
+        self.assertEqual(post[2], {"engine": "llamacpp", "channel": "nightly"})
+
+    def test_engine_install_failure_shows_the_error(self):
+        seq = iter([{"running": False, "phase": "failed", "error": "sha mismatch",
+                     "log": "verifying\nbad sha"}])
+        srv, _, _ = make({
+            ("POST", "/api/engine/prebuilt/install"): {"started": True},
+            ("GET", "/api/engine/prebuilt/status"): lambda q: next(seq)})
+        r = call(srv, "engine_install", {"engine": "llamacpp"})
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("sha mismatch", text_of(r))
+
+    def test_engine_use_picks_the_tag_and_reports_the_switch(self):
+        srv, panel, _ = make({
+            ("GET", "/api/engine/prebuilt"): {
+                "installs": [{"tag": "b11552", "dir": "/eng/b11552", "active": True},
+                             {"tag": "b11000", "dir": "/eng/b11000", "active": False}]},
+            ("POST", "/api/engine/prebuilt/use"): {
+                "ok": True, "server_bin": "/eng/b11000/llama-server"},
+            ("GET", "/api/state"): state_with(engine_tag="b11000", engine_build=11000)})
+        r = call(srv, "engine_use", {"engine": "llamacpp", "tag": "b11000"})
+        self.assertFalse(r["result"]["isError"], text_of(r))
+        self.assertTrue(r["result"]["structuredContent"]["switched"])
+        post = [c for c in panel.calls if c[0] == "POST"][0]
+        self.assertEqual(post[2], {"engine": "llamacpp", "dir": "/eng/b11000"})
+
+    def test_engine_use_unknown_tag_lists_the_installed_ones(self):
+        srv, _, _ = make({
+            ("GET", "/api/engine/prebuilt"): {
+                "installs": [{"tag": "b11552", "dir": "/x"}]}})
+        r = call(srv, "engine_use", {"engine": "llamacpp", "tag": "b99999"})
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("b11552", text_of(r))
+
+    def test_engine_switch_reports_failure_as_an_error(self):
+        srv, _, _ = make({
+            ("POST", "/api/engine/switch"): {
+                "ok": False, "active_engine": "llamacpp",
+                "error": "binary not found: /x"}})
+        r = call(srv, "engine_switch", {"engine": "ikllama"})
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("binary not found", text_of(r))
+
+    def test_engine_switch_succeeds(self):
+        srv, _, _ = make({
+            ("POST", "/api/engine/switch"): {
+                "ok": True, "active_engine": "ikllama", "error": ""},
+            ("GET", "/api/state"): state_with(active_engine="ikllama")})
+        r = call(srv, "engine_switch", {"engine": "ikllama"})
+        self.assertFalse(r["result"]["isError"], text_of(r))
+        self.assertEqual(r["result"]["structuredContent"]["active_engine"], "ikllama")
 
 
 class ArgTypes(unittest.TestCase):

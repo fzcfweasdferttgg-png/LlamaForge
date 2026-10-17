@@ -28,7 +28,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Dashboard state: models (llama.cpp), GPU telemetry, system RAM (with a per-NUMA-node breakdown when the kernel exposes several nodes), platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `skin`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
+| GET | `/api/state` | Dashboard state: models (llama.cpp), GPU telemetry, system RAM (with a per-NUMA-node breakdown when the kernel exposes several nodes), engine version (`engine_build` from `llama-server --version`, `engine_tag` of the active install), platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `skin`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
 | POST | `/api/models/unregister` | Remove a llama-family model from its `models.ini` registry without deleting the GGUF. Body: `{model, backend}`. Unloads it first when necessary. |
@@ -70,7 +70,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/setup/install` | Install a helper tool by name (e.g. Node.js for pi; Windows/macOS only). |
 | GET | `/api/gpus` | GPU telemetry via a shared 10-second cache (`nvidia-smi`, or the kernel's DRM sysfs when it is absent). |
 | POST | `/api/engine/switch` | Point the router at `llamacpp`, `ikllama` or `beellama` (sets `active_engine`); refused if the target binary has no router mode. |
-| GET | `/api/engine/prebuilt` | Installed builds of one engine (`?engine=`, default `llamacpp`), which one is active, and the latest release: a channel for llama.cpp (`?channel=`), a tag for the forks (`?tag=`). `?force=1` skips the cache. |
+| GET | `/api/engine/prebuilt` | Installed builds of one engine (`?engine=`, default `llamacpp`) with each install's `build` number (`llama-server --version`), which one is active, and the latest release: a channel for llama.cpp (`?channel=`), a tag for the forks (`?tag=`). `?force=1` skips the cache; `?local=1` answers from the installed builds alone, without asking GitHub. |
 | GET | `/api/engine/prebuilt/status` | Progress and log tail of a prebuilt download/install (`?engine=`). |
 | POST | `/api/engine/prebuilt/install` | Download and install a build. Body: `engine`, `channel` (llama.cpp), optional `tag` (forks) and `variant`. |
 | POST | `/api/engine/prebuilt/cancel` | Cancel a running prebuilt install. Body: `engine`. |

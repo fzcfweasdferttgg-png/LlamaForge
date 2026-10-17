@@ -633,6 +633,62 @@ class Server:
                       "limit": _prop("integer", "How many records to return, "
                                     "newest last (default 20).")}, []),
              ro, self.t_bench_history),
+            ("engine_status", "Engine versions", "What the engine layer runs "
+             "right now: for every engine family the installed builds (tag, "
+             "variant, build number from llama-server --version, install date, "
+             "which is active), the newest release and whether an update is "
+             "available, plus the progress of an install in flight. "
+             "check_updates=false answers from the installed builds alone and "
+             "never asks GitHub.",
+             _schema({"engine": _prop("string", "One family to report "
+                                      "(default: all three).",
+                                      enum=["llamacpp", "ikllama", "beellama"]),
+                      "check_updates": _prop("boolean", "Also ask GitHub for "
+                                             "the newest release (default true).")}, []),
+             ro, self.t_engine_status),
+            ("engine_install", "Install an engine build", "Download and install "
+             "a prebuilt build of an engine and switch the router onto it - the "
+             "same path as the Engines tab's Install/Update button. The binary "
+             "is checked and test-run before switching, old builds stay "
+             "installed for rollback (engine_use), and the call waits until the "
+             "new build is actually running (a large download; wait_s bounds "
+             "the wait). Cancelling the call stops the download.",
+             _schema({"engine": _prop("string", "Engine family to install.",
+                                      enum=["llamacpp", "ikllama", "beellama"]),
+                      "channel": _prop("string", "llamacpp only: nightly "
+                                       "(default) or stable.",
+                                       enum=["nightly", "stable"]),
+                      "tag": _prop("string", "ikllama/beellama only: release "
+                                   "tag to install (default: the latest)."),
+                      "variant": _prop("string", "Asset variant override; the "
+                                       "default picks the one for this machine."),
+                      "wait_s": _prop("integer", "How long to wait for the "
+                                      "download and checks (default 900).",
+                                      minimum=60, maximum=3600)}, ["engine"]),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": False, "openWorldHint": True},
+             self.t_engine_install),
+            ("engine_use", "Switch to an installed build", "Point an engine "
+             "family at one of its already-installed builds - the rollback "
+             "after a bad update - and restart the router on it. Only builds "
+             "LlamaForge installed can be picked; engine_status lists their "
+             "tags.",
+             _schema({"engine": _prop("string", "Engine family of the build.",
+                                      enum=["llamacpp", "ikllama", "beellama"]),
+                      "tag": _prop("string", "Release tag to activate.")},
+                     ["engine", "tag"]),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": True, "openWorldHint": False}, self.t_engine_use),
+            ("engine_switch", "Switch engine family", "Change which engine "
+             "family the router runs (llamacpp / ikllama / beellama) and "
+             "restart it on that family's binary. The binary is validated "
+             "first: an engine that cannot start is refused and the current "
+             "family stays.",
+             _schema({"engine": _prop("string", "Engine family to activate.",
+                                      enum=["llamacpp", "ikllama", "beellama"])},
+                     ["engine"]),
+             {"readOnlyHint": False, "destructiveHint": False,
+              "idempotentHint": True, "openWorldHint": False}, self.t_engine_switch),
         ]
         return [{"name": n, "title": ti, "description": d, "inputSchema": s, "annotations": a,
                  "fn": f} for n, ti, d, s, a, f in t]
@@ -642,12 +698,13 @@ class Server:
         if not isinstance(st, dict):
             raise ToolError("the panel sent an unexpected /api/state")
         return st
-
     def t_status(self, a, ctx):
         st = self._state()
         slots = st.get("slots") or {}
         rows = _rows(st)
         return {"version": st.get("version"), "engine": st.get("active_engine"),
+                "engine_build": st.get("engine_build"),
+                "engine_tag": st.get("engine_tag"),
                 "multi_model": bool(slots.get("enabled")),
                 "main": (slots.get("main") or None) if slots.get("enabled") else None,
                 "loaded": [_summary(m, slots) for m in rows if _is_up(m)],
@@ -797,6 +854,114 @@ class Server:
         if a.get("model"):
             q["model"] = a["model"]
         return self.panel.get("/api/bench/history", q)
+
+    def t_engine_status(self, a, ctx):
+        fams = [a["engine"]] if a.get("engine") \
+            else ["llamacpp", "ikllama", "beellama"]
+        q = {"local": "1"} if a.get("check_updates") is False else {}
+        out = {"families": {}}
+        st = self._state()
+        out["active_engine"] = st.get("active_engine")
+        out["engine_build"] = st.get("engine_build")
+        out["engine_tag"] = st.get("engine_tag")
+        for e in fams:
+            info = self.panel.get("/api/engine/prebuilt", dict(q, engine=e))
+            cur = next((i for i in info.get("installs", []) if i.get("active")), None)
+            L = info.get("latest") or {}
+            out["families"][e] = {
+                "active_bin": info.get("active_bin"),
+                "using_prebuilt": info.get("using_prebuilt"),
+                "current_tag": (cur or {}).get("tag") or "",
+                "current_build": (cur or {}).get("build"),
+                "installs": [{k: i.get(k) for k in
+                              ("tag", "variant", "build", "installed_at", "active")}
+                             for i in info.get("installs", [])],
+                "latest_tag": L.get("tag") if L.get("ok") else None,
+                "latest_error": "" if L.get("ok") else (L.get("error") or ""),
+                "update_available": info.get("update_available"),
+            }
+        for e in fams:
+            s = self.panel.get("/api/engine/prebuilt/status", {"engine": e})
+            if s.get("running"):
+                out["installing"] = {"engine": e, "phase": s.get("phase"),
+                                     "tag": s.get("tag"), "variant": s.get("variant"),
+                                     "file": s.get("file"),
+                                     "downloaded": s.get("downloaded"),
+                                     "total": s.get("total")}
+                break
+        return out
+
+    def t_engine_install(self, a, ctx):
+        engine = a["engine"]
+        body = {"engine": engine}
+        for k in ("channel", "tag", "variant"):
+            if a.get(k):
+                body[k] = a[k]
+        out = self.panel.post("/api/engine/prebuilt/install", body, timeout=60)
+        if not out.get("started"):
+            raise ToolError("an engine install is already running - "
+                            "engine_status shows its progress")
+        wait = a.get("wait_s", 900)
+        t0 = time.monotonic()
+        while True:
+            if ctx.cancel.is_set():
+                self.panel.post("/api/engine/prebuilt/cancel", {"engine": engine})
+                raise ToolError("cancelled - the download was stopped")
+            s = self.panel.get("/api/engine/prebuilt/status", {"engine": engine})
+            if not s.get("running"):
+                break
+            elapsed = time.monotonic() - t0
+            if elapsed >= wait:
+                raise ToolError(f"the install is still running after {wait}s "
+                                f"({s.get('phase')}); engine_status shows its "
+                                f"progress")
+            ctx.progress(f"{engine} {s.get('phase')} "
+                         f"{int(s.get('downloaded') or 0)}/{int(s.get('total') or 0)}")
+            ctx.cancel.wait(self.poll_s)
+        if s.get("phase") != "done":
+            tail = " | ".join((s.get("log") or "").splitlines()[-3:])
+            raise ToolError(f"the {engine} install {s.get('phase') or 'failed'}: "
+                            f"{s.get('error') or 'no detail'}"
+                            + (f" | {tail}" if tail else ""))
+        st = self._state()
+        return {"engine": engine, "tag": s.get("tag"), "variant": s.get("variant"),
+                "server_bin": s.get("server_bin"), "build": st.get("engine_build"),
+                "active_tag": st.get("engine_tag"),
+                "switched": st.get("engine_tag") == s.get("tag"),
+                "elapsed_s": round(time.monotonic() - t0, 1)}
+
+    def t_engine_use(self, a, ctx):
+        engine = a["engine"]
+        want = (a.get("tag") or "").strip()
+        if not want:
+            raise ToolError("tag is required - engine_status lists the "
+                            "installed tags")
+        info = self.panel.get("/api/engine/prebuilt",
+                              {"engine": engine, "local": "1"})
+        inst = next((i for i in info.get("installs", [])
+                     if i.get("tag") == want), None)
+        if not inst:
+            have = ", ".join(i.get("tag") or "?"
+                             for i in info.get("installs", [])) or "none"
+            raise ToolError(f"no {engine} build tagged {want} is installed "
+                            f"(installed: {have})")
+        out = self.panel.post("/api/engine/prebuilt/use",
+                              {"engine": engine, "dir": inst["dir"]}, timeout=120)
+        if out.get("ok") is False or out.get("error"):
+            raise ToolError(out.get("error") or "the build was not activated")
+        st = self._state()
+        return {"engine": engine, "tag": want, "server_bin": out.get("server_bin"),
+                "build": st.get("engine_build"), "active_tag": st.get("engine_tag"),
+                "switched": st.get("engine_tag") == want}
+
+    def t_engine_switch(self, a, ctx):
+        engine = a["engine"]
+        out = self.panel.post("/api/engine/switch", {"engine": engine}, timeout=180)
+        if out.get("ok") is False or out.get("error"):
+            raise ToolError(out.get("error") or "the engine was not switched")
+        st = self._state()
+        return {"engine": engine, "active_engine": out.get("active_engine"),
+                "build": st.get("engine_build"), "active_tag": st.get("engine_tag")}
 
     @staticmethod
     def _hub_ok(out, what):

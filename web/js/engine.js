@@ -45,10 +45,12 @@ export async function mountEngineCard(el, opts = {}) {
     headline = `<span class="v bad">can't reach GitHub releases: ${esc(L.error || "?")}</span>`;
     button = "";
   } else if (cur && !info.update_available) {
-    headline = `<span class="v ok">up to date &middot; ${esc(cur.tag)} &middot; ${esc(cur.variant)}</span>`;
+    headline = `<span class="v ok">up to date &middot; ${esc(cur.tag)} &middot; ${esc(cur.variant)}`
+      + (cur.build ? ` &middot; build ${esc(String(cur.build))}` : "") + `</span>`;
     button = `<button class="ghost" id="eng-install">${t("Reinstall")}</button>`;
   } else if (cur) {
-    headline = `<span class="v bad">${esc(L.tag)} available (you have ${esc(cur.tag)})</span>`;
+    headline = `<span class="v bad">${esc(L.tag)} available (you have ${esc(cur.tag)}`
+      + (cur.build ? ` &middot; build ${esc(String(cur.build))}` : "") + `)</span>`;
     button = `<button class="primary" id="eng-install">Update to ${esc(L.tag)}</button>`;
   } else {
     headline = `<span class="v">${info.active_bin ? t("using your own binary") : t("no engine installed yet")}</span>`;
@@ -85,7 +87,8 @@ export async function mountEngineCard(el, opts = {}) {
     </div>
     <div class="note">${note}</div>
     ${!opts.compact && installs.length ? `<div style="margin-top:8px">${installs.map(i => `
-      <div class="kv"><span class="k">${esc(i.tag)} &middot; ${esc(i.variant)}</span>
+      <div class="kv"><span class="k">${esc(i.tag)} &middot; ${esc(i.variant)}`
+        + (i.build ? ` &middot; build ${esc(String(i.build))}` : "") + `</span>
         <span class="v">installed ${esc(fmtAgo(i.installed_at))}
         ${i.active ? `<strong class="ok">active</strong>`
                    : `<button class="ghost" data-use="${esc(i.dir)}" style="padding:2px 8px">${t("Use")}</button>`}</span></div>`).join("")}</div>` : ""}

@@ -16,7 +16,7 @@ LlamaForge ships an MCP server, so Claude Code, Codex or any MCP client can driv
 
 | Tool | What it does |
 |---|---|
-| `status` | Version, engine, loaded models (role, OpenAI-compatible endpoint, context size), models still loading, GPU memory, multi-model mode. |
+| `status` | Version, engine family and build (`llama-server --version`), loaded models (role, OpenAI-compatible endpoint, context size), models still loading, GPU memory, multi-model mode. |
 | `list_models` | Every installed model with status, size on disk, context size, engine and pinned build. |
 | `load_model` | Loads a model and waits until it's serving, or returns the diagnosed cause if it fails. |
 | `unload_model` | Unloads a model and frees its memory. |
@@ -34,6 +34,10 @@ LlamaForge ships an MCP server, so Claude Code, Codex or any MCP client can driv
 | `bench_stop` | Stops the running bench. |
 | `bench_apply` | Writes batch-size and ubatch-size into a model's `models.ini` section - what the Bench tab's Apply button writes. |
 | `bench_history` | Finished bench runs from `logs/bench/history.jsonl`, newest last. |
+| `engine_status` | Installed builds of the three engine families (tag, variant, build number from `llama-server --version`, install date, which is active), the newest release and whether an update exists. `check_updates=false` answers from the installed builds alone, without asking GitHub. |
+| `engine_install` | Downloads and installs a prebuilt engine build, then switches the router onto it - the same path as the Engines tab. Old builds stay installed for rollback; the call waits until the new build is running. |
+| `engine_use` | Switches to an already-installed build (rollback after a bad update) and restarts the router on it. |
+| `engine_switch` | Switches the engine family (llamacpp / ikllama / beellama) and restarts the router on it. |
 
 ### Agents don't take your main model
 

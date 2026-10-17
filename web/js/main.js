@@ -60,19 +60,24 @@ window.addEventListener("hashchange", () => {
 if (location.hash) ui.switchTab(location.hash.slice(1));
 
 // The engine badge changes about once a session and is only re-rendered
-// (through the audited setHTML/esc sink) when the engine actually changes -
-// the guard below makes this once-a-second probe a no-op otherwise.
+// (through the audited setHTML/esc sink) when the engine or its build
+// actually changes - the guard below makes this once-a-second probe a no-op
+// otherwise.
 const ENGINE_LABEL = { llamacpp: "llama.cpp", ikllama: "ik_llama", beellama: "beellama" };
 let shownEngine = null;
 
 function renderEngineBadge() {
   const engine = (S.STATE && S.STATE.active_engine) || "";
-  if (engine === shownEngine) return;
-  shownEngine = engine;
+  const tag = (S.STATE && S.STATE.engine_tag) || "";
+  const build = (S.STATE && S.STATE.engine_build) || 0;
+  const ver = tag || (build ? "build " + build : "");
+  const key = engine + "|" + ver;
+  if (key === shownEngine) return;
+  shownEngine = key;
   const el = $("#engine-badge");
   if (!el) return;
   setHTML(el, engine
-    ? `<span class="tag be-${esc(engine)}">${esc(ENGINE_LABEL[engine] || engine)}</span>`
+    ? `<span class="tag be-${esc(engine)}">${esc(ENGINE_LABEL[engine] || engine)}${ver ? " " + esc(ver) : ""}</span>`
     : "");
 }
 
