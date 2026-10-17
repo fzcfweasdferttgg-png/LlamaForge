@@ -8,6 +8,8 @@ order: 1
 
 Tune every `llama-server` flag on a per-model basis, save named presets, and compare settings across models — all from the Models tab, without hand-editing `models.ini`.
 
+Above the model list, the hardware tiles show the GPUs (VRAM used/total, utilization, temperature) and system RAM — one tile for the whole machine, plus one tile per NUMA node when the kernel exposes more than one.
+
 ## What it does
 
 Each row in the Models list is a section of `models.ini` (or an auto-discovered model not yet added to it). Expanding a row opens a live knob editor built from the running `llama-server` binary's own `--help` output, so the available flags always match the binary you actually run — not a hardcoded list that can drift out of date across llama.cpp versions.

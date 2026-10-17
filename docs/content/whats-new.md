@@ -15,6 +15,8 @@ This page summarizes the most recent additions to LlamaForge. Each entry links t
 - **Web UI localization.** The interface speaks English, Russian, Japanese, Korean and Simplified Chinese, picked in the topbar beside the engine badge.
 - **Trimmed.** Chat, Voice, Embers, the Context wiki, the Help viewer, the topbar clock and the credit banner are cut from this build.
 - **Profiles per engine.** Launch profiles are separated by engine family (llama.cpp, ik_llama.cpp, beellama.cpp) because the engines take different launch flags: the profile strip is grouped by engine, an unpinned profile refuses to launch on another engine, and preset keys its engine doesn't know are dropped and listed in the launch report.
+- **Model benchmarking (Bench).** The **Bench** tab runs [llama-bench](https://github.com/ggml-org/llama.cpp) over a batch-size / ubatch-size grid to pick the sizes a model actually wants, with the model's own offload keys, cache types and device list translated to the matching llama-bench flags - one run over every GPU the model lists. Finished runs keep the raw llama-bench output beside `logs/bench/history.jsonl`, each row names the devices it measured on, and the recommended pair writes into the model's `models.ini` section in one click. MCP: `bench_run`, `bench_status`, `bench_stop`, `bench_apply`, `bench_history`. See [API](api.md).
+- **RAM tiles on Models.** The hardware tiles show system RAM beside the GPUs: one tile for the whole machine, plus one tile per NUMA node when the kernel exposes more than one.
 
 ## v0.16: several models at once, an MCP server
 
