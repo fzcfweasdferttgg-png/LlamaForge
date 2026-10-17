@@ -1346,8 +1346,13 @@ def post_bench_run(req):
                      "unload first - a bench measures VRAM alone: "
                      + ", ".join(loaded)}
     body = req.body or {}
-    grid = bench.grid(_bench_list(body.get("b")) or bench.DEFAULT_B,
-                      _bench_list(body.get("ub")) or bench.DEFAULT_UB)
+    try:
+        grid = bench.grid(_bench_list(body.get("b")) or bench.DEFAULT_B,
+                          _bench_list(body.get("ub")) or bench.DEFAULT_UB)
+        p, n, pg = bench.workload(body.get("p"), body.get("n"), body.get("pg"))
+        reps = None if body.get("reps") is None else int(body["reps"])
+    except ValueError as e:        # a typo is an answer, not a crash
+        raise ApiError(400, f"bad bench parameters: {e}")
     if not grid:
         raise ApiError(400, "no ub fits under any b")
     offload = {k: section.get(k) for k in bench.OFFLOAD_KEYS}
@@ -1356,18 +1361,13 @@ def post_bench_run(req):
             bench.ngl(offload["gpu-layers"])
         except ValueError as e:
             raise ApiError(400, str(e))
-    pg = body.get("pg", bench.DEF_PG)
-    if isinstance(pg, str):
-        pg = _bench_list(pg)
-    if pg:
-        pg = (int(pg[0]), int(pg[1]))
     # engines/<family>/<build>/<host>/binary - the build folder is the label.
     engine = os.path.basename(os.path.dirname(os.path.dirname(bench_bin)))
     try:
         BENCH.start({"bench_bin": bench_bin, "model_file": section["model"],
                      "grid": grid, "offload": offload,
-                     "p": body.get("p"), "n": body.get("n"), "pg": pg,
-                     "reps": body.get("reps"), "model": mid, "engine": engine})
+                     "p": p, "n": n, "pg": pg,
+                     "reps": reps, "model": mid, "engine": engine})
     except RuntimeError as e:      # a bench is already running
         return 200, {"ok": False, "error": str(e)}
     return 200, {"ok": True, "grid": grid}

@@ -67,7 +67,46 @@ class TestBuildArgv(unittest.TestCase):
                                 offload={"gpu-layers": 66,
                                          "device": "Vulkan0,Vulkan1"})
         self.assertEqual(argv[argv.index("-ngl") + 1], "66")
-        self.assertEqual(argv[argv.index("-dev") + 1], "Vulkan0,Vulkan1")
+        # llama-bench reads a comma as "run this parameter again", so the
+        # model's comma-separated device list must arrive as one value
+        self.assertEqual(argv[argv.index("-dev") + 1], "Vulkan0/Vulkan1")
+
+    def test_device_list_is_normalized_from_either_spelling(self):
+        self.assertEqual(bench.devlist("Vulkan0,Vulkan1,Vulkan2,Vulkan3"),
+                         "Vulkan0/Vulkan1/Vulkan2/Vulkan3")
+        self.assertEqual(bench.devlist("Vulkan0/Vulkan1"), "Vulkan0/Vulkan1")
+        self.assertEqual(bench.devlist(" Vulkan0 "), "Vulkan0")
+
+    def test_cache_types_are_passed_to_the_bench(self):
+        argv = bench.build_argv("x", "m", 512, [128],
+                                offload={"cache-type-k": "q5_1",
+                                         "cache-type-v": "q5_1"})
+        self.assertEqual(argv[argv.index("-ctk") + 1], "q5_1")
+        self.assertEqual(argv[argv.index("-ctv") + 1], "q5_1")
+
+
+class TestWorkload(unittest.TestCase):
+    def test_defaults(self):
+        self.assertEqual(bench.workload(), (5000, 2500, (5000, 2500)))
+
+    def test_empty_pg_skips_the_combined_test(self):
+        self.assertEqual(bench.workload(pg="")[2], [])
+        self.assertEqual(bench.workload(pg=[])[2], [])
+
+    def test_pg_needs_both_values(self):
+        with self.assertRaises(ValueError) as cm:
+            bench.workload(pg="5000")
+        self.assertIn("pg", str(cm.exception))
+
+    def test_a_typo_names_its_parameter(self):
+        with self.assertRaises(ValueError) as cm:
+            bench.workload(n="two thousand")
+        self.assertIn("n", str(cm.exception))
+
+    def test_pg_values_must_be_numbers(self):
+        with self.assertRaises(ValueError) as cm:
+            bench.workload(pg="5000,x")
+        self.assertIn("pg", str(cm.exception))
 
 
 class TestRows(unittest.TestCase):
@@ -80,6 +119,11 @@ class TestRows(unittest.TestCase):
         self.assertEqual(bench.kind({"n_prompt": 5000, "n_gen": 0}), "pp")
         self.assertEqual(bench.kind({"n_prompt": 0, "n_gen": 2500}), "tg")
         self.assertEqual(bench.kind({"n_prompt": 5000, "n_gen": 2500}), "pg")
+
+    def test_result_keeps_the_devices_it_measured_on(self):
+        r = bench.result({"avg_ts": 1.0, "n_prompt": 5000, "n_gen": 0,
+                          "devices": "Vulkan0/Vulkan1/Vulkan2/Vulkan3"})
+        self.assertEqual(r["devices"], "Vulkan0/Vulkan1/Vulkan2/Vulkan3")
 
 
 class TestBenchManager(unittest.TestCase):

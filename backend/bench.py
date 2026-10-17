@@ -30,6 +30,7 @@ FLAGS = {
     "model": "-m", "b": "-b", "ub": "-ub", "p": "-p", "n": "-n", "pg": "-pg",
     "reps": "-r", "gpu-layers": "-ngl", "split-mode": "-sm",
     "main-gpu": "-mg", "device": "-dev", "threads": "-t",
+    "cache-type-k": "-ctk", "cache-type-v": "-ctv",
 }
 
 DEFAULT_B = (512, 1024, 2048, 4096)
@@ -39,10 +40,13 @@ DEF_PG = (5000, 2500)            # combined pp+tg workload
 MAX_REPS = 2                     # repeats capped: the run is long enough at 2
 NEAR = 0.03                      # within 3% of the best pg t/s, smaller wins
 
-# Keys copied from the model's own models.ini section so the bench offloads the
-# way the model really runs. "gpu-layers" is explicit per the standing no-99
-# rule - a model that pins 66 layers is benched with 66, never 99/999.
-OFFLOAD_KEYS = ("gpu-layers", "split-mode", "main-gpu", "device", "threads")
+# Keys copied from the model's own models.ini section so the bench offloads and
+# caches the way the model really runs. "gpu-layers" is explicit per the
+# standing no-99 rule - a model that pins 66 layers is benched with 66, never
+# 99/999. The cache types matter just as much: an f16 KV-cache bench measures a
+# different memory footprint than the q5_1 model actually serves with.
+OFFLOAD_KEYS = ("gpu-layers", "split-mode", "main-gpu", "device", "threads",
+                "cache-type-k", "cache-type-v")
 
 _BANNED_NGL = (99, 999)
 
@@ -54,6 +58,18 @@ def ngl(value):
         raise ValueError(f"ngl {n} is not a layer count - set the model's real "
                          f"gpu-layers in models.ini")
     return n
+
+
+def devlist(value):
+    """One llama-bench -dev value built from the model's device setting.
+
+    models.ini lists devices the llama-server way (comma separated), but
+    llama-bench reads a comma as "run this parameter again" and would bench
+    one card per run instead of all of them at once. Its spelling for one run
+    over several devices is a single '/'-joined value.
+    """
+    parts = [p.strip() for p in str(value).replace("/", ",").split(",")]
+    return "/".join(p for p in parts if p)
 
 
 def grid(b_list, ub_list):
@@ -86,9 +102,40 @@ def build_argv(bench_bin, model_file, b, ubs, offload=None, p=DEF_P, n=DEF_N,
         v = (offload or {}).get(key)
         if v in (None, ""):
             continue
-        argv += [FLAGS[key], str(ngl(v) if key == "gpu-layers" else v)]
+        if key == "gpu-layers":
+            v = ngl(v)
+        elif key == "device":
+            v = devlist(v)
+        argv += [FLAGS[key], str(v)]
     return argv
 
+
+def workload(p=None, n=None, pg=None):
+    """(p, n, pg) with defaults applied and every value checked.
+
+    pg=None is the default 5000,2500 pair, "" or [] skips the combined test,
+    anything else must be exactly the two values '-pg pp,tg' takes. A bad
+    value raises ValueError naming the parameter - the API turns that into a
+    400 so a typo is an answer, not a crash.
+    """
+
+    def whole(v, name):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a whole number, got {v!r}")
+
+    p = DEF_P if p is None else whole(p, "p")
+    n = DEF_N if n is None else whole(n, "n")
+    if pg is None:
+        pg = DEF_PG
+    if isinstance(pg, str):
+        pg = [x for x in pg.split(",") if x.strip()]
+    if not pg:
+        return p, n, []
+    if len(pg) != 2:
+        raise ValueError(f"pg takes two comma-separated values 'pp,tg', got {pg!r}")
+    return p, n, (whole(pg[0], "pg"), whole(pg[1], "pg"))
 
 def parse_line(line):
     """One JSONL row, or None for noise (backend chatter, progress dots)."""
@@ -110,7 +157,8 @@ def kind(row):
 
 def result(row):
     return {"ts": row.get("avg_ts"), "sd": row.get("stddev_ts"),
-            "p": int(row.get("n_prompt") or 0), "n": int(row.get("n_gen") or 0)}
+            "p": int(row.get("n_prompt") or 0), "n": int(row.get("n_gen") or 0),
+            "devices": row.get("devices", "")}
 
 
 def next_expected(grid_rows, kinds):

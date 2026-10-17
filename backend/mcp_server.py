@@ -579,9 +579,13 @@ class Server:
             ("bench_run", "Run llama-bench", "Benchmark a model over a b/ub grid "
              "with llama-bench to pick batch-size and ubatch-size. The bench "
              "loads the model itself and refuses while any model is loaded in "
-             "the regular llama.cpp. One bench at a time, repeats capped at 2. "
-             "Poll bench_status for progress; the finished run is kept in "
-             "bench_history.",
+             "the regular llama.cpp. Offload settings and KV cache types "
+             "(gpu-layers, split-mode, main-gpu, device, threads, cache-type-k, "
+             "cache-type-v) come from the model's own models.ini section, so "
+             "the numbers describe the way the model really runs. One bench at "
+             "a time, repeats capped at 2. A bad value comes back as an error "
+             "naming the parameter, not a crash. Poll bench_status for "
+             "progress; the finished run is kept in bench_history.",
              _schema({"model": model,
                       "b": _prop("string", "Batch sizes, comma separated "
                                  "(default 512,1024,2048,4096)."),
@@ -593,7 +597,7 @@ class Server:
                       "n": _prop("integer", "Generated tokens per tg test "
                                  "(default 2500)."),
                       "pg": _prop("string", "Combined pp+tg workload tokens "
-                                  "'5000,2500' (default); empty string "
+                                  "'pp,tg' (default '5000,2500'); empty string "
                                   "skips the combined test."),
                       "reps": _prop("integer", "Repetitions per test, 1-2 "
                                     "(default 2).")},
@@ -603,7 +607,8 @@ class Server:
             ("bench_status", "Bench status", "Progress and measured values of "
              "the current or last llama-bench run, with the recommended b/ub "
              "pair and each cell's change against the previous run of the "
-             "same model.", _schema(), ro,
+             "same model. Each row reports the devices llama-bench actually "
+             "measured on - check them when the GPU count matters.", _schema(), ro,
              self.t_bench_status),
             ("bench_stop", "Stop the bench", "Stop the running llama-bench run.",
              _schema(),
