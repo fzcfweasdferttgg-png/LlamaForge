@@ -52,6 +52,16 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/scan/apply` | Register scanned entries into `models.ini` and reapply ctx-size defaults. |
 | POST | `/api/scan/prune` | Remove `models.ini` sections whose file is missing (unloading first if loaded). |
 
+## Bench (llama-bench)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/bench/run` | Start one llama-bench grid run for a model. Body: `{model, b?, ub?, p?, n?, pg?, reps?}` - `b`/`ub` are comma-separated lists, `pg` is `"pp,tg"` or `""` to skip the combined test. Offload flags and KV cache types come from the model's `models.ini` section. Refuses while any model is loaded in the regular llama.cpp; a bad value returns 400 naming the parameter. |
+| GET | `/api/bench/status` | The current or last run: measured t/s per cell, the recommended pair, each cell's change against the previous run, the exact llama-bench argv, and the devices each row was measured on. |
+| POST | `/api/bench/stop` | Stop the running bench. |
+| POST | `/api/bench/apply` | Write one benched pair into the model's `models.ini` section as `batch-size`/`ubatch-size`. Body: `{model, b, ub}`. Returns the two values before and after. |
+| GET | `/api/bench/history` | Finished runs from `logs/bench/history.jsonl`, newest last. Query params: `model`, `limit` (default 20). |
+
 ## Build, setup, and hardware
 
 | Method | Path | Purpose |

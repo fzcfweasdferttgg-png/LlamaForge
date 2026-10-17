@@ -45,18 +45,18 @@ ik_llama.cpp（Thireus 构建）和 beellama.cpp（Anbeeld）— 的构建，并
 ## 模型基准测试（Bench）
 
 **Bench** 选项卡用 [llama-bench](https://github.com/ggml-org/llama.cpp) 跑一个
-batch-size / ubatch-size 网格，选出模型真正需要的尺寸。模型的卸载键会转换为对应的
-llama-bench 参数；负载覆盖提示词、生成和组合测试；一次只跑一个基准——它自行加载
-模型，只要常规 llama.cpp 里还加载着模型就拒绝启动。已完成的运行连同 llama-bench
-原始输出记录在 `logs/bench/history.jsonl`：每个格子显示相对同一模型上次运行的
-变化，并推荐最佳组合（合并吞吐最高；差距在 3% 以内时更小的 micro-batch 胜出，
-其次更小的 batch），一键写入模型的 `models.ini` 小节。MCP 提供同样的
+batch-size / ubatch-size 网格，选出模型真正需要的尺寸。模型的卸载键、缓存类型和
+设备列表会转换为对应的 llama-bench 参数，并在模型列出的所有 GPU 上一次跑完，
+因此数字反映真实的运行方式。负载覆盖提示词、生成和组合测试；一次只跑一个基准——
+它自行加载模型，只要常规 llama.cpp 里还加载着模型就拒绝启动。已完成的运行连同
+llama-bench 原始输出记录在 `logs/bench/history.jsonl`：每行标明测量所用的设备，
+每个格子显示相对同一模型上次运行的变化，并推荐最佳组合（合并吞吐最高；差距在
+3% 以内时更小的 micro-batch 胜出，其次更小的 batch），一键写入模型的 `models.ini`
+小节。MCP 提供同样的
 `bench_run`、`bench_status`、`bench_stop`、`bench_apply`、`bench_history`。
 
 ## 界面本地化
 
-Web UI 支持英语、俄语、日语、韩语和简体中文。语言在引擎徽章旁边的顶栏选择，
-按浏览器记住（localStorage `lf_lang`）；`config.json` 的 `web_lang` 设置面板默认值。
 缺少翻译的字符串回退到英文。
 
 ## 本构建中移除

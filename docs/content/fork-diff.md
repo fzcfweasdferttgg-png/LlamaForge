@@ -60,15 +60,18 @@ backend are gone. Details: [Engines](build.md).
 
 The **Bench** tab runs [llama-bench](https://github.com/ggml-org/llama.cpp) over a
 batch-size / ubatch-size grid to pick the sizes a model actually wants. The
-model's offload keys become the matching llama-bench flags, workloads cover
-prompt, generation and combined tests, and one bench runs at a time - the bench
-loads the model itself and refuses while any model is loaded in the regular
-llama.cpp. Finished runs are recorded in `logs/bench/history.jsonl` with the raw
-llama-bench output beside them: each cell shows its change against the previous
-run of the same model, the best pair is recommended (highest combined
-throughput; within 3% the smaller micro-batch wins, then the smaller batch) and
-one click writes it into the model's `models.ini` section. MCP exposes the same
-as `bench_run`, `bench_status`, `bench_stop`, `bench_apply` and `bench_history`.
+model's offload keys, cache types and device list become the matching
+llama-bench flags - one run over every GPU the model lists - so the numbers
+describe the way the model really runs. Workloads cover prompt, generation and
+combined tests, and one bench runs at a time - the bench loads the model itself
+and refuses while any model is loaded in the regular llama.cpp. Finished runs
+are recorded in `logs/bench/history.jsonl` with the raw llama-bench output
+beside them: each row names the devices it measured on, each cell shows its
+change against the previous run of the same model, the best pair is recommended
+(highest combined throughput; within 3% the smaller micro-batch wins, then the
+smaller batch) and one click writes it into the model's `models.ini` section.
+MCP exposes the same as `bench_run`, `bench_status`, `bench_stop`, `bench_apply`
+and `bench_history`.
 
 ## Web UI localization
 

@@ -29,6 +29,11 @@ LlamaForge ships an MCP server, so Claude Code, Codex or any MCP client can driv
 | `download_progress` | Progress of the current or last download. |
 | `ask` | One prompt to a loaded local model, no tools. |
 | `pi_run` | Hands a whole task to [pi](https://github.com/earendil-works/pi) (Mario Zechner's MIT coding agent) running on a loaded model, and returns its final answer. |
+| `bench_run` | Benchmarks a model over a batch-size / micro-batch grid with llama-bench to pick the pair. Offload settings and KV cache types come from the model's own `models.ini` section, so the numbers describe the way the model really runs. Refuses while any model is loaded; a bad value comes back as an error naming the parameter. |
+| `bench_status` | Progress and measured values of the current or last bench run, with the recommended pair, each cell's change against the previous run, and the devices each row was measured on. |
+| `bench_stop` | Stops the running bench. |
+| `bench_apply` | Writes batch-size and ubatch-size into a model's `models.ini` section - what the Bench tab's Apply button writes. |
+| `bench_history` | Finished bench runs from `logs/bench/history.jsonl`, newest last. |
 
 ### Agents don't take your main model
 

@@ -39,11 +39,13 @@ ik_llama.cpp(Thireus ビルド)、beellama.cpp(Anbeeld) — のビルドを取�
 
 **Bench** タブは [llama-bench](https://github.com/ggml-org/llama.cpp) を batch-size /
 ubatch-size のグリッドで実行し、モデルが必要とするサイズを選びます。モデルの
-オフロードキーは対応する llama-bench フラグになり、ワークロードはプロンプト、生成、
-複合テストをカバーします。ベンチは一度にひとつだけ動き、モデルの読み込みはベンチ
-自身が行うため、通常の llama.cpp にモデルが読み込まれている間は開始を拒否します。
-完了した実行は `logs/bench/history.jsonl` に生の llama-bench 出力とともに記録
-されます。各セルは同じモデルの前回実行からの変化を示し、最適なペアが推奨されます
+オフロードキー、キャッシュ型、デバイス一覧は対応する llama-bench フラグになり
+(モデルが列挙する全 GPU にわたる 1 回の実行)、数字は実際の実行を表します。
+ワークロードはプロンプト、生成、複合テストをカバーします。ベンチは一度にひとつ
+だけ動き、モデルの読み込みはベンチ自身が行うため、通常の llama.cpp にモデルが
+読み込まれている間は開始を拒否します。完了した実行は `logs/bench/history.jsonl`
+に生の llama-bench 出力とともに記録されます。各行は測定に使ったデバイスを示し、
+各セルは同じモデルの前回実行からの変化を示し、最適なペアが推奨されます
 (合計スループット最高。3% 以内の差ではより小さい micro-batch が勝ち、次に
 より小さい batch)。ワンクリックでモデルの `models.ini` セクションに書き込まれます。
 MCP でも `bench_run`、`bench_status`、`bench_stop`、`bench_apply`、`bench_history`

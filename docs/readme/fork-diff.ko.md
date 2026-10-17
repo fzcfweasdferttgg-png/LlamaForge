@@ -48,15 +48,17 @@ ik_llama.cpp(Thireus 빌드), beellama.cpp(Anbeeld) — 의 빌드를 내려받�
 ## 모델 벤치마크(Bench)
 
 **Bench** 탭은 [llama-bench](https://github.com/ggml-org/llama.cpp)를 batch-size /
-ubatch-size 격자로 실행해 모델이 실제로 원하는 크기를 고릅니다. 모델의 오프로드 키는
-해당 llama-bench 플래그가 되고, 부하는 프롬프트, 생성, 복합 테스트를 포괄합니다.
-벤치는 한 번에 하나만 실행되며, 모델 로딩은 벤치 자체가 하므로 일반 llama.cpp에
-모델이 로드된 동안에는 시작을 거부합니다. 완료된 실행은 `logs/bench/history.jsonl`에
-llama-bench 원시 출력과 함께 기록됩니다. 각 셀은 같은 모델의 이전 실행 대비 변화를
-보여주고, 최적 쌍이 추천됩니다(최고 합산 처리량; 3% 이내 차이에서는 더 작은
-micro-batch가 이기고, 다음은 더 작은 batch). 클릭 한 번으로 모델의 `models.ini`
-섹션에 기록됩니다. MCP에서도 `bench_run`, `bench_status`, `bench_stop`,
-`bench_apply`, `bench_history`로 같은 기능을 제공합니다.
+ubatch-size 격자로 실행해 모델이 실제로 원하는 크기를 고릅니다. 모델의 오프로드 키,
+캐시 타입, 장치 목록은 해당 llama-bench 플래그가 되고 모델이 나열한 모든 GPU에서
+한 번에 실행되므로 숫자는 실제 실행 방식을 그대로 나타냅니다. 부하는 프롬프트, 생성,
+복합 테스트를 포괄합니다. 벤치는 한 번에 하나만 실행되며, 모델 로딩은 벤치 자체가
+하므로 일반 llama.cpp에 모델이 로드된 동안에는 시작을 거부합니다. 완료된 실행은
+`logs/bench/history.jsonl`에 llama-bench 원시 출력과 함께 기록됩니다. 각 행은 측정에
+사용한 장치를 표시하고, 각 셀은 같은 모델의 이전 실행 대비 변화를 보여주며, 최적
+쌍이 추천됩니다(최고 합산 처리량; 3% 이내 차이에서는 더 작은 micro-batch가 이기고,
+다음은 더 작은 batch). 클릭 한 번으로 모델의 `models.ini` 섹션에 기록됩니다.
+MCP에서도 `bench_run`, `bench_status`, `bench_stop`, `bench_apply`,
+`bench_history`로 같은 기능을 제공합니다.
 
 ## UI 현지화
 
