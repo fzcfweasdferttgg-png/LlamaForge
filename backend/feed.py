@@ -74,9 +74,12 @@ def engine_news(releases, current_build=None, limit=12):
 
 
 def parse_version(text):
-    """Build number from `llama-server --version`; None when unknown. Builds
-    without git history (shallow clones, tarballs) report "version: 0"."""
-    m = re.search(r"version:\s*(\d+)", text or "")
+    """Build number from `llama-server --version`; None when unknown. Formats:
+    "version: 11368 (0e1f2a3)" or "version: 0.6.0-dev (build 11552, commit
+    23b0202a1)"; builds without git history report "version: 0"."""
+    text = text or ""
+    m = (re.search(r"\bbuild\b\s*[:=]?\s*(\d+)", text)
+         or re.search(r"version:\s*(\d+)", text))
     return (int(m.group(1)) or None) if m else None
 
 

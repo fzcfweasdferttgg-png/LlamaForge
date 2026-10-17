@@ -72,6 +72,13 @@ class VersionOutput(unittest.TestCase):
     def test_build_zero_means_unknown(self):
         self.assertIsNone(feed.parse_version("version: 0 (unknown)"))
 
+    def test_reads_build_from_dev_version(self):
+        self.assertEqual(feed.parse_version(
+            "version: 0.6.0-dev (build 11552, commit 23b0202a1)\nbuilt with GNU 11.4.0"), 11552)
+
+    def test_built_line_is_not_a_build(self):
+        self.assertIsNone(feed.parse_version("built with GNU 11.4.0"))
+
 
 class AppUpdate(unittest.TestCase):
     def test_newer_release_is_offered(self):
