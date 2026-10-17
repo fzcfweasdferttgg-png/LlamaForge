@@ -32,6 +32,9 @@ temperature) is read from the kernel's DRM sysfs. Device names and tokens come
 from `llama-server --list-devices`, so the multi-model planner speaks `Vulkan0`
 and not just `CUDA0`.
 
+The Models tab tiles show system RAM beside the GPUs: one tile for the whole
+machine, plus one tile per NUMA node when the kernel exposes more than one.
+
 ## Model gateway (LiteLLM)
 
 The **Gateway** tab runs [LiteLLM](https://github.com/BerriAI/litellm) (MIT)

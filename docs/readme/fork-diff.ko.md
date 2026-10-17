@@ -24,6 +24,9 @@ Streamable HTTP로 제공합니다. 기본적으로 꺼져 있습니다. 세부 
 읽습니다. 장치 이름과 토큰은 `llama-server --list-devices`에서 오므로, 다중 모델
 플래너는 `CUDA0`만이 아니라 `Vulkan0`도 인식합니다.
 
+모델 탭의 타일은 GPU 옆에 시스템 RAM도 보여줍니다: 전체 머신에 타일 하나, 커널이
+노드를 여러 개 노출할 때는 NUMA 노드마다 하나씩.
+
 ## 모델 게이트웨이(LiteLLM)
 
 **Gateway** 탭이 [LiteLLM](https://github.com/BerriAI/litellm)(MIT)을 관리되는

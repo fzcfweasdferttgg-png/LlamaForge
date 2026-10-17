@@ -16,6 +16,8 @@
 
 `nvidia-smi` がない場合、GPU 状態(VRAM 使用/合計、使用率、温度)はカーネルの DRM sysfs から読む。デバイス名とトークンは `llama-server --list-devices` に由来するため、マルチモデルプランナーは `CUDA0` だけでなく `Vulkan0` も扱える。
 
+モデルタブのタイルは GPU の隣にシステム RAM も示す。機械全体で 1 枚、カーネルがノードを複数公開する場合は NUMA ノードごとに 1 枚ずつ。
+
 ## モデルゲートウェイ(LiteLLM)
 
 **Gateway** タブが [LiteLLM](https://github.com/BerriAI/litellm)(MIT)を管理サイドカーとして動かす。仮想モデル名 1つが複数の実モデルにリクエストを

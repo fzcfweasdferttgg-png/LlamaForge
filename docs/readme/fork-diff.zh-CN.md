@@ -24,6 +24,8 @@ Streamable HTTP 提供 MCP server。默认关闭。详情：[MCP Server](../cont
 `llama-server --list-devices`，因此多模型规划器说的是 `Vulkan0`
 而不只是 `CUDA0`。
 
+模型选项卡的图块在 GPU 旁同样显示系统 RAM：整机一块，内核暴露多个节点时每个 NUMA 节点一块。
+
 ## 模型网关（LiteLLM）
 
 **Gateway** 标签页把 [LiteLLM](https://github.com/BerriAI/litellm)（MIT）作为受管
