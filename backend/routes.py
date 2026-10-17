@@ -195,6 +195,10 @@ def _gpu_telemetry():
 # process for every browser poll or every open tab.
 _GPU_TELEMETRY = telemetry.TimedCache(_gpu_telemetry, ttl=10)
 
+# RAM readers shell out on Windows and touch procfs elsewhere; cache the same
+# way so open tabs don't re-run them on every poll.
+_RAM_TELEMETRY = telemetry.TimedCache(osplat.ram_telemetry, ttl=10)
+
 
 def _cached_schema(bin_path, cache_holder):
     """Schema cache keyed on (binary path, mtime). Returns (schema, key)."""
@@ -694,6 +698,7 @@ def get_state(req):
     c = cfg()
     s = REGISTRY.state()
     s["gpus"] = _GPU_TELEMETRY.get()
+    s["ram"] = _RAM_TELEMETRY.get()
     s["config"] = _public_config(c)
     s["platform"] = osplat.current()
     s["backends"] = [b.name for b in REGISTRY.enabled()]

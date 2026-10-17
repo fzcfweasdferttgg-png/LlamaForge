@@ -161,6 +161,59 @@ def available_ram_bytes():
     return 0
 
 
+def parse_node_meminfo(text):
+    """{total, used} bytes from one /sys/devices/system/node/nodeX/meminfo.
+
+    Lines read "Node 0 MemTotal: 32768000 kB". Uses MemUsed when the kernel
+    prints it, else MemTotal - MemFree; both fields are 0 when the text holds
+    no node lines."""
+    total = free = used = 0
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0] != "Node" or not parts[3].isdigit():
+            continue
+        kb = int(parts[3]) * 1024
+        if parts[2] == "MemTotal:":
+            total = kb
+        elif parts[2] == "MemFree:":
+            free = kb
+        elif parts[2] == "MemUsed:":
+            used = kb
+    return {"total": total, "used": used or max(0, total - free)}
+
+
+def numa_ram_nodes():
+    """[{id, total, used}] per NUMA node from Linux sysfs; [] unless the machine
+    really exposes several nodes (single node, other OS, unreadable -> []).
+    Never raises."""
+    try:
+        if not IS_LINUX:
+            return []
+        base = "/sys/devices/system/node"
+        out = []
+        for name in sorted(os.listdir(base)):
+            if not (name.startswith("node") and name[4:].isdigit()):
+                continue
+            with open(os.path.join(base, name, "meminfo"), encoding="utf-8") as f:
+                d = parse_node_meminfo(f.read())
+            if d["total"]:
+                out.append({"id": int(name[4:]), "total": d["total"],
+                            "used": d["used"]})
+        return out if len(out) > 1 else []
+    except Exception:
+        return []
+
+
+def ram_telemetry():
+    """System RAM in bytes: {total, used, available, nodes}. nodes lists the
+    NUMA nodes and is empty when the machine has none worth splitting.
+    Never raises."""
+    total = total_ram_bytes()
+    avail = available_ram_bytes()
+    return {"total": total, "used": max(0, total - avail), "available": avail,
+            "nodes": numa_ram_nodes()}
+
+
 def parse_vm_stat(text):
     """Free+inactive bytes from `vm_stat` output (best-effort)."""
     m = re.search(r"page size of (\d+)", text)

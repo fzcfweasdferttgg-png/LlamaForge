@@ -53,17 +53,19 @@ function toggleFavOnly(el) {
 /* ---------- GPU telemetry ----------
    Classic and Hearth draw a tile per GPU with a segment meter; Stowage draws
    a bay plan (bays.js) with the open row's planner verdict as a booked box.
-   The HTML is cached so an unchanged poll touches nothing. */
-let lastGpus = null, lastBays = "";
+   RAM rides along as one tile plus one tile per NUMA node when the kernel
+   exposes more than one. The HTML is cached so an unchanged poll touches
+   nothing. */
+let lastGpus = null, lastRam = null, lastBays = "";
 const seenBoxes = new Map();      // bays.js: when each box was first drawn here
 
 export function renderGpus(g) { lastGpus = g; drawGpus(); }
 function drawGpus() {
   const host = $("#gpus"), g = lastGpus;
   if (!host || !g) return;
-  const html = document.documentElement.dataset.skin === "stowage"
+  const html = ramTiles(lastRam) + (document.documentElement.dataset.skin === "stowage"
     ? bayPlans(g, {...bayInputs(S.STATE), book: slots.booked(openId), bookId: openId, seen: seenBoxes})
-    : gpuTiles(g);
+    : gpuTiles(g));
   if (html === lastBays) return;
   lastBays = html;
   setHTML(host, html);
@@ -75,6 +77,16 @@ function gpuTiles(g) {
   return g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
     <div class="meter">${meter(x.used,x.total)}</div>
     <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>${t("FREE")} <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>${t("UTIL")} <b>${esc(x.util)}%</b></span><span>${t("TEMP")} <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join("");
+}
+
+function ramTiles(ram) {
+  if (!ram || !ram.total) return "";
+  const gb = v => (v / 1073741824).toFixed(1);
+  const tile = (name, used, total) => `<div class="gpu"><div class="top"><span class="name">${name}</span></div>
+    <div class="meter">${meter(used, total)}</div>
+    <div class="stats"><span><b>${esc(gb(used))}</b>/${esc(gb(total))} GB</span><span>${t("FREE")} <b>${esc(gb(total - used))}</b> GB</span></div></div>`;
+  return tile("RAM", ram.used, ram.total) +
+    (ram.nodes || []).map(n => tile(`NUMA${esc(String(n.id))}`, n.used, n.total)).join("");
 }
 
 /* ---------- knob fields ---------- */
@@ -743,6 +755,7 @@ export async function refresh(silent) {
     const s = await api("/api/state");
     S.STATE = s;
     lastGpus = s.gpus;
+    lastRam = s.ram;
     renderModels();
     updateCmpRun();
     emit("state", s);
