@@ -182,6 +182,12 @@ def parse_node_meminfo(text):
     return {"total": total, "used": used or max(0, total - free)}
 
 
+def node_names(names):
+    """sysfs node directory names in numeric order - node2 before node10."""
+    picked = [n for n in names if n.startswith("node") and n[4:].isdigit()]
+    return sorted(picked, key=lambda n: int(n[4:]))
+
+
 def numa_ram_nodes():
     """[{id, total, used}] per NUMA node from Linux sysfs; [] unless the machine
     really exposes several nodes (single node, other OS, unreadable -> []).
@@ -191,9 +197,7 @@ def numa_ram_nodes():
             return []
         base = "/sys/devices/system/node"
         out = []
-        for name in sorted(os.listdir(base)):
-            if not (name.startswith("node") and name[4:].isdigit()):
-                continue
+        for name in node_names(os.listdir(base)):
             with open(os.path.join(base, name, "meminfo"), encoding="utf-8") as f:
                 d = parse_node_meminfo(f.read())
             if d["total"]:

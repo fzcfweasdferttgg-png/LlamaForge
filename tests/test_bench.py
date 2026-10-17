@@ -36,6 +36,11 @@ class TestGrid(unittest.TestCase):
     def test_b_without_any_fitting_ub_is_dropped(self):
         self.assertEqual(bench.grid([64], [128]), [])
 
+    def test_zero_and_negative_sizes_are_refused(self):
+        for b, ub in (([0], [0]), ([512], [0]), ([-512], [-256])):
+            with self.assertRaises(ValueError):
+                bench.grid(b, ub)
+
 
 class TestBuildArgv(unittest.TestCase):
     def test_bench_dialect_not_server_flags(self):
@@ -84,6 +89,10 @@ class TestBuildArgv(unittest.TestCase):
         self.assertEqual(argv[argv.index("-ctk") + 1], "q5_1")
         self.assertEqual(argv[argv.index("-ctv") + 1], "q5_1")
 
+    def test_a_blank_device_value_adds_no_dev_flag(self):
+        argv = bench.build_argv("x", "m", 512, [128], offload={"device": " , "})
+        self.assertNotIn("-dev", argv)
+
 
 class TestWorkload(unittest.TestCase):
     def test_defaults(self):
@@ -106,6 +115,11 @@ class TestWorkload(unittest.TestCase):
     def test_pg_values_must_be_numbers(self):
         with self.assertRaises(ValueError) as cm:
             bench.workload(pg="5000,x")
+        self.assertIn("pg", str(cm.exception))
+
+    def test_a_bare_number_is_not_a_pg_pair(self):
+        with self.assertRaises(ValueError) as cm:
+            bench.workload(pg=500)
         self.assertIn("pg", str(cm.exception))
 
 
@@ -167,6 +181,27 @@ class TestBenchManager(unittest.TestCase):
 
     def test_cancel_without_a_run(self):
         self.assertFalse(bench.BenchManager().cancel())
+
+    def test_cancel_between_cells_stops_the_next_run(self):
+        started = []
+        mgr = None                   # the popen stand-in closes over the manager
+
+        class CancelOnWait(FakeProc):
+            def wait(self):
+                mgr.cancel()         # stop pressed as the first cell finished
+                return 0
+
+        def popen(*a, **k):
+            started.append(a[0])
+            return CancelOnWait()
+
+        mgr = bench.BenchManager(popen=popen)
+        mgr.start({"bench_bin": "x", "model_file": "m", "offload": {},
+                   "grid": [{"b": 512, "ubs": [128]}, {"b": 1024, "ubs": [256]}],
+                   "pg": False, "reps": 1})
+        mgr._thread.join(5)
+        self.assertEqual(len(started), 1)    # the second cell never launched
+        self.assertEqual(mgr.progress()["phase"], "cancelled")
 
 
 class TestRecommend(unittest.TestCase):
@@ -251,6 +286,25 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(st["phase"], "done")
         self.assertEqual(st["model"], "m")
         self.assertEqual(st["done_rows"], 1)
+
+    def test_a_shape_drifted_record_falls_back_to_the_older_run(self):
+        os.makedirs(os.path.join(self.dir, "bench"), exist_ok=True)
+        good = {"model": "m", "phase": "done", "kinds": ["pp"],
+                "grid": [{"b": 512, "ubs": [{"ub": 128, "rows": {"pp": {"ts": 1.0}}}]}]}
+        with open(bench.history_path(self.dir), "w", encoding="utf-8") as f:
+            f.write(json.dumps(good) + "\n")
+            f.write(json.dumps({"model": "m", "grid": [{"b": 5}]}) + "\n")
+        m = bench.BenchManager(popen=lambda *a, **k: FakeProc(), logdir=self.dir)
+        st = m.progress()
+        self.assertEqual(st["model"], "m")   # the older usable record
+        self.assertEqual(st["done_rows"], 1)
+
+    def test_only_malformed_records_leave_the_state_idle(self):
+        os.makedirs(os.path.join(self.dir, "bench"), exist_ok=True)
+        with open(bench.history_path(self.dir), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"model": "m", "grid": [{"b": 5}]}) + "\n")
+        m = bench.BenchManager(popen=lambda *a, **k: FakeProc(), logdir=self.dir)
+        self.assertEqual(m.progress()["phase"], "idle")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ order: 1
 
 Tune every `llama-server` flag on a per-model basis, save named presets, and compare settings across models — all from the Models tab, without hand-editing `models.ini`.
 
-Above the model list, the hardware tiles show the GPUs (VRAM used/total, utilization, temperature) and system RAM — one tile for the whole machine, plus one tile per NUMA node when the kernel exposes more than one.
+Above the model list, the hardware tiles show each GPU by index (`GPU0`, `GPU1`, … — VRAM used/total, utilization, temperature) and system RAM — one tile for the whole machine, plus one tile per NUMA node when the kernel exposes more than one.
 
 ## What it does
 

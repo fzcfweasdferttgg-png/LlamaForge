@@ -1332,11 +1332,28 @@ def _bench_model(req):
     return mid, section, bench_bin
 
 
-def _bench_list(v):
-    """\"512,1024\" or [512, 1024] -> [512, 1024]."""
+def _bench_list(v, name):
+    """\"512,1024\" or [512, 1024] -> [512, 1024].
+
+    A bare number is not a list of sizes: it raises ValueError naming the
+    parameter, so a bad request is a 400 and not a 500.
+    """
+    if v is None:
+        return []
     if isinstance(v, str):
         v = v.split(",")
-    return [int(str(x).strip()) for x in (v or []) if str(x).strip()]
+    elif not isinstance(v, (list, tuple)):
+        raise ValueError(f"{name} takes '512,1024' or [512, 1024], got {v!r}")
+    out = []
+    for x in v:
+        s = str(x).strip()
+        if not s:
+            continue
+        try:
+            out.append(int(s))
+        except ValueError:
+            raise ValueError(f"{name} takes whole numbers, got {v!r}")
+    return out
 
 
 def post_bench_run(req):
@@ -1352,11 +1369,11 @@ def post_bench_run(req):
                      + ", ".join(loaded)}
     body = req.body or {}
     try:
-        grid = bench.grid(_bench_list(body.get("b")) or bench.DEFAULT_B,
-                          _bench_list(body.get("ub")) or bench.DEFAULT_UB)
+        grid = bench.grid(_bench_list(body.get("b"), "b") or bench.DEFAULT_B,
+                          _bench_list(body.get("ub"), "ub") or bench.DEFAULT_UB)
         p, n, pg = bench.workload(body.get("p"), body.get("n"), body.get("pg"))
-        reps = None if body.get("reps") is None else int(body["reps"])
-    except ValueError as e:        # a typo is an answer, not a crash
+        reps = None if body.get("reps") is None else int(str(body["reps"]).strip())
+    except (ValueError, TypeError) as e:   # a typo is an answer, not a crash
         raise ApiError(400, f"bad bench parameters: {e}")
     if not grid:
         raise ApiError(400, "no ub fits under any b")

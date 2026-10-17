@@ -76,10 +76,15 @@ def grid(b_list, ub_list):
     """[{b, ubs}] - one entry per b (ascending), its ubs in one array.
 
     ubs above b are dropped rather than run: an ubatch larger than the batch
-    it slices measures nothing useful.
+    it slices measures nothing useful. Zero and negative sizes raise
+    ValueError - the API turns that into a 400 instead of a run llama-bench
+    would refuse.
     """
     bs = sorted({int(b) for b in b_list})
     ubs_all = sorted({int(u) for u in ub_list})
+    if any(x <= 0 for x in bs + ubs_all):
+        raise ValueError(f"b and ub must be positive whole numbers, "
+                         f"got b={bs} ub={ubs_all}")
     return [{"b": b, "ubs": [u for u in ubs_all if u <= b]} for b in bs
             if any(u <= b for u in ubs_all)]
 
@@ -106,6 +111,8 @@ def build_argv(bench_bin, model_file, b, ubs, offload=None, p=DEF_P, n=DEF_N,
             v = ngl(v)
         elif key == "device":
             v = devlist(v)
+        if v in (None, ""):   # devlist normalizes " , " to "" - no empty -dev
+            continue
         argv += [FLAGS[key], str(v)]
     return argv
 
@@ -133,7 +140,7 @@ def workload(p=None, n=None, pg=None):
         pg = [x for x in pg.split(",") if x.strip()]
     if not pg:
         return p, n, []
-    if len(pg) != 2:
+    if not isinstance(pg, (list, tuple)) or len(pg) != 2:
         raise ValueError(f"pg takes two comma-separated values 'pp,tg', got {pg!r}")
     return p, n, (whole(pg[0], "pg"), whole(pg[1], "pg"))
 
@@ -278,30 +285,35 @@ class BenchManager:
                 "best": {}, "recommended": None, "delta": {}}
 
     def restore(self):
-        """Fill the state from the newest history record so the tab still shows
-        the last run after a panel restart."""
+        """Fill the state from the newest usable history record so the tab still
+        shows the last run after a panel restart. A record from another version
+        (a different shape) is skipped like a broken JSON line - the older run
+        underneath still shows. Never raises."""
         if not self._logdir:
             return
-        recs = read_history(self._logdir, limit=1)
-        if not recs:
-            return
-        r = recs[-1]
-        grid_rows = r.get("grid") or []
-        kinds = r.get("kinds") or []
-        with self.lock:
-            self.state.update({
-                "phase": r.get("phase") or "done", "error": r.get("error", ""),
-                "grid": grid_rows, "kinds": kinds,
-                "model": r.get("model", ""), "model_file": r.get("model_file", ""),
-                "engine": r.get("engine", ""), "argv": r.get("argv") or [],
-                "started_at": r.get("started_at", ""),
-                "workload": r.get("workload") or {},
-                "best": r.get("best") or {}, "recommended": r.get("recommended"),
-                "delta": r.get("delta") or {}, "partial": bool(r.get("partial")),
-                "extra_rows": int(r.get("extra_rows") or 0),
-                "done_rows": sum(len(it["rows"]) for e in grid_rows for it in e["ubs"]),
-                "total_rows": sum(len(e["ubs"]) for e in grid_rows) * max(1, len(kinds)),
-            })
+        for r in reversed(read_history(self._logdir, limit=20)):
+            try:
+                grid_rows = r.get("grid") or []
+                kinds = r.get("kinds") or []
+                with self.lock:
+                    self.state.update({
+                        "phase": r.get("phase") or "done", "error": r.get("error", ""),
+                        "grid": grid_rows, "kinds": kinds,
+                        "model": r.get("model", ""), "model_file": r.get("model_file", ""),
+                        "engine": r.get("engine", ""), "argv": r.get("argv") or [],
+                        "started_at": r.get("started_at", ""),
+                        "workload": r.get("workload") or {},
+                        "best": r.get("best") or {}, "recommended": r.get("recommended"),
+                        "delta": r.get("delta") or {}, "partial": bool(r.get("partial")),
+                        "extra_rows": int(r.get("extra_rows") or 0),
+                        "done_rows": sum(len(it["rows"]) for e in grid_rows
+                                         for it in e["ubs"]),
+                        "total_rows": sum(len(e["ubs"]) for e in grid_rows)
+                                      * max(1, len(kinds)),
+                    })
+                return
+            except Exception:    # a record from another version - try an older one
+                continue
 
     def progress(self):
         with self.lock:
@@ -381,6 +393,8 @@ class BenchManager:
         try:
             for entry, argv in zip(spec["grid"], self._argvs):
                 with self.lock:
+                    if self.state["cancel"]:
+                        break      # stop pressed between cells: no next run
                     self.state["current"] = next_expected(self.state["grid"],
                                                           self.state["kinds"])
                     self._proc = self._popen(

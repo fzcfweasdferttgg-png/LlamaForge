@@ -62,6 +62,11 @@ class TestNumaNodes(unittest.TestCase):
         if nodes:                     # a NUMA box adds up to about total RAM
             self.assertGreater(sum(n["total"] for n in nodes), 0)
 
+    def test_node_names_are_numerically_ordered(self):
+        self.assertEqual(osplat.node_names(["node10", "node2", "node0",
+                                            "node1", "has_power"]),
+                         ["node0", "node1", "node2", "node10"])
+
     def test_ram_telemetry_shape(self):
         r = osplat.ram_telemetry()
         self.assertGreaterEqual(r["total"], 0)
